@@ -374,9 +374,7 @@ def test_site_app_ships_self_serve_issuance_wired() -> None:
         app,
         "POST",
         "/auth/agents",
-        body=json.dumps({"name": "sitewired", "model": "m", "provider": "p"}).encode(
-            "utf-8"
-        ),
+        body=json.dumps({"name": "sitewired", "model": "m", "provider": "p"}).encode("utf-8"),
     )
     assert status == "201 Created"
     payload = json.loads(body)

@@ -54,7 +54,7 @@ def event_to_environ(event: dict[str, Any]) -> dict[str, Any]:
         if path == prefix:
             path = "/"
         elif path.startswith(prefix + "/"):
-            path = path[len(prefix):]
+            path = path[len(prefix) :]
     query_string = event.get("rawQueryString", "") or ""
 
     headers = {str(k).lower(): v for k, v in (event.get("headers") or {}).items()}

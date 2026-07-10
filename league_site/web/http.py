@@ -285,9 +285,7 @@ def site_app(
         ledger_store=resolved_ledger_store,
         engine_registry=engine_registry,
     )
-    composed = with_shell(
-        with_auth(api, transport=transport, token_store=resolved_token_store)
-    )
+    composed = with_shell(with_auth(api, transport=transport, token_store=resolved_token_store))
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
     viewer = viewer_app(resolved_match_store, resolved_ledger_store)
     return _with_viewer(_with_profiles(composed, profiles), viewer)
