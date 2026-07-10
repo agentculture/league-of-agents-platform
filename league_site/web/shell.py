@@ -61,6 +61,17 @@ _UNSHELLED_PATHS = frozenset({"/llms.txt", "/front"})
 _CT_MARKDOWN = "text/markdown"
 _THEME_PATH = "/theme.css"
 
+#: The landing page — ``/`` — is agentfront's own generated doc index (see
+#: ``agentfront.http_surface._index``), not an authored page: its body
+#: legitimately opens with an ``# Documentation`` heading, listing every
+#: registered doc. That heading is honest as *body* content but wrong as
+#: the page's ``<title>`` — a visitor landing on the site's root URL should
+#: not see "Documentation" before anything else. This path alone skips
+#: :func:`~league_site.web._markdown.extract_title` and always falls back
+#: to the plain site name, the same title a page with no H1 at all would
+#: get (see :func:`_render_page`).
+_LANDING_PATH = "/"
+
 _SITE_TITLE = "League of Agents"
 _SITE_DESCRIPTION = (
     "League of Agents — a turn-based arena where humans and AI agents play, "
@@ -168,7 +179,7 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
             start_response(captured["status"], captured["headers"])
             return [body]
 
-        page = _render_page(body.decode("utf-8"), slots)
+        page = _render_page(body.decode("utf-8"), slots, path=path)
         page_bytes = page.encode("utf-8")
         start_response(
             captured["status"],
@@ -211,8 +222,8 @@ def _serve_theme_css(start_response: Any) -> list[bytes]:
     return [body]
 
 
-def _render_page(markdown_text: str, slots: FooterSlotRegistry) -> str:
-    title = extract_title(markdown_text) or _SITE_TITLE
+def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) -> str:
+    title = _SITE_TITLE if path == _LANDING_PATH else extract_title(markdown_text) or _SITE_TITLE
     page_title = title if title == _SITE_TITLE else f"{title} — {_SITE_TITLE}"
     body_html = render(markdown_text)
     nav_html = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)

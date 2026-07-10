@@ -13,18 +13,53 @@ footer branding) still holds with the API mounted.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import pytest
 
 from league_site.api.engines import DEFAULT_MODE
 from league_site.auth import sessions, tokens
 from league_site.auth.token_store import InMemoryTokenStore
 from league_site.auth.wsgi import SESSION_COOKIE_NAME
-from league_site.matches import InMemoryMatchStore
+from league_site.matches import GameEngine, InMemoryMatchStore, Participant
 from league_site.ratings.ledger import InMemoryRatingLedgerStore
 from league_site.web.branding import FOOTER_HTML
 from league_site.web.http import http_app, site_app
 from league_site.web.shell import FOOTER_SLOTS
 from tests._api_support import bearer, call
+
+
+class _MalformedActionEngine(GameEngine):
+    """Mirrors ``GridLaneEngine.apply_turn``'s contract (see
+    ``league_site.game.adapter``): a turn's ``action`` must be a
+    JSON-object-shaped mapping, or ``apply_turn`` raises ``TypeError`` --
+    reproduces, without a real subprocess-backed game, the live crash a
+    ``{"actions": [...]}`` body (missing the ``"action"`` wrapper) caused."""
+
+    def __init__(self, *, game_id: str = "malformed-action-demo") -> None:
+        self._game_id = game_id
+
+    @property
+    def game_id(self) -> str:
+        return self._game_id
+
+    def initial_state(self, participants: Sequence[Participant]) -> dict[str, Any]:
+        return {"turns_taken": 0}
+
+    def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
+        if not isinstance(action, Mapping):
+            raise TypeError(
+                "apply_turn(action=...) must be a JSON-object-shaped mapping of league "
+                "orders, e.g. {'actions': [...]}"
+            )
+        return {"turns_taken": state["turns_taken"] + 1}
+
+    def is_over(self, state: dict[str, Any]) -> bool:
+        return False
+
+    def score(self, state: dict[str, Any]) -> dict[str, float]:
+        return {}
 
 
 @pytest.fixture(autouse=True)
@@ -160,6 +195,38 @@ def test_human_session_cookie_authenticates_through_the_composed_site_app() -> N
     status, _, other_view = call(app, "GET", f"/api/v1/matches/{match_id}")
     assert status == "200 OK"
     assert other_view["match_id"] == match_id
+
+
+def test_malformed_turn_body_through_the_composed_site_app_is_bad_request_not_a_500() -> None:
+    """A live end-to-end session posting ``{"actions": [...]}`` (missing the
+    ``"action"`` wrapper) crashed all the way through
+    ``GridLaneEngine.apply_turn``'s ``TypeError`` to a raw, unhandled 500
+    with an HTML-ish body. Through the *full* composed ``site_app`` --
+    ``with_shell(with_auth(with_api(http_app())))`` -- it must instead be a
+    structured 400 whose message keeps the engine's own descriptive text."""
+    app = site_app(
+        match_store=InMemoryMatchStore(),
+        token_store=InMemoryTokenStore(),
+        ledger_store=InMemoryRatingLedgerStore(),
+        engine_registry={"malformed-action-demo": _MalformedActionEngine},
+    )
+    cookie = _human_session_cookie(subject="malformed-turn-human")
+    status, _, created = call(
+        app, "POST", "/api/v1/matches", body={"mode": "malformed-action-demo"}, headers=cookie
+    )
+    assert status == "201 Created"
+
+    status, headers, payload = call(
+        app,
+        "POST",
+        f"/api/v1/matches/{created['match_id']}/turns",
+        body={"actions": [{"unit": "u1", "action": "move"}]},
+        headers=cookie,
+    )
+    assert status == "400 Bad Request"
+    assert headers["Content-Type"] == "application/json; charset=utf-8"
+    assert payload["code"] == "malformed_action"
+    assert "JSON-object-shaped mapping" in payload["message"]
 
 
 def test_non_participant_cannot_submit_turns_through_the_composed_site_app() -> None:

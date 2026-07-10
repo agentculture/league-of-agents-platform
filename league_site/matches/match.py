@@ -119,7 +119,7 @@ class Match:
         """``active -> completed``: score the current state and record the result."""
         self._expect(MatchStatus.ACTIVE, "complete")
         scores = dict(engine.score(self.game_state))
-        winner = max(scores, key=scores.get) if scores else None  # type: ignore[arg-type]
+        winner = _sole_leader(scores)
         self.result = MatchResult(completed=True, winner_participant_id=winner, scores=scores)
         self.status = MatchStatus.COMPLETED
         self._touch()
@@ -130,3 +130,21 @@ class Match:
 
     def _touch(self) -> None:
         self.updated_at = utcnow()
+
+
+def _sole_leader(scores: dict[str, float]) -> str | None:
+    """The one participant with the strictly highest score, or ``None`` on a tie.
+
+    ``None`` covers both "no scores at all" and "two or more participants
+    tied for the top score" — the latter is a draw (e.g. a 0.0-0.0 finish)
+    and must not crown a winner just because ``dict`` iteration order picked
+    one tied participant over another. This mirrors
+    :class:`~league_site.ratings.system.IntegerEloRatingSystem`, which
+    already treats equal hard scores as a draw (500/500 millipoints); a
+    match's own recorded winner must agree with how it gets rated.
+    """
+    if not scores:
+        return None
+    best = max(scores.values())
+    leaders = [participant_id for participant_id, score in scores.items() if score == best]
+    return leaders[0] if len(leaders) == 1 else None

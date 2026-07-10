@@ -2,12 +2,21 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from league_site.web import theme
 from league_site.web.app import build_app
 from league_site.web.http import WSGIApp, http_app
 from league_site.web.shell import FooterSlotRegistry, with_shell
+
+_TITLE_RE = re.compile(r"<title>(.*?)</title>")
+
+
+def _title(body: bytes) -> str:
+    match = _TITLE_RE.search(body.decode("utf-8"))
+    assert match is not None, "no <title> element in rendered page"
+    return match.group(1)
 
 
 def _get(app: WSGIApp, path: str) -> tuple[str, dict[str, str], bytes]:
@@ -56,6 +65,23 @@ def test_header_carries_wordmark_and_nav_placeholders() -> None:
         ("About", "/about"),
     ):
         assert f'<a href="{href}">{label}</a>' in text
+
+
+def test_landing_page_title_is_the_site_name_not_documentation() -> None:
+    """``/`` (the landing page) is agentfront's own generated doc index --
+    its body legitimately opens with an ``# Documentation`` heading (see
+    ``agentfront.http_surface._index``) -- but the *site's* landing page
+    must not present that as its title; it should read the plain site
+    name, exactly like a page with no H1 at all falls back to it."""
+    _, _, body = _get(_shelled(), "/")
+    title = _title(body)
+    assert "League of Agents" in title
+    assert "Documentation" not in title
+
+
+def test_docs_page_title_is_its_own_h1() -> None:
+    _, _, body = _get(_shelled(), "/architecture")
+    assert _title(body) == "Architecture — League of Agents"
 
 
 def test_footer_slot_defaults_to_empty_but_the_slot_is_present() -> None:
