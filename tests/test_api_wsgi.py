@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import io
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from league_site.api.engines import DEFAULT_MODE
@@ -24,9 +25,98 @@ from league_site.auth import sessions, tokens
 from league_site.auth.token_store import InMemoryTokenStore
 from league_site.auth.wsgi import SESSION_ENVIRON_KEY
 from league_site.capacity.config import CapacityConfig
-from league_site.matches import InMemoryMatchStore
+from league_site.matches import GameEngine, InMemoryMatchStore, Participant
 from league_site.ratings.ledger import InMemoryRatingLedgerStore
 from tests._api_support import bearer, call
+
+
+class _MalformedActionEngine(GameEngine):
+    """Mirrors ``GridLaneEngine.apply_turn``'s own contract: a turn's
+    ``action`` must be a JSON-object-shaped mapping, or ``apply_turn`` raises
+    :class:`TypeError` — see ``league_site.game.adapter``. A body missing the
+    ``"action"`` wrapper (e.g. ``{"actions": [...]}``) resolves to
+    ``action=None`` in :func:`league_site.api.wsgi._handle_take_turn`, which
+    is exactly what reproduces the live crash this engine exists to test."""
+
+    def __init__(self, *, game_id: str = "malformed-action-demo") -> None:
+        self._game_id = game_id
+
+    @property
+    def game_id(self) -> str:
+        return self._game_id
+
+    def initial_state(self, participants: Sequence[Participant]) -> dict[str, Any]:
+        return {"turns_taken": 0}
+
+    def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
+        if not isinstance(action, Mapping):
+            raise TypeError(
+                "apply_turn(action=...) must be a JSON-object-shaped mapping of league "
+                "orders, e.g. {'actions': [...]}"
+            )
+        return {"turns_taken": state["turns_taken"] + 1}
+
+    def is_over(self, state: dict[str, Any]) -> bool:
+        return False
+
+    def score(self, state: dict[str, Any]) -> dict[str, float]:
+        return {}
+
+
+class _ExplodingEngine(GameEngine):
+    """A toy engine whose ``apply_turn`` always raises an exception no
+    handler in :mod:`league_site.api.wsgi` maps to an :class:`~league_site.
+    api.errors.ApiError` — proves the API's dispatch guard still renders a
+    JSON 500 envelope (never a bare WSGI error page) for a genuinely
+    unexpected failure."""
+
+    def __init__(self, *, game_id: str = "exploding-demo") -> None:
+        self._game_id = game_id
+
+    @property
+    def game_id(self) -> str:
+        return self._game_id
+
+    def initial_state(self, participants: Sequence[Participant]) -> dict[str, Any]:
+        return {}
+
+    def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
+        raise RuntimeError("engine exploded unexpectedly")
+
+    def is_over(self, state: dict[str, Any]) -> bool:
+        return False
+
+    def score(self, state: dict[str, Any]) -> dict[str, float]:
+        return {}
+
+
+class _DrawEngine(GameEngine):
+    """Ends the instant every participant has taken exactly one turn, always
+    scoring every participant ``0.0`` — a deterministic tie, used to prove a
+    two-participant equal-score finish records a draw (``winner_participant_id``
+    is ``None``) end to end through the API."""
+
+    def __init__(self, *, game_id: str = "draw-demo") -> None:
+        self._game_id = game_id
+
+    @property
+    def game_id(self) -> str:
+        return self._game_id
+
+    def initial_state(self, participants: Sequence[Participant]) -> dict[str, Any]:
+        return {
+            "participant_ids": [participant.participant_id for participant in participants],
+            "turns_taken": 0,
+        }
+
+    def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
+        return {**state, "turns_taken": state["turns_taken"] + 1}
+
+    def is_over(self, state: dict[str, Any]) -> bool:
+        return state["turns_taken"] >= len(state["participant_ids"])
+
+    def score(self, state: dict[str, Any]) -> dict[str, float]:
+        return {participant_id: 0.0 for participant_id in state["participant_ids"]}
 
 
 def _passthrough(environ: dict[str, Any], start_response: Any) -> list[bytes]:
@@ -479,6 +569,98 @@ def test_take_turn_illegal_action_is_bad_request() -> None:
     )
     assert status == "400 Bad Request"
     assert payload["code"] == "illegal_action"
+
+
+def test_take_turn_with_a_malformed_action_shape_is_bad_request_not_a_500() -> None:
+    """A turn body missing the ``"action"`` wrapper (e.g. ``{"actions": [...]}``)
+    used to crash all the way through to a raw ``TypeError`` -> unhandled
+    500 (see ``GridLaneEngine.apply_turn``); it must instead be a structured
+    400 whose message carries the engine's own descriptive explanation."""
+    app, *_ = _build(engine_registry={"malformed-action-demo": _MalformedActionEngine})
+    human = _human_environ()
+    _, _, created = call(
+        app, "POST", "/api/v1/matches", body={"mode": "malformed-action-demo"}, **human
+    )
+    status, _, payload = call(
+        app,
+        "POST",
+        f"/api/v1/matches/{created['match_id']}/turns",
+        body={"actions": [{"unit": "u1", "action": "move"}]},
+        **human,
+    )
+    assert status == "400 Bad Request"
+    assert payload["code"] == "malformed_action"
+    assert "JSON-object-shaped mapping" in payload["message"]
+
+
+def test_take_turn_with_an_unexpected_engine_error_is_a_json_500_envelope() -> None:
+    """Genuinely unexpected exceptions stay ``500``s, but must still render
+    the same ``{"code": ..., "message": ...}`` JSON envelope as every other
+    API failure -- never a bare WSGI error page."""
+    app, *_ = _build(engine_registry={"exploding-demo": _ExplodingEngine})
+    human = _human_environ()
+    _, _, created = call(app, "POST", "/api/v1/matches", body={"mode": "exploding-demo"}, **human)
+    status, headers, payload = call(
+        app,
+        "POST",
+        f"/api/v1/matches/{created['match_id']}/turns",
+        body={"action": {"points": 1}},
+        **human,
+    )
+    assert status == "500 Internal Server Error"
+    assert headers["Content-Type"] == "application/json; charset=utf-8"
+    assert payload["code"] == "internal_error"
+    assert "message" in payload
+
+
+def test_take_turn_completing_with_equal_scores_records_a_draw() -> None:
+    """A completed match where every participant scores equally (e.g. a
+    0.0-0.0 finish) must record ``winner_participant_id: None`` -- the same
+    conclusion :class:`~league_site.ratings.system.IntegerEloRatingSystem`
+    already reaches for a tie, not whichever participant a plain
+    ``max(scores, key=scores.get)`` happened to pick first."""
+    app, *_ = _build(engine_registry={"draw-demo": _DrawEngine})
+    owner = _human_environ(subject="owner")
+    rival = _human_environ(subject="rival")
+    body = {
+        "mode": "draw-demo",
+        "opponent": {
+            "kind": "human",
+            "display_name": "Rival",
+            "provider": "github",
+            "subject": "rival",
+        },
+    }
+    _, _, created = call(app, "POST", "/api/v1/matches", body=body, **owner)
+    match_id = created["match_id"]
+    order = [participant["participant_id"] for participant in created["participants"]]
+    actors = {order[0]: owner, order[1]: rival}
+
+    payload: dict[str, Any] = {}
+    for participant_id in order:
+        status, _, payload = call(
+            app,
+            "POST",
+            f"/api/v1/matches/{match_id}/turns",
+            body={"action": {}},
+            **actors[participant_id],
+        )
+        assert status == "200 OK"
+
+    assert payload["status"] == "completed"
+    assert payload["result"]["winner_participant_id"] is None
+    assert payload["result"]["scores"] == {participant_id: 0.0 for participant_id in order}
+
+
+def test_take_turn_completing_with_unequal_scores_still_records_a_winner() -> None:
+    """Unequal-score completion is unaffected by the draw fix above."""
+    app, *_ = _build()
+    human = _human_environ()
+    _, _, created = call(app, "POST", "/api/v1/matches", body={}, **human)
+    match_id = created["match_id"]
+
+    final = _play_out(app, match_id, {created["participants"][0]["participant_id"]: human})
+    assert final["result"]["winner_participant_id"] == created["participants"][0]["participant_id"]
 
 
 def test_take_turn_on_missing_match_is_404() -> None:

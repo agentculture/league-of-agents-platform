@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from league_site.matches import InvalidTransitionError, Match, MatchStatus
-from tests._matches_support import CounterGameEngine, make_participants
+from tests._matches_support import CounterGameEngine, FixedScoreEngine, make_participants
 
 
 def _new_match(*, target: int = 100) -> tuple[Match, CounterGameEngine]:
@@ -138,6 +138,36 @@ def test_complete_from_active_sets_result_and_status() -> None:
     assert match.result.completed is True
     assert match.result.winner_participant_id == agent.participant_id
     assert match.result.scores == {agent.participant_id: 6.0}
+
+
+def test_complete_with_equal_scores_yields_no_winner_a_draw() -> None:
+    """A 0.0-0.0 (or any tied) finish must record a draw, not crown whichever
+    participant happened to sort first out of ``max(scores, key=scores.get)``
+    -- see ``league_site.ratings.system.IntegerEloRatingSystem``, which
+    already treats an equal-score outcome as a draw (500/500 millipoints);
+    the match record must agree with the rating layer, not contradict it."""
+    human, agent = make_participants()
+    engine = FixedScoreEngine({human.participant_id: 0.0, agent.participant_id: 0.0})
+    match = Match.create(game_id=engine.game_id, participants=[human, agent])
+    match.start(engine)
+
+    match.complete(engine)
+
+    assert match.result is not None
+    assert match.result.winner_participant_id is None
+    assert match.result.scores == {human.participant_id: 0.0, agent.participant_id: 0.0}
+
+
+def test_complete_with_unequal_scores_still_picks_the_higher_scorer() -> None:
+    human, agent = make_participants()
+    engine = FixedScoreEngine({human.participant_id: 3.0, agent.participant_id: 7.0})
+    match = Match.create(game_id=engine.game_id, participants=[human, agent])
+    match.start(engine)
+
+    match.complete(engine)
+
+    assert match.result is not None
+    assert match.result.winner_participant_id == agent.participant_id
 
 
 def test_complete_from_created_raises_invalid_transition() -> None:

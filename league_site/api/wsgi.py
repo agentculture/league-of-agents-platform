@@ -67,11 +67,27 @@ already-loaded match both render as ``403`` uniformly (see
 endpoint that instead needs *some* identity to exist at all, so it alone
 raises ``401`` (:func:`league_site.api.errors.unauthorized`) for an
 anonymous request.
+
+A malformed or illegal turn action is likewise never a bare crash: a
+:class:`GameEngine` (e.g. ``GridLaneEngine.apply_turn``, the stub engine's
+own ``apply_turn``) may raise ``ValueError`` for a well-shaped-but-illegal
+action or ``TypeError`` for one that isn't even shaped like an order at all
+(the wrong JSON type, a missing wrapper key); :func:`_handle_take_turn`
+maps both to a ``400`` (``illegal_action`` / ``malformed_action``
+respectively), keeping the engine's own descriptive message verbatim.
+:func:`with_api`'s dispatch is additionally wrapped in a last-resort
+``except Exception`` guard: any exception no handler above already turned
+into an :class:`~league_site.api.errors.ApiError` still renders the same
+JSON envelope, at ``500``, rather than an unhandled WSGI error page — the
+one difference from every other failure on this surface is that the
+``message`` is a generic, non-leaking string; the real exception is logged
+server-side instead.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -107,6 +123,8 @@ from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem, out
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 EngineRegistry = Mapping[str, Callable[[], GameEngine]]
+
+logger = logging.getLogger(__name__)
 
 #: The path prefix :func:`with_api` claims; anything else is passed through
 #: to the wrapped app untouched.
@@ -183,6 +201,17 @@ def with_api(
             body: dict[str, Any] = {"code": exc.code, "message": str(exc)}
             body.update(exc.extra)
             return _json_response(start_response, exc.status, body)
+        except Exception:
+            # Last-resort guard: whatever went wrong wasn't already turned
+            # into a structured ApiError by a handler above (see this
+            # module's docstring). Never let it escape as a bare WSGI
+            # error page -- log it for operators and still hand the caller
+            # the same {"code", "message"} JSON envelope every other
+            # failure on this surface uses, just with a generic message
+            # that doesn't leak internals.
+            logger.exception("unhandled exception dispatching %s %s", method, path)
+            body = {"code": "internal_error", "message": "internal server error"}
+            return _json_response(start_response, "500 Internal Server Error", body)
         return _json_response(start_response, status, payload)
 
     return application
@@ -318,6 +347,15 @@ def _handle_take_turn(
         raise errors.conflict(str(exc), code="invalid_transition") from exc
     except ValueError as exc:
         raise errors.bad_request(str(exc), code="illegal_action") from exc
+    except TypeError as exc:
+        # An engine (e.g. GridLaneEngine.apply_turn) raises TypeError for a
+        # structurally malformed action -- a body that isn't shaped like an
+        # order at all (wrong JSON type, a missing wrapper key), as opposed
+        # to ValueError's "well-shaped but illegal" -- see this module's
+        # docstring and league_site.game.adapter. Both are the caller's
+        # fault, so both become a 400; the engine's own message is kept
+        # verbatim since it already names the expected shape.
+        raise errors.bad_request(str(exc), code="malformed_action") from exc
 
     if engine.is_over(match.game_state):
         match.complete(engine)

@@ -51,6 +51,36 @@ class CounterGameEngine(GameEngine):
         return {winner: float(state["total"])}
 
 
+class FixedScoreEngine(GameEngine):
+    """Toy engine whose :meth:`score` is fixed at construction time.
+
+    Ends immediately (:meth:`is_over` is always ``True``) and never mutates
+    state on a turn — used to drive :meth:`~league_site.matches.match.Match.
+    complete` straight to a known, deliberately chosen score map (e.g. a
+    tie), without needing a game whose rules can actually produce one.
+    """
+
+    def __init__(self, scores: dict[str, float], *, game_id: str = "fixed-score-demo") -> None:
+        self._scores = dict(scores)
+        self._game_id = game_id
+
+    @property
+    def game_id(self) -> str:
+        return self._game_id
+
+    def initial_state(self, participants: Sequence[Participant]) -> dict[str, Any]:
+        return {}
+
+    def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
+        return state
+
+    def is_over(self, state: dict[str, Any]) -> bool:
+        return True
+
+    def score(self, state: dict[str, Any]) -> dict[str, float]:
+        return dict(self._scores)
+
+
 def make_participants() -> tuple[Participant, Participant]:
     """One human + one agent participant, with a full benchmark identity."""
     human = Participant(
