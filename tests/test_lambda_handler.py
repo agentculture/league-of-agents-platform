@@ -2,11 +2,26 @@
 
 Direct invocation only (``handler(event, context)``): no HTTP server, no
 API Gateway, no AWS credentials. Confirms the entrypoint wires the
-translator to the *real* :func:`league_site.web.http.http_app`, built once
-at import (cold-start) time.
+translator to the app :func:`league_site.aws_lambda.wiring.build_site_app`
+composes — the *real* :func:`league_site.web.http.site_app` over
+env-selected stores — built once at import (cold-start) time.
 """
 
 from __future__ import annotations
+
+import importlib
+import os
+import subprocess  # nosec B404 - spawns this same interpreter to probe import behavior
+import sys
+
+import pytest
+
+_STORE_ENV_VARS = (
+    "MATCHES_TABLE_NAME",
+    "ARCHIVE_BUCKET_NAME",
+    "TOKENS_TABLE_NAME",
+    "RATINGS_TABLE_NAME",
+)
 
 
 def _request_context(method: str, path: str) -> dict:
@@ -105,3 +120,69 @@ def test_handler_app_is_built_once_at_module_import_cold_start() -> None:
     handler_module.handler(_apigw_event("/index"), context=None)
     handler_module.handler(_apigw_event("/index"), context=None)
     assert handler_module._APP is first_call_app
+
+
+def test_handler_builds_its_app_through_the_env_wiring() -> None:
+    """The cold-start app comes from ``wiring.build_site_app`` — the one
+    place env-driven store selection happens — not a hardcoded bare
+    ``site_app()``."""
+    import league_site.aws_lambda.handler as handler_module
+    import league_site.aws_lambda.wiring as wiring_module
+
+    assert handler_module.build_site_app is wiring_module.build_site_app
+
+
+def test_handler_import_path_does_not_import_boto3_when_env_is_unset() -> None:
+    """Cold-start cost contract: with no ``*_TABLE_NAME`` in the environment
+    (local dev, tests), importing the handler must not drag in ``boto3``."""
+    code = (
+        "import sys\n"
+        "import league_site.aws_lambda.handler\n"
+        "assert 'boto3' not in sys.modules, 'boto3 imported at cold start without AWS env'\n"
+    )
+    env = {key: value for key, value in os.environ.items() if key not in _STORE_ENV_VARS}
+    result = subprocess.run(  # nosec B603 - fixed argv, this same interpreter
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_handler_cold_start_with_table_env_serves_the_site_over_aws_stores() -> None:
+    """Reloading the handler with the deploy env present must build the
+    DynamoDB-backed app (boto3 resource construction only — no network
+    happens until a store operation runs) and still serve the site."""
+    import league_site.aws_lambda.handler as handler_module
+    import league_site.aws_lambda.wiring as wiring_module
+
+    captured: dict[str, object] = {}
+    real_build = wiring_module.build_site_app
+
+    def recording_build() -> object:
+        app = real_build()
+        captured["app"] = app
+        return app
+
+    try:
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(wiring_module, "build_site_app", recording_build)
+            mp.setenv("MATCHES_TABLE_NAME", "league-matches")
+            mp.setenv("ARCHIVE_BUCKET_NAME", "league-archive")
+            mp.setenv("TOKENS_TABLE_NAME", "league-tokens")
+            mp.setenv("RATINGS_TABLE_NAME", "league-ratings")
+            mp.delenv("LEAGUE_SESSION_SECRET", raising=False)
+            # enough AWS config for boto3.resource("dynamodb") to construct
+            # lazily; nothing in this test performs a store operation.
+            mp.setenv("AWS_DEFAULT_REGION", "us-east-1")
+            mp.setenv("AWS_ACCESS_KEY_ID", "testing")
+            mp.setenv("AWS_SECRET_ACCESS_KEY", "testing")  # nosec B105 - fake test credential
+
+            importlib.reload(handler_module)
+
+            assert handler_module._APP is captured["app"]
+            response = handler_module.handler(_apigw_event("/"), context=None)
+            assert response["statusCode"] == 200
+            assert "<!doctype html>" in response["body"].lower()
+    finally:
+        # rebuild the module-level singleton under the restored (clean) env
+        # so later tests see the same in-memory-backed app as a fresh import
+        importlib.reload(handler_module)
