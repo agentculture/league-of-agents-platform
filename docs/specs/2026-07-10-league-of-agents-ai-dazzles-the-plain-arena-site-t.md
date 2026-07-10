@@ -10,7 +10,7 @@
 
 ## Before → After
 
-- Before: Today the site is deliberately austere: server-rendered markdown in one shared shell, a single ~10KB stylesheet at /theme.css, zero <script> tags, no images/webfonts/external requests, light/dark only via prefers-color-scheme — a documented performance budget enforced by tests/test_web_theme_budget.py
+- Before: Today the site is deliberately austere: server-rendered markdown in one shared shell, a single ~10KB stylesheet at /theme.css, zero `<script>` tags, no images/webfonts/external requests, light/dark only via prefers-color-scheme — a documented performance budget enforced by tests/test_web_theme_budget.py
   - instruction: Anchors: league_site/web/theme.py (tokens + budget contract), league_site/web/shell.py (zero-script shell), tests/test_web_theme_budget.py (enforced budget)
 - After: Landing on league-of-agents.ai feels like an event: smooth animated visuals, a League of Agents video that matches the active theme, and polish that makes visitors say 'wow' — in both light and dark mode
   - instruction: PR checklist item: walkthrough of /, /docs, /leaderboard, /about in both schemes with screenshots attached
@@ -38,12 +38,12 @@
   - instruction: Do not touch _is_raw_passthrough or the unshelled path set; run the existing byte-identity tests as the proof
   - honesty: The existing raw-passthrough tests (byte-identity of *.md, /llms.txt, /front) pass unchanged after the dazzle layer lands
 - The performance budget is renegotiated, not abandoned: the docstring contract in league_site/web/theme.py and the budget test are updated to a new explicit budget (CSS size, JS allowance, asset weight), and Lighthouse performance stays >= 90 on the landing page
-  - instruction: First commit of the PR updates theme.py's budget contract + test numbers (CSS/JS/asset bytes); post-deploy, run Lighthouse against https://league-of-agents.ai and record scores
+  - instruction: First commit of the PR updates theme.py's budget contract + test numbers (CSS/JS/asset bytes); post-deploy, run Lighthouse against <https://league-of-agents.ai> and record scores
   - honesty: The new budget numbers (CSS bytes, JS bytes, total asset weight) are written into theme.py's contract and the budget test BEFORE implementation, and Lighthouse >= 90 is measured on the real deployed site, not just localhost
 - A manual theme toggle (light / dark / system) is added to the header, persisted per visitor, complementing prefers-color-scheme
-  - instruction: Three-state header toggle (light/dark/system) persisted in localStorage; tiny inline pre-paint script in <head> sets data-theme on <html>; tokens keyed off :root[data-theme=dark] and prefers-color-scheme fallback for system
+  - instruction: Three-state header toggle (light/dark/system) persisted in localStorage; tiny inline pre-paint script in `<head>` sets data-theme on `<html>`; tokens keyed off :root[data-theme=dark] and prefers-color-scheme fallback for system
   - honesty: The toggle causes no flash-of-wrong-theme: theme class is applied before first paint by a tiny inline script, and system remains the default for first-time visitors
-- The hero 'video' is theme-native rather than two encoded files: an animated, self-contained scene (CSS/SVG/canvas driven by the site's design tokens) that automatically renders in light or dark — with an optional <video> element with per-scheme sources only if an encoded asset is later produced
+- The hero 'video' is theme-native rather than two encoded files: an animated, self-contained scene (CSS/SVG/canvas driven by the site's design tokens) that automatically renders in light or dark — with an optional `<video>` element with per-scheme sources only if an encoded asset is later produced
   - instruction: Build the hero as an inline SVG/CSS (or canvas reading getComputedStyle) scene driven by var(--accent)/var(--bg)/var(--text); acceptance = flipping the toggle re-skins the scene live without reload
   - honesty: The hero scene derives every color from the live CSS custom properties, so flipping the theme re-renders it instantly without reload — proving the light/dark variants are one artifact, not two divergent ones
 

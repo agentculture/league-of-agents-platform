@@ -8,7 +8,7 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 
 ### t1 — Renegotiate the performance budget contract first: new explicit ceilings (CSS bytes, first-party JS bytes, asset weight) written into league_site/web/theme.py's docstring contract and tests/test_web_theme_budget.py
 
-- instruction: Read theme.py's docstring budget section + tests/test_web_theme_budget.py first; verify the live baseline (CSS bytes served at /theme.css, zero <script> in shell.py). Then write the new contract: CSS ceiling ~24KB, first-party JS ceiling ~8KB, external requests = 0, and update the test to enforce all three. Keep the docstring's WCAG table intact.
+- instruction: Read theme.py's docstring budget section + tests/test_web_theme_budget.py first; verify the live baseline (CSS bytes served at /theme.css, zero `<script>` in shell.py). Then write the new contract: CSS ceiling ~24KB, first-party JS ceiling ~8KB, external requests = 0, and update the test to enforce all three. Keep the docstring's WCAG table intact.
 - covers: c8, c11, h6, h14
 - acceptance:
   - theme.py's budget contract states explicit ceilings for CSS bytes, first-party JS bytes, and total asset weight
@@ -21,13 +21,13 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 - depends on: t1
 - covers: c6, c12
 - acceptance:
-  - with <html data-theme="dark">, dark tokens apply even when the OS is light (and vice versa for data-theme=light)
+  - with `<html data-theme="dark">`, dark tokens apply even when the OS is light (and vice versa for data-theme=light)
   - with no data-theme attribute, prefers-color-scheme decides — first-visit behavior unchanged
   - WCAG contrast documentation in theme.py stays in sync with any token change
 
 ### t3 — Header theme toggle + first-party /site.js + pre-paint snippet: three-state toggle (light/dark/system) in the shell header, localStorage persistence, tiny inline head script applying data-theme before first paint; /site.js served like /theme.css (new module, e.g. league_site/web/scripts.py)
 
-- instruction: New module league_site/web/scripts.py exporting SITE_JS (plain string, mirroring theme.STYLESHEET); shell.py serves it at /site.js and links it with <script defer>. Pre-paint inline snippet in <head>: read localStorage 'theme', set document.documentElement.dataset.theme when light/dark, and set dataset.js='1' (the hook t4's reveal styles gate on). Header <button> cycles light->dark->system (on system: remove the attribute + clear storage), aria-label reflecting current state. IntersectionObserver reveal logic (adds .revealed to .reveal elements) also lives in site.js.
+- instruction: New module league_site/web/scripts.py exporting SITE_JS (plain string, mirroring theme.STYLESHEET); shell.py serves it at /site.js and links it with `<script defer>`. Pre-paint inline snippet in `<head>`: read localStorage 'theme', set document.documentElement.dataset.theme when light/dark, and set dataset.js='1' (the hook t4's reveal styles gate on). Header `<button>` cycles light->dark->system (on system: remove the attribute + clear storage), aria-label reflecting current state. IntersectionObserver reveal logic (adds .revealed to .reveal elements) also lives in site.js.
 - depends on: t2
 - covers: c12, h7
 - acceptance:
@@ -47,7 +47,7 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 
 ### t5 — The hero: a theme-native animated League of Agents arena scene (inline SVG/CSS driven by var(--accent)/var(--bg)/var(--text)) embedded above the fold on the landing page only — agents advance and clash on a grid, score pulses, accent flares
 
-- instruction: New module league_site/web/hero.py exporting the hero fragment (inline SVG + its own scoped <style> so the file stays disjoint from t4's theme.py work); shell.py embeds it only for _LANDING_PATHS, as the first element of <main> before the rendered markdown. Scene: stylized arena grid (var(--border)/var(--surface-2)), 3-5 geometric agent pieces advancing along lanes (transform keyframes), a clash with an accent flare (var(--accent) opacity/scale pulse), a score tick; ~12s seamless loop; zero hardcoded colors — every fill/stroke via var(). Under prefers-reduced-motion the scene is a dignified still mid-clash. Overlay: headline + CTA using the existing .button. The landing's .md passthrough stays byte-identical (hero is shell-injected, never content).
+- instruction: New module league_site/web/hero.py exporting the hero fragment (inline SVG + its own scoped `<style>` so the file stays disjoint from t4's theme.py work); shell.py embeds it only for `_LANDING_PATHS`, as the first element of `<main>` before the rendered markdown. Scene: stylized arena grid (var(--border)/var(--surface-2)), 3-5 geometric agent pieces advancing along lanes (transform keyframes), a clash with an accent flare (var(--accent) opacity/scale pulse), a score tick; ~12s seamless loop; zero hardcoded colors — every fill/stroke via var(). Under prefers-reduced-motion the scene is a dignified still mid-clash. Overlay: headline + CTA using the existing .button. The landing's .md passthrough stays byte-identical (hero is shell-injected, never content).
 - depends on: t3, t4
 - covers: c1, c3, c4, c5, c13, h1, h8, h13
 - acceptance:
@@ -76,7 +76,7 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 
 ### t8 — Ship gate (ops, main session): deploy, then Lighthouse >=90 perf / >=95 a11y on the live landing in both schemes (desktop+mobile), zero-third-party network-panel check, walkthrough screenshots of /, /docs, /leaderboard, /about in both schemes attached to the PR; diff review confirms no framework/build step and the match viewer untouched (c16), honoring the open-rewrite decision (c18)
 
-- instruction: Main-session ops after the code waves merge: deploy via the repo's standing path (infra/ + Makefile), run Lighthouse desktop+mobile against https://league-of-agents.ai in both schemes (via the toggle and via OS preference), record scores in the PR; DevTools network panel zero-third-party check on /, /docs, /leaderboard; both-schemes screenshots of /, /docs, /leaderboard, /about; final diff review: no framework deps in pyproject, no build step, match viewer untouched. Any gate failure iterates before 'shipped'; if the shell provably cannot deliver, stop and return the rewrite decision to the user.
+- instruction: Main-session ops after the code waves merge: deploy via the repo's standing path (infra/ + Makefile), run Lighthouse desktop+mobile against <https://league-of-agents.ai> in both schemes (via the toggle and via OS preference), record scores in the PR; DevTools network panel zero-third-party check on /, /docs, /leaderboard; both-schemes screenshots of /, /docs, /leaderboard, /about; final diff review: no framework deps in pyproject, no build step, match viewer untouched. Any gate failure iterates before 'shipped'; if the shell provably cannot deliver, stop and return the rewrite decision to the user.
 - depends on: t5, t6, t7
 - covers: c1, c3, c17, c19, h2, h9, h10, h12, h15, h16
 - acceptance:
