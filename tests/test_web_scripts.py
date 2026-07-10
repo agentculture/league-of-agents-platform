@@ -324,35 +324,46 @@ def test_site_js_stamps_the_reveal_stagger_and_skips_the_hero() -> None:
     assert '"hero"' in js, "the hero must be excluded — it orchestrates itself"
     assert "60" in js, "stagger increment is 60ms per element"
     assert "12" in js, "stamping is capped at 12 elements"
+    assert 'meta[http-equiv="refresh"]' in js, "the refresh refusal must stay wired"
+    assert '" i]' not in js, "the selector case-flag throws on legacy engines"
 
 
 _STAGGER_HARNESS = """
 "use strict";
 const siteJs = process.argv[1];
 global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
-// Elements are given a vertical position: the first 8 non-hero children sit
-// on-screen (top < innerHeight), the rest below the fold — the stagger delay
-// belongs only to the on-screen ones (a delayed scroll-time reveal would
-// hold content invisible AFTER it entered the viewport).
+// Elements are given a rect 100px tall: the first 8 non-hero children
+// intersect the viewport (top < innerHeight && bottom > 0), the rest sit
+// below the fold — the stagger delay belongs only to the intersecting ones
+// (a delayed scroll-time reveal would hold content invisible AFTER it
+// entered the viewport).
 function makeEl(cls, top) {
   const classes = new Set(cls ? [cls] : []);
   return {
     classes,
     style: { props: {}, setProperty(k, v) { this.props[k] = v; } },
     classList: { contains: (c) => classes.has(c), add: (c) => classes.add(c) },
-    getBoundingClientRect: () => ({ top }),
+    getBoundingClientRect: () => ({ top, bottom: top + 100 }),
   };
 }
 const heroEl = makeEl("hero", 0);
 const kids = [heroEl];
 for (let i = 0; i < 15; i++) { kids.push(makeEl("", 100 + i * 120)); }
 const main = { children: kids };
-let refreshMeta = null; // flipped by the second run below
+let refreshMeta = null;     // flipped by the refresh run below
+let selectorThrows = false; // flipped by the legacy-engine run below
 global.document = {
   documentElement: { dataset: {} },
   readyState: "complete",
   getElementById: (id) => (id === "main" ? main : null),
-  querySelector: (sel) => (sel.indexOf("refresh") !== -1 ? refreshMeta : null),
+  // A legacy engine: the attribute-selector case-flag (` i]`) is a
+  // SyntaxError, as in real pre-2016 querySelector implementations.
+  querySelector: (sel) => {
+    if (selectorThrows || sel.indexOf('" i]') !== -1 || sel.indexOf("' i]") !== -1) {
+      throw new SyntaxError("unsupported selector: " + sel);
+    }
+    return sel === 'meta[http-equiv="refresh"]' ? refreshMeta : null;
+  },
   querySelectorAll: (sel) =>
     (sel === ".reveal" ? kids.filter((k) => k.classes.has("reveal")) : []),
   addEventListener: () => {},
@@ -376,12 +387,39 @@ eval(siteJs);
 const refreshRun = {
   stampedCount: freshKids.filter((k) => k.classes.has("reveal")).length,
 };
-process.stdout.write(JSON.stringify({ firstRun, refreshRun }));
+// A page restored mid-scroll: an element whose rect sits entirely above
+// the viewport (bottom <= 0) is NOT on screen — a cascade delay stamped
+// now would replay when the visitor scrolls back up to it.
+refreshMeta = null;
+const aboveEl = makeEl("", -300);  // bottom -200: fully above the viewport
+const visibleEl = makeEl("", 100); // intersects the viewport
+const scrollKids = [aboveEl, visibleEl];
+main.children = scrollKids;
+kids.length = 0; Array.prototype.push.apply(kids, scrollKids);
+eval(siteJs);
+const aboveRun = {
+  aboveStamped: aboveEl.classes.has("reveal"),
+  aboveDelay: aboveEl.style.props["--reveal-delay"] || null,
+  visibleDelay: visibleEl.style.props["--reveal-delay"] || null,
+};
+// A future selector edit must never abort init on an old engine: with
+// querySelector throwing on EVERYTHING, the throw reads as "no refresh
+// meta found" and the stagger still runs.
+selectorThrows = true;
+const guardKids = [makeEl("hero", 0)];
+for (let i = 0; i < 5; i++) { guardKids.push(makeEl("", 100 + i * 120)); }
+main.children = guardKids;
+kids.length = 0; Array.prototype.push.apply(kids, guardKids);
+eval(siteJs);
+const guardRun = {
+  stampedCount: guardKids.filter((k) => k.classes.has("reveal")).length,
+  revealedCount: guardKids.filter((k) => k.classes.has("revealed")).length,
+};
+process.stdout.write(JSON.stringify({ firstRun, refreshRun, aboveRun, guardRun }));
 """
 
 
-@pytest.mark.skipif(_NODE is None, reason="node not available for the JS behavioral harness")
-def test_stagger_stamps_up_to_twelve_children_and_never_the_hero() -> None:
+def _run_stagger_harness() -> dict[str, Any]:
     result = subprocess.run(
         [_NODE or "node", "-e", _STAGGER_HARNESS, "--", scripts.SITE_JS],
         capture_output=True,
@@ -389,7 +427,12 @@ def test_stagger_stamps_up_to_twelve_children_and_never_the_hero() -> None:
         timeout=30,
         check=True,
     )
-    out = json.loads(result.stdout)["firstRun"]
+    return json.loads(result.stdout)
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available for the JS behavioral harness")
+def test_stagger_stamps_up_to_twelve_children_and_never_the_hero() -> None:
+    out = _run_stagger_harness()["firstRun"]
     assert out["heroStamped"] is False
     assert out["heroRevealed"] is False
     # 15 non-hero children: the first 12 are stamped, the rest left alone
@@ -412,12 +455,29 @@ def test_auto_refreshing_pages_get_no_stagger_at_all() -> None:
     """The live watch page reloads every 5s via meta refresh — replaying the
     entrance cascade each reload would blink the transcript a visitor is
     reading. With a refresh meta present, initStagger refuses entirely."""
-    result = subprocess.run(
-        [_NODE or "node", "-e", _STAGGER_HARNESS, "--", scripts.SITE_JS],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=True,
-    )
-    out = json.loads(result.stdout)["refreshRun"]
+    out = _run_stagger_harness()["refreshRun"]
     assert out["stampedCount"] == 0
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available for the JS behavioral harness")
+def test_stagger_gives_no_delay_to_elements_fully_above_the_viewport() -> None:
+    """A page restored mid-scroll (anchor jump, back/forward) can have
+    children entirely above the viewport (bottom <= 0). They are not on
+    screen — a cascade delay stamped now would fire later, when the visitor
+    scrolls back up. They get ``.reveal`` with no delay, exactly like
+    below-fold elements."""
+    out = _run_stagger_harness()["aboveRun"]
+    assert out["aboveStamped"] is True
+    assert out["aboveDelay"] is None
+    assert out["visibleDelay"] == "60ms"
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available for the JS behavioral harness")
+def test_a_throwing_query_selector_never_aborts_the_stagger() -> None:
+    """Legacy engines throw SyntaxError on selectors they cannot parse (the
+    attribute case-flag ``i`` did exactly that). A throw from the
+    refresh-meta lookup must read as "no refresh meta found" — never abort
+    init and take the whole cascade down with it."""
+    out = _run_stagger_harness()["guardRun"]
+    assert out["stampedCount"] == 5
+    assert out["revealedCount"] == 5
