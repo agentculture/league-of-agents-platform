@@ -23,6 +23,7 @@ what actually serves the site (see :mod:`league_site.aws_lambda.handler`);
 
 from __future__ import annotations
 
+import re
 from typing import Any, Callable
 from wsgiref.simple_server import WSGIServer, make_server
 
@@ -40,6 +41,14 @@ WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
 _MD_SUFFIX = ".md"
 _PROFILES_PREFIX = "/profiles/"
+#: Matches ``league_site.viewer.wsgi.WATCH_PATH_RE`` exactly — duplicated here
+#: (rather than imported at module scope) for the same reason
+#: ``_PROFILES_PREFIX`` above duplicates ``league_site.profiles.wsgi``'s own
+#: prefix instead of importing it: see :func:`site_app`'s docstring on the
+#: ``league_site.web.*`` import cycle a module-level import of
+#: ``league_site.viewer`` (which imports ``league_site.web._markdown``)
+#: would deadlock.
+_WATCH_PATH_RE = re.compile(r"^/matches/[^/]+/watch$")
 
 
 def _md_passthrough(inner: WSGIApp) -> WSGIApp:
@@ -78,6 +87,28 @@ def _with_profiles(inner: WSGIApp, profiles: WSGIApp) -> WSGIApp:
     return application
 
 
+def _with_viewer(inner: WSGIApp, viewer: WSGIApp) -> WSGIApp:
+    """Wrap *inner* so any ``PATH_INFO`` matching ``/matches/<id>/watch`` goes to *viewer* instead.
+
+    Mirrors :func:`_with_profiles`: checked ahead of everything *inner*
+    does — :func:`site_app` uses this to dispatch to
+    :func:`~league_site.viewer.wsgi.viewer_app` before a request ever
+    reaches ``with_shell``/``with_auth``/``with_api``, per that function's
+    docstring. ``/api/v1/matches/...`` is a distinct prefix
+    (:data:`~league_site.api.wsgi.API_PREFIX`) and is never matched by
+    :data:`_WATCH_PATH_RE` — only the page path ``/matches/<id>/watch`` is,
+    so the match API keeps routing to ``with_api`` unchanged.
+    """
+
+    def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+        path = environ.get("PATH_INFO", "/")
+        if _WATCH_PATH_RE.match(path):
+            return viewer(environ, start_response)
+        return inner(environ, start_response)
+
+    return application
+
+
 def http_app() -> WSGIApp:
     """Return the platform's WSGI HTTP surface.
 
@@ -96,14 +127,14 @@ def site_app(
     ledger_store: RatingLedgerStore | None = None,
     engine_registry: EngineRegistry | None = None,
 ) -> WSGIApp:
-    """Return the platform's composed site app: profiles + auth + API + :func:`http_app` + shell.
+    """Return the platform's composed site app: viewer + profiles + auth + API + :func:`http_app`.
 
     This is the app callers actually want to *serve* — the local dev server
     (:func:`serve`) and the Lambda entrypoint
     (:mod:`league_site.aws_lambda.handler`) both use it. Composition order,
     outermost first::
 
-        profiles-or(with_shell(with_auth(with_api(http_app()))))
+        viewer-or-profiles-or(with_shell(with_auth(with_api(http_app()))))
 
     * :func:`~league_site.web.branding.register_branding` runs first,
       registering the footer acknowledgement fragment into the
@@ -115,12 +146,14 @@ def site_app(
       instances (defaulting to a fresh :class:`~league_site.matches.store.
       InMemoryMatchStore`/:class:`~league_site.ratings.ledger.
       InMemoryRatingLedgerStore` each, same as :func:`~league_site.api.wsgi.
-      with_api`'s own defaults) *before* either consumer is built, so
-      ``with_api`` and :func:`~league_site.profiles.wsgi.profile_app` are
-      always handed the exact same two objects — critical: a match recorded
-      through the API must be immediately visible on its player's
-      ``/profiles/*`` page, which only holds if both read/write the same
-      store instances rather than each defaulting its own.
+      with_api`'s own defaults) *before* any consumer is built, so
+      ``with_api``, :func:`~league_site.profiles.wsgi.profile_app`, and
+      :func:`~league_site.viewer.wsgi.viewer_app` are all handed the exact
+      same two objects — critical: a match recorded through the API must be
+      immediately visible on its player's ``/profiles/*`` page and on its
+      own ``/matches/<id>/watch`` page, which only holds if all three
+      read/write the same store instances rather than each defaulting its
+      own.
     * :func:`~league_site.api.wsgi.with_api` is mounted directly on
       :func:`http_app`, claiming every ``/api/v1/*`` path and passing
       everything else through unchanged.
@@ -136,12 +169,19 @@ def site_app(
       main content, and the footer above. It leaves the API's
       ``application/json`` responses (and the ``/auth/*`` redirects) alone,
       since it only ever shells a ``text/markdown`` response.
-    * :func:`_with_profiles` sits outermost of all: any ``PATH_INFO``
-      starting with ``/profiles/`` is dispatched straight to
+    * :func:`_with_profiles` wraps that: any ``PATH_INFO`` starting with
+      ``/profiles/`` is dispatched straight to
       :func:`~league_site.profiles.wsgi.profile_app` and never reaches
       ``with_shell``/``with_auth``/``with_api`` at all — ``profile_app``
       renders its own self-contained HTML/SVG/JSON, so it has no need for
       (and must not pick up) the doc shell or the ``/api/v1`` router.
+    * :func:`_with_viewer` sits outermost of all: any ``PATH_INFO`` matching
+      ``/matches/<id>/watch`` is dispatched straight to
+      :func:`~league_site.viewer.wsgi.viewer_app`, for the same reason and
+      in the same style as ``_with_profiles`` above — it too renders its own
+      self-contained HTML and must not pick up the doc shell or the
+      ``/api/v1`` router. ``/api/v1/matches/...`` (a distinct prefix) is
+      unaffected and keeps routing to ``with_api`` as before.
 
     All of :func:`http_app`'s byte-identical guarantees survive the wrap
     unchanged: raw ``.md`` passthrough, ``/llms.txt``, and ``/front`` are
@@ -158,13 +198,15 @@ def site_app(
     games.
     """
     # Imported lazily (not at module scope) to break an import cycle:
-    # league_site.profiles.wsgi imports league_site.web.theme, and importing
+    # league_site.profiles.wsgi imports league_site.web.theme, and
+    # league_site.viewer.render imports league_site.web._markdown — importing
     # any league_site.web.* submodule first runs league_site/web/__init__.py,
     # which imports this module's http_app/serve — a module-level import
     # here would deadlock that cycle. By the time site_app() is actually
     # *called*, every module involved has finished initializing, so a local
     # import resolves cleanly.
     from league_site.profiles.wsgi import profile_app
+    from league_site.viewer.wsgi import viewer_app
 
     register_branding()
     resolved_match_store = match_store if match_store is not None else InMemoryMatchStore()
@@ -180,7 +222,8 @@ def site_app(
     )
     composed = with_shell(with_auth(api, transport=transport))
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
-    return _with_profiles(composed, profiles)
+    viewer = viewer_app(resolved_match_store, resolved_ledger_store)
+    return _with_viewer(_with_profiles(composed, profiles), viewer)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000) -> WSGIServer:
