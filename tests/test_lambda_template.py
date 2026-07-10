@@ -133,32 +133,37 @@ def test_matches_table_has_by_status_updated_gsi(template: dict[str, Any]) -> No
     assert index["Projection"]["ProjectionType"] == "ALL"
 
 
-def test_tokens_table_uses_token_hash_as_its_only_key(template: dict[str, Any]) -> None:
-    """Mirrors league_site/auth/aws_tokens.py's hash-partitioned lookup-by-token_hash pattern."""
+def test_tokens_table_uses_the_repo_pk_sk_convention(template: dict[str, Any]) -> None:
+    """league_site/auth/aws_tokens.py reads/writes PK="TOKEN#<hash>", SK="METADATA" —
+    the same single-table PK/SK convention as the matches table. The table's key
+    schema must match the store's item layout or every get_item raises
+    ValidationException (found live: the first prod deploy keyed this table
+    token_hash and reads failed)."""
     table = template["Resources"]["TokensTable"]["Properties"]
     attribute_types = {
         attr["AttributeName"]: attr["AttributeType"] for attr in table["AttributeDefinitions"]
     }
-    assert attribute_types == {"token_hash": "S"}
+    assert attribute_types == {"PK": "S", "SK": "S"}
     key_schema = {entry["AttributeName"]: entry["KeyType"] for entry in table["KeySchema"]}
-    assert key_schema == {"token_hash": "HASH"}
+    assert key_schema == {"PK": "HASH", "SK": "RANGE"}
     assert table["BillingMode"] == "PAY_PER_REQUEST"
-    assert table["TableName"] == {"Fn::Sub": "league-of-agents-${StageName}-tokens"}
+    assert table["TableName"] == {"Fn::Sub": "league-of-agents-${StageName}-agent-tokens"}
 
 
-def test_ratings_table_uses_player_id_and_entry_id_keys(template: dict[str, Any]) -> None:
-    """Append-only ledger key scheme: one item per (player_id, entry_id) — see
+def test_ratings_table_uses_the_repo_pk_sk_convention(template: dict[str, Any]) -> None:
+    """league_site/ratings/aws.py writes PK="LEDGER#<identity>"/"IDENTITIES",
+    SK="ENTRY#<seq>"/"ORDER#<n>" — same PK/SK convention as the matches table; see
     league_site/ratings/ledger.py's RatingLedgerStore/RatingEntry docstrings.
     """
     table = template["Resources"]["RatingsTable"]["Properties"]
     attribute_types = {
         attr["AttributeName"]: attr["AttributeType"] for attr in table["AttributeDefinitions"]
     }
-    assert attribute_types == {"player_id": "S", "entry_id": "S"}
+    assert attribute_types == {"PK": "S", "SK": "S"}
     key_schema = {entry["AttributeName"]: entry["KeyType"] for entry in table["KeySchema"]}
-    assert key_schema == {"player_id": "HASH", "entry_id": "RANGE"}
+    assert key_schema == {"PK": "HASH", "SK": "RANGE"}
     assert table["BillingMode"] == "PAY_PER_REQUEST"
-    assert table["TableName"] == {"Fn::Sub": "league-of-agents-${StageName}-ratings"}
+    assert table["TableName"] == {"Fn::Sub": "league-of-agents-${StageName}-rating-ledger"}
 
 
 def test_session_secret_parameter_is_a_noecho_string_defaulting_empty(

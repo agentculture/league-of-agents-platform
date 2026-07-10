@@ -416,44 +416,56 @@ Resources:
   # league_site/auth/aws_tokens.py's DynamoDBTokenStore lookup-by-hash
   # access pattern (verify() hashes the presented token and looks it up
   # directly; no scan needed for that path).
+  # Keyed PK (HASH) / SK (RANGE) — the same single-table convention as
+  # MatchesTable, because that is the item layout the store actually
+  # writes: league_site/auth/aws_tokens.py puts PK="TOKEN#<hash>",
+  # SK="METADATA". The first prod deploy keyed this table token_hash and
+  # every get_item raised ValidationException — the key schema must mirror
+  # the store's layout, not the record's semantic field names. (Physical
+  # name carries an -agent-tokens suffix because fixing the key schema of
+  # an explicitly named table forces a rename-replacement.)
   TokensTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName:
-        Fn::Sub: "league-of-agents-${StageName}-tokens"
+        Fn::Sub: "league-of-agents-${StageName}-agent-tokens"
       # Same on-demand reasoning as MatchesTable: bursty, low-volume
       # traffic (token issuance/verification is not a steady stream), no
       # idle-capacity floor worth paying for at this scale.
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: token_hash
+        - AttributeName: PK
+          AttributeType: S
+        - AttributeName: SK
           AttributeType: S
       KeySchema:
-        - AttributeName: token_hash
+        - AttributeName: PK
           KeyType: HASH
+        - AttributeName: SK
+          KeyType: RANGE
 
-  # Append-only per-identity rating ledger — one item per (player_id,
-  # entry_id), never mutated once written. Mirrors
-  # league_site/ratings/ledger.py's RatingLedgerStore/RatingEntry
-  # docstrings: record_match appends exactly one new entry per identity per
-  # match, so entry_id as the sort key gives a natural, ordered history per
-  # player_id without a separate index.
+  # Append-only per-identity rating ledger — never mutated once written.
+  # Keyed PK/SK like MatchesTable/TokensTable because that is what
+  # league_site/ratings/aws.py writes: PK="LEDGER#<identity>" with
+  # SK="ENTRY#<seq>" per entry, plus the IDENTITIES/ORDER#<n> registry
+  # partition (see that module's docstring for the full item shapes).
+  # Same rename-replacement note as TokensTable above.
   RatingsTable:
     Type: AWS::DynamoDB::Table
     Properties:
       TableName:
-        Fn::Sub: "league-of-agents-${StageName}-ratings"
+        Fn::Sub: "league-of-agents-${StageName}-rating-ledger"
       # Same on-demand reasoning as MatchesTable/TokensTable.
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: player_id
+        - AttributeName: PK
           AttributeType: S
-        - AttributeName: entry_id
+        - AttributeName: SK
           AttributeType: S
       KeySchema:
-        - AttributeName: player_id
+        - AttributeName: PK
           KeyType: HASH
-        - AttributeName: entry_id
+        - AttributeName: SK
           KeyType: RANGE
 
   # Completed-match archives (league_site/matches/serialization.py's
