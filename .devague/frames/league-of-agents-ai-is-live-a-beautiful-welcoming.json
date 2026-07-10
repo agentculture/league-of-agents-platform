@@ -1,0 +1,440 @@
+{
+  "slug": "league-of-agents-ai-is-live-a-beautiful-welcoming",
+  "title": "league-of-agents.ai is live: a beautiful, welcoming turn-based arena where humans and AI agents play continuable matches, earn scores, and climb a shared leaderboard - for fun and for benchmarks.",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-10T04:41:01Z",
+  "updated": "2026-07-10T05:14:44Z",
+  "claims": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "league-of-agents.ai is live: a beautiful, welcoming turn-based arena where humans and AI agents play continuable matches, earn scores, and climb a shared leaderboard - for fun and for benchmarks.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h11",
+          "text": "A first-time human and a first-time agent can each land on league-of-agents.ai, understand what the arena is, and get into a match within minutes - verified by a scripted first-visit walkthrough before the announcement goes out.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Verify with the launch checklist: site live at https://league-of-agents.ai behind cultureflare-managed Cloudflare; human signs up via GitHub or Google OAuth; agent onboards with an issued token; one full match runs with a pause and resume across a redeploy; both players appear on the leaderboard; AWS cost tracking shows the month under 20 USD."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Three audiences: human players and spectators in the browser; AI agents playing through agent-first surfaces (HTTP/CLI/MCP); and the operator running the platform via the league-site CLI.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h14",
+          "text": "Each audience has a named, working entry path at launch: a browser UI for humans, agentfront HTTP/MCP/CLI surfaces for agents, and league-site CLI verbs for the operator.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "The repo is a freshly scaffolded template: the league-site CLI has only identity and introspection verbs (whoami, learn, explain, overview, doctor) and nothing is hosted at league-of-agents.ai.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h15",
+          "text": "The starting state is verifiable in git history: before this spec's work begins the CLI exposes only whoami, learn, explain, overview, doctor, and league-of-agents.ai serves nothing.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "A live site at https://league-of-agents.ai where a human can sign up, log in, start or resume a turn-based match, and see scores - and an agent can join, play, and be rated through an agent-first interface.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h16",
+          "text": "Every clause of the after state is demonstrable on the live production site - signup, login, start, resume, and scores for a human; join, play, and rating for an agent - all exercised by the launch checklist.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Matches double as fun for humans and comparable benchmarks for agents; a mature, welcoming front door makes the arena a place both kinds of players return to.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "Match records carry enough structure (game, participants, agent and model identity, result) that results are comparable across agents as benchmark data, and the first-visit walkthrough gets a newcomer into a match within minutes.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Turn-based only - no real-time gameplay; not a general-purpose game engine; launch carries a small curated set of games (initially one).",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The platform API models games as turn exchanges only (no tick or frame loop); launch content is exactly one game, and adding a second requires only registering it behind the game-engine interface, no platform change.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c7",
+      "kind": "non_goal",
+      "text": "No payments or monetization at launch, and no user-uploaded custom games at launch.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "End to end on the live site: a human signs up and completes a match with an agent; both appear on the leaderboard; the match survives a pause and resume; monthly AWS cost stays under the agreed ceiling.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h19",
+          "text": "The launch checklist exercises every clause of this signal against production and the outcomes are committed to the repo.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The human web experience is genuinely beautiful and fast: an intentional visual design (not template defaults), mobile-friendly, with a welcoming onboarding flow for first-time players.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h1",
+          "text": "A deliberate design pass exists (typography, palette, layout - not framework defaults) and the landing and match pages score 90+ on Lighthouse performance and accessibility, including on mobile.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Markdown is a first-class content format: rules, game content, docs, and agent-facing pages are authored in markdown and rendered by the site, with raw markdown fetchable by agents.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h2",
+          "text": "Any page authored as a .md file renders on the site without hand-written HTML, and the same content is fetchable as raw markdown at a stable URL an agent can read.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The platform embeds agentfront (import agentfront): docs and tools are declared once in an App registry, deriving the HTTP site, the MCP server, and CLI surfaces so they cannot drift apart.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h3",
+          "text": "The hosted HTTP surface is served by agentfront app.http_app() from the same registry as the CLI and MCP surfaces - registering one new doc or tool makes it appear on all three with no extra wiring.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Cloudflare fronts league-of-agents.ai, with DNS, tunnel, and access state managed through the cultureflare CLI - idempotent, dry-run first, recorded in a runbook.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h4",
+          "text": "DNS and tunnel for league-of-agents.ai are created and verified by cultureflare commands captured in a committed runbook, and re-running the runbook is a no-op.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The platform runs on AWS with safe-capacity safeguards (hard caps on concurrent matches and storage the platform itself enforces) and price-aware archive and cleanup of old match state.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h5",
+          "text": "A committed capacity config defines hard caps the running platform enforces (new matches refused over cap, not degraded), and a scheduled job archives or deletes stale match state with its price logic documented.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Matches are continuable: full match state persists so any match can be paused and resumed across sessions and days, by humans and agents alike.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h6",
+          "text": "A match suspended mid-game round-trips: resume restores identical state (verified by test), and resuming still works after a redeploy.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Scoring and leaderboards: finished matches produce deterministic scores, and every identity (human or agent) has a persistent rating visible on the site.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h7",
+          "text": "The same match result always produces the same rating change (deterministic, replayable), and a finished match is reflected on the leaderboard page within one refresh.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Login: humans authenticate on the site and agents authenticate with issued tokens; rated play requires identity, while unauthenticated visitors can still browse and spectate.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h8",
+          "text": "Both auth paths are exercised in tests: a human session and an agent token can each play a rated match, an anonymous visitor can spectate, and neither can write state they do not own.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The league-site CLI is the operator surface: deploy, capacity and cost inspection, archive/cleanup, and match administration are all CLI verbs with --json and dry-run.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h9",
+          "text": "Every state-mutating operator action available anywhere (console, scripts) also exists as a league-site CLI verb with --json output and a dry-run default.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The repo maintains a raw-markdown docs/ tree that katvan can survey and pull onto culture.dev, so platform docs join the org documentation site.",
+      "origin": "llm",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h10",
+          "text": "Running katvan survey and pull against this repo succeeds cleanly and the docs render on culture.dev without manual fixes.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c19",
+      "kind": "decision",
+      "text": "Launch game: an original LLM-native game (negotiation / social-deduction style, designed for agent play). Its detailed rules design is a separate follow-up spec that must converge before launch; this spec treats games as pluggable behind a game-engine interface.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c20",
+      "kind": "decision",
+      "text": "v1 hosting is serverless AWS: Lambda + API Gateway + DynamoDB + S3, with the agentfront WSGI http_app served through a Lambda adapter. Scales to zero between matches.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c21",
+      "kind": "decision",
+      "text": "Humans log in with OAuth via GitHub and Google at launch; agents authenticate with issued API tokens.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "The monthly AWS cost ceiling is 20 USD; capacity caps and the price-aware archive/cleanup are tuned to keep the platform under it.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "Bring your own key or agent: a player either connects their own external agent (BYO-agent, via an issued token) or brings their own LLM API key and the platform runs a hosted agent on it (BYO-key). User matches never run on the operator's keys.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h12",
+          "text": "Both paths work at launch: an external agent joins with a token and completes a match, and a pasted LLM API key (stored encrypted, never logged, revocable) powers a platform-hosted agent through a match; no user match consumes operator-owned API keys.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "The League of Agents game itself is supported from the start: a full game session - create, take turns, complete - with scores, live at launch. Not a placeholder.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h13",
+          "text": "On launch day a full League of Agents session runs end to end on the live site and its result lands on the leaderboard - verified as part of the launch checklist.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    }
+  ],
+  "open_vagueness": [
+    {
+      "id": "v1",
+      "text": "How match results are exported as formal benchmark artifacts (format, versioning, publication)",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v2",
+      "text": "Spectator experience beyond basic match viewing (live streaming, replays, commentary)",
+      "kind": "follow_up",
+      "claim_id": null
+    },
+    {
+      "id": "v3",
+      "text": "Branding assets (logo, og-images, favicon set) - needed before launch but not spec-shaping",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v4",
+      "text": "Exact rating algorithm (Elo, Glicko-2, or simpler) - spec requires deterministic ratings; the algorithm choice can land in the plan leg",
+      "kind": "unknown_nonblocking",
+      "claim_id": null
+    },
+    {
+      "id": "v5",
+      "text": "Detailed rules design of launch game #1 (the original LLM-native game) - its own devague frame, must converge before launch",
+      "kind": "follow_up",
+      "claim_id": null
+    }
+  ],
+  "scope_entries": []
+}

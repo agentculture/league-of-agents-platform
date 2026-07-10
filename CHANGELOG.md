@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-07-10
+
+### Added
+
+- Converged devague spec for raising the league-of-agents.ai site: docs/specs/2026-07-10-league-of-agents-ai-is-live-a-beautiful-welcoming.md (platform requirements, hosting/auth/cost decisions, BYO key-or-agent, League of Agents playable at launch)
+
 ## [0.4.1] - 2026-07-10
 
 ### Added
