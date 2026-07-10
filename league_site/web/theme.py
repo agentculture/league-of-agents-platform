@@ -120,6 +120,48 @@ not abandoned, for the dazzle pass — spec c11 — see the note below)
     any dazzle code landing, with ``tests/test_web_theme_budget.py``
     written/updated first to enforce the new numbers — the budget evolved
     under negotiation, it was not quietly dropped.
+
+Motion system (t4): one orchestrated moment, quiet reveals everywhere else
+    Per ``docs/design/dazzle-direction.md``: the landing page-load sequence
+    (a later task) is the one orchestrated motion moment; everywhere else on
+    the site gets quiet scroll reveals and small hovers only. The site's
+    signature rhythm is turn-based — step and settle, not continuous drift.
+
+    * ``--accent-glow``: a new token (the accent at low alpha — light
+      ``rgba(194, 65, 12, .18)``, dark ``rgba(255, 138, 61, .22)``) added to
+      all three token blocks (``:root``, ``:root[data-theme="dark"]``, and
+      the ``@media (prefers-color-scheme: dark)`` block), kept in sync the
+      same way the rest of that block's tokens are (see the palette section
+      above). Used for hover glows only — decorative, never the sole cue.
+    * ``.reveal`` / ``.revealed``: the scroll-reveal primitive. The hidden
+      initial state (``opacity: 0``, ``transform: translateY(8px)``) only
+      applies under ``html[data-js]`` — set by a later task's pre-paint
+      inline snippet before first paint — so an element is never hidden
+      with JS off. ``.revealed`` (toggled by that task's ``/site.js`` via
+      IntersectionObserver — a class toggle only, no scroll-linked layout
+      reads) transitions it to fully visible. Staggerable per-element via
+      ``transition-delay: var(--reveal-delay, 0s)``.
+    * Hover micro-interactions: ``.button`` lifts (``translateY(-1px)``)
+      with an ``--accent-glow`` box-shadow; ``.card`` lifts
+      (``translateY(-2px)``) and its border-color change stays a static,
+      unguarded rule (nav links and the wordmark were already color-only).
+    * ``@view-transition { navigation: auto; }`` plus a ~180ms
+      ``::view-transition-old(root)``/``::view-transition-new(root)``
+      crossfade, nested inside the guard below so the browser never starts
+      the view-transition machinery at all when motion is reduced —
+      navigation becomes an instant swap, not a suppressed animation.
+    * ``.wordmark-glyph`` gets a "lit signal" pulse — a ``@keyframes`` rule
+      animating only ``opacity`` (1 <-> 0.75) with a long hold and a short
+      dip, so it reads as a discrete blink rather than a smooth fade cycle.
+
+    The reduced-motion guarantee: every rule above — every ``transition:``,
+    ``animation:``, ``@keyframes``, and the view-transition rules — lives
+    inside one ``@media (prefers-reduced-motion: no-preference) { ... }``
+    block near the end of :data:`STYLESHEET`. With reduced motion requested,
+    none of it applies; static color/border-color hover cues still work.
+    Nothing in this system animates a layout property (width, height,
+    margin, padding, top/left/right/bottom) — only ``transform``/``opacity``
+    continuously, plus ``box-shadow`` on hover-triggered transitions.
 """
 
 from __future__ import annotations
@@ -171,6 +213,7 @@ STYLESHEET = f"""\
   --border-strong: #828a9a;
   --accent: #c2410c;
   --accent-ink: #ffffff;
+  --accent-glow: rgba(194, 65, 12, .18);
   --link: var(--accent);
 
   --font-sans: {_FONT_SANS};
@@ -213,6 +256,7 @@ STYLESHEET = f"""\
   --border-strong: #5b6478;
   --accent: #ff8a3d;
   --accent-ink: #14171c;
+  --accent-glow: rgba(255, 138, 61, .22);
 }}
 
 :root[data-theme="light"] {{
@@ -239,6 +283,7 @@ STYLESHEET = f"""\
     --border-strong: #5b6478;
     --accent: #ff8a3d;
     --accent-ink: #14171c;
+    --accent-glow: rgba(255, 138, 61, .22);
   }}
 }}
 
@@ -403,6 +448,7 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
   padding: var(--space-5);
   margin-bottom: var(--space-4);
 }}
+.card:hover {{ border-color: var(--border-strong); }}
 
 .button {{
   display: inline-block;
@@ -429,5 +475,79 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 @media (max-width: 40rem) {{
   main {{ padding-top: var(--space-5); }}
   h1 {{ font-size: var(--text-xl); }}
+}}
+
+/* ==========================================================================
+   Motion system (t4) — reveals, micro-interactions, view transitions.
+   Every animated rule in this file lives inside this single guard: with
+   reduced motion requested, none of it applies, and nothing above needed a
+   fallback because none of it ever hides content on its own — see this
+   module's docstring ("Motion system" section) for the full contract.
+   ========================================================================== */
+@media (prefers-reduced-motion: no-preference) {{
+
+  /* --- Reveal primitives: quiet scroll reveals, gated on JS + motion ---
+     t3's pre-paint inline snippet sets html[data-js] before first paint;
+     t3's /site.js adds the .revealed class to .reveal elements via
+     IntersectionObserver (a class toggle only — no scroll-linked layout
+     reads here). Without html[data-js] (JS disabled/blocked) or with
+     reduced motion, no rule below applies, so .reveal elements simply keep
+     the browser default (fully visible) — content is never hidden behind
+     JS or motion preference. */
+  html[data-js] .reveal {{
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 500ms cubic-bezier(0.2, 0.6, 0.2, 1),
+      transform 500ms cubic-bezier(0.2, 0.6, 0.2, 1);
+    transition-delay: var(--reveal-delay, 0s);
+  }}
+  html[data-js] .reveal.revealed {{
+    opacity: 1;
+    transform: translateY(0);
+  }}
+
+  /* --- Micro-interactions: small hovers, the site's turn-based rhythm ---
+     Step and settle, not continuous drift. Color-only hover cues (nav
+     links, the wordmark, .card's border-color above) already work without
+     JS or motion and stay outside this guard; only the transform/box-shadow
+     motion lives here. */
+  .button {{
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }}
+  .button:hover, .button:focus-visible {{
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 6px var(--accent-glow);
+  }}
+  .card {{
+    transition: transform 160ms ease;
+  }}
+  .card:hover {{
+    transform: translateY(-2px);
+  }}
+
+  /* --- View transitions: a gentle crossfade, nested so reduced motion
+     means instant navigation, not a suppressed animation. Nesting the
+     @view-transition rule itself inside this guard means the browser never
+     starts the view-transition machinery at all when motion is reduced —
+     navigation is a plain, instant page swap. */
+  @view-transition {{
+    navigation: auto;
+  }}
+  ::view-transition-old(root),
+  ::view-transition-new(root) {{
+    animation-duration: 180ms;
+  }}
+
+  /* --- Wordmark glyph: a lit-signal pulse, not a smooth fade loop ---
+     A long hold followed by a short dip reads as a discrete blink (the
+     turn-based rhythm), not a continuous glow cycle. */
+  @keyframes wordmark-pulse {{
+    0%, 88% {{ opacity: 1; }}
+    94% {{ opacity: 0.75; }}
+    100% {{ opacity: 1; }}
+  }}
+  .wordmark-glyph {{
+    animation: wordmark-pulse 4s ease-in-out infinite;
+  }}
 }}
 """
