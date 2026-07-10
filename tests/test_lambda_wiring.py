@@ -10,7 +10,9 @@ credentials, or needs a region configured.
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -328,3 +330,68 @@ def test_full_arena_round_trip_persists_through_the_dynamodb_stores() -> None:
     status, headers, _ = call(cold_start, "GET", f"/profiles/{identity_slug(creator)}")
     assert status == "200 OK"
     assert headers["Content-Type"].startswith("text/html")
+
+
+# --- Lambda game-CLI resolution (live-prod finding: FileNotFoundError 'league')
+
+
+_GAME_CLI_ENV_KEYS = (
+    "LEAGUE_CLI",
+    "LEAGUE_CLI_MODULE",
+    "AWS_LAMBDA_FUNCTION_NAME",
+    "PYTHONPATH",
+)
+
+
+@pytest.fixture
+def _game_cli_env():
+    """Save/clear/restore the game-CLI env keys around a test.
+
+    monkeypatch.delenv(raising=False) on an *absent* key registers no undo,
+    so keys the code under test writes (LEAGUE_CLI_MODULE, PYTHONPATH) would
+    leak into the rest of the suite — found as an order-dependent failure in
+    test_web_http_grid's real-CLI test.
+    """
+    saved = {key: os.environ.get(key) for key in _GAME_CLI_ENV_KEYS}
+    for key in _GAME_CLI_ENV_KEYS:
+        os.environ.pop(key, None)
+    yield
+    for key, value in saved.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+
+
+def test_on_lambda_the_game_cli_resolves_as_a_module(_game_cli_env) -> None:
+    """On Lambda (AWS_LAMBDA_FUNCTION_NAME set) with no explicit LEAGUE_CLI*,
+
+    cold start must select module-mode resolution (sys.executable -m league)
+    and make the artifact root importable for the child process — there is
+    no `league` console script on Lambda's PATH.
+    """
+    os.environ["AWS_LAMBDA_FUNCTION_NAME"] = "league-of-agents-prod-http"
+
+    wiring.build_site_app(environ={})
+
+    assert os.environ["LEAGUE_CLI_MODULE"] == "league"
+    import league_site
+
+    artifact_root = str(Path(league_site.__file__).resolve().parents[1])
+    assert artifact_root in os.environ["PYTHONPATH"].split(os.pathsep)
+
+
+def test_on_lambda_an_explicit_league_cli_is_left_alone(_game_cli_env) -> None:
+    os.environ["AWS_LAMBDA_FUNCTION_NAME"] = "league-of-agents-prod-http"
+    os.environ["LEAGUE_CLI"] = "/opt/custom/league"
+
+    wiring.build_site_app(environ={})
+
+    assert "LEAGUE_CLI_MODULE" not in os.environ
+    assert os.environ["LEAGUE_CLI"] == "/opt/custom/league"
+
+
+def test_off_lambda_the_game_cli_env_is_untouched(_game_cli_env) -> None:
+    wiring.build_site_app(environ={})
+
+    assert "LEAGUE_CLI_MODULE" not in os.environ

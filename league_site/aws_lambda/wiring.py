@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import os
 from http.cookies import SimpleCookie
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from league_site.auth.sessions import SESSION_SECRET_ENV
@@ -108,6 +109,45 @@ def _without_session_cookies(inner: WSGIApp) -> WSGIApp:
     return application
 
 
+def _configure_game_cli_for_lambda() -> None:
+    """On Lambda, default the game CLI to module-mode resolution.
+
+    The build (repo-root ``Makefile``) ``pip install --target``\\ s the
+    ``league-of-agents`` package into the artifact, so there is no
+    ``league`` console script anywhere on Lambda's ``PATH`` — the runner's
+    default resolution raised ``FileNotFoundError: 'league'`` on the first
+    production match (live finding). Module mode
+    (``sys.executable -m league`` — see
+    :data:`league_site.game.runner.LEAGUE_CLI_MODULE_ENV_VAR`) needs two
+    things, both set here once per cold start:
+
+    * ``LEAGUE_CLI_MODULE=league`` — unless the operator already pinned an
+      explicit ``LEAGUE_CLI`` or module override, which always wins.
+    * the artifact root (the directory holding both ``league_site`` and the
+      installed ``league`` package) on ``PYTHONPATH``, so the *child*
+      interpreter can import the module — Lambda's own ``sys.path`` entry
+      for ``/var/task`` is runtime bootstrap state the subprocess never
+      inherits.
+
+    Off Lambda (no ``AWS_LAMBDA_FUNCTION_NAME``) this is a no-op: local dev
+    and the test suite keep resolving the CLI from ``PATH``/venv exactly as
+    before.
+    """
+    if "AWS_LAMBDA_FUNCTION_NAME" not in os.environ:
+        return
+    from league_site.game.runner import LEAGUE_CLI_ENV_VAR, LEAGUE_CLI_MODULE_ENV_VAR
+
+    if os.environ.get(LEAGUE_CLI_ENV_VAR) or os.environ.get(LEAGUE_CLI_MODULE_ENV_VAR):
+        return
+    os.environ[LEAGUE_CLI_MODULE_ENV_VAR] = "league"
+    artifact_root = str(Path(__file__).resolve().parents[2])
+    existing = os.environ.get("PYTHONPATH", "")
+    if artifact_root not in existing.split(os.pathsep):
+        os.environ["PYTHONPATH"] = (
+            f"{artifact_root}{os.pathsep}{existing}" if existing else artifact_root
+        )
+
+
 def build_site_app(
     environ: Mapping[str, str] | None = None, *, dynamodb_resource: Any | None = None
 ) -> WSGIApp:
@@ -127,6 +167,7 @@ def build_site_app(
     path); with the secret present the composed app is returned as-is.
     """
     env = os.environ if environ is None else environ
+    _configure_game_cli_for_lambda()
 
     store_kwargs: dict[str, Any] = {}
     matches_table = env.get(MATCHES_TABLE_ENV)
