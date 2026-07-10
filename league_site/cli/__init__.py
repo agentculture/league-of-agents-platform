@@ -66,7 +66,10 @@ def _build_parser() -> argparse.ArgumentParser:
     from league_site.cli._commands import doctor as _doctor_cmd
     from league_site.cli._commands import explain as _explain_cmd
     from league_site.cli._commands import learn as _learn_cmd
+    from league_site.cli._commands import match as _match_group
+    from league_site.cli._commands import ops as _ops_group
     from league_site.cli._commands import overview as _overview_cmd
+    from league_site.cli._commands import site as _site_group
     from league_site.cli._commands import whoami as _whoami_cmd
 
     parser = _CliArgumentParser(
@@ -88,9 +91,12 @@ def _build_parser() -> argparse.ArgumentParser:
     _overview_cmd.register(sub)
     _doctor_cmd.register(sub)
     _cli_group.register(sub)
-    # Register your own noun groups here:
-    #   from league_site.cli._commands import my_noun as _my_noun_group
-    #   _my_noun_group.register(sub)
+    # Operator surface (h9/c17): league-site is the operator's CLI for
+    # deploy, capacity/telemetry inspection, archive/cleanup, and match
+    # administration. See docs/operations.md for the full verb reference.
+    _site_group.register(sub)
+    _ops_group.register(sub)
+    _match_group.register(sub)
 
     return parser
 
