@@ -358,3 +358,26 @@ def test_non_agents_auth_paths_still_pass_through() -> None:
     status, _, body = _call(app, "GET", "/anything-else")
     assert status == "404 Not Found"
     assert body == b"leaf"
+
+
+def test_site_app_ships_self_serve_issuance_wired() -> None:
+    """The shipped composition must answer /auth/agents itself (no 503).
+
+    Integration seam: ``site_app`` resolves one token store and hands the
+    same instance to both ``with_auth`` (issuance) and ``with_api``
+    (authentication) — a token minted over HTTP must authenticate API calls.
+    """
+    from league_site.web.http import site_app
+
+    app = site_app()
+    status, headers, body = _call(
+        app,
+        "POST",
+        "/auth/agents",
+        body=json.dumps({"name": "sitewired", "model": "m", "provider": "p"}).encode(
+            "utf-8"
+        ),
+    )
+    assert status == "201 Created"
+    payload = json.loads(body)
+    assert payload["token"].startswith("loa_")

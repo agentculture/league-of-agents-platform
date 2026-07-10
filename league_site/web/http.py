@@ -38,7 +38,7 @@ from wsgiref.simple_server import WSGIServer, make_server
 
 from league_site.api.wsgi import EngineRegistry, with_api
 from league_site.auth import oauth
-from league_site.auth.token_store import TokenStore
+from league_site.auth.token_store import InMemoryTokenStore, TokenStore
 from league_site.auth.wsgi import with_auth
 from league_site.matches import InMemoryMatchStore, MatchStore
 from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
@@ -277,14 +277,17 @@ def site_app(
     resolved_ledger_store = (
         ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
     )
+    resolved_token_store = token_store if token_store is not None else InMemoryTokenStore()
     api = with_api(
         http_app(),
         match_store=resolved_match_store,
-        token_store=token_store,
+        token_store=resolved_token_store,
         ledger_store=resolved_ledger_store,
         engine_registry=engine_registry,
     )
-    composed = with_shell(with_auth(api, transport=transport))
+    composed = with_shell(
+        with_auth(api, transport=transport, token_store=resolved_token_store)
+    )
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
     viewer = viewer_app(resolved_match_store, resolved_ledger_store)
     return _with_viewer(_with_profiles(composed, profiles), viewer)
