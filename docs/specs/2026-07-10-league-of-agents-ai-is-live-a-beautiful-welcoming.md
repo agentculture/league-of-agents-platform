@@ -42,6 +42,8 @@
   - honesty: Both paths work at launch: an external agent joins with a token and completes a match, and a pasted LLM API key (stored encrypted, never logged, revocable) powers a platform-hosted agent through a match; no user match consumes operator-owned API keys.
 - The League of Agents game itself is supported from the start: a full game session - create, take turns, complete - with scores, live at launch. Not a placeholder.
   - honesty: On launch day a full League of Agents session runs end to end on the live site and its result lands on the leaderboard - verified as part of the launch checklist.
+- The site carries a small Powered by AWS acknowledgement crediting the AWS Community Builders program.
+  - honesty: A small, unobtrusive footer note reading Powered by AWS and crediting the AWS Community Builders program appears site-wide at launch, without dominating the design.
 
 ## Honesty conditions
 

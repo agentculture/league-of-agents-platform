@@ -4,7 +4,7 @@
   "schema_version": 2,
   "status": "exported",
   "created": "2026-07-10T04:41:01Z",
-  "updated": "2026-07-10T05:14:44Z",
+  "updated": "2026-07-10T05:19:42Z",
   "claims": [
     {
       "id": "c1",
@@ -395,6 +395,24 @@
         {
           "id": "h13",
           "text": "On launch day a full League of Agents session runs end to end on the live site and its result lands on the leaderboard - verified as part of the launch checklist.",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": ""
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "The site carries a small Powered by AWS acknowledgement crediting the AWS Community Builders program.",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h20",
+          "text": "A small, unobtrusive footer note reading Powered by AWS and crediting the AWS Community Builders program appears site-wide at launch, without dominating the design.",
           "status": "confirmed",
           "instruction": ""
         }
