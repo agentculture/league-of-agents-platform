@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-10
+
+### Added
+
+- The dazzle pass ships: theme-native animated arena hero on the landing page (turn-stepped board, accent flare, score tick, ~12s seamless loop; dignified still under prefers-reduced-motion), manual light/dark/system theme toggle with pre-paint snippet (no flash of wrong theme) persisted per visitor, motion system (staggered reveals, micro-interactions, view-transition crossfades) fully guarded behind prefers-reduced-motion, first-party /site.js (2.5KB of the 8KB budget)
+- Dazzle parity on every page family: with_shell pages, viewer (leaderboard + live watch), and profiles all carry the canonical header (wordmark + nav + toggle via shell.header_html()), skip link, pre-paint snippet, and /site.js — an explicit theme choice follows the visitor everywhere
+- Link-integrity crawl test: BFS over the composed production app asserting zero broken internal links (colleague-backend-validated design)
+- Renegotiated performance budget contract: 24KB CSS / 8KB JS / zero external requests, test-enforced including a real combined-payload measurement
+- Markdown renderer folds indented continuation prose into list items (CommonMark lazy continuation) while indented block constructs still break out — landing bullets no longer render broken
+
+### Changed
+
+- Live watch page gets no entrance animation (its 5s meta-refresh would replay the cascade); stagger delays apply only to elements on screen at load
+- SSR theme-toggle label is state-neutral so it never lies before /site.js paints the real state; /theme.css and /site.js answer GET/HEAD only
+- Dark palette generated from one _DARK_TOKENS constant into both dark selectors — explicit-choice dark and OS dark can never drift
+
+### Fixed
+
+- Landing h1-strip regex anchored to the body start so a mid-page heading can never be silently deleted
+- Exact script-inventory test pins one pre-paint snippet + one /site.js on every page family (quote-agnostic — catches single-quote/protocol-relative/inline smuggling)
+
 ## [0.6.1] - 2026-07-10
 
 ### Added
