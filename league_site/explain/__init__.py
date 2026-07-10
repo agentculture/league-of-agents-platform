@@ -16,7 +16,7 @@ def resolve(path: tuple[str, ...]) -> str:
     raise CliError(
         code=EXIT_USER_ERROR,
         message=f"no explain entry for: {display}",
-        remediation="list entries with: league-of-agents-platform explain league-of-agents-platform",
+        remediation="list entries with: league-site explain explain",
     )
 
 

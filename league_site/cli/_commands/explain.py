@@ -1,4 +1,4 @@
-"""``league-of-agents-platform explain <path>...`` — global markdown catalog lookup (stable-contract).
+"""``league-site explain <path>...`` — global markdown catalog lookup (stable-contract).
 
 ``explain`` is global (not nested under a noun). It takes zero or more path
 tokens and resolves them via the catalog in :mod:`league_site.explain`.

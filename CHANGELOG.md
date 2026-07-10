@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-10
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Genesis-commit `flake8` failure (E501). `guild create` renames the template
+  token `culture-agent-template` (22 chars) to this repo's token
+  `league-of-agents-platform` (25 chars) — the first sibling whose token is
+  *longer* than the template's — which pushed two lines past the 100-character
+  limit.
+- Both offending lines named the repo token where they meant the **console
+  command**. `--command` retargets only the `[project.scripts]` entry-point key,
+  so prose referring to the binary kept the repo token. They now say
+  `league-site`, which is both correct and short enough:
+  - `league_site/cli/_commands/explain.py` — module docstring.
+  - `league_site/explain/__init__.py` — the `CliError` remediation, which also
+    pointed at `explain league-of-agents-platform`, a path that is not in the
+    catalog. It now points at `explain explain`, which is.
+
 ## [0.4.0] - 2026-06-23
 
 ### Added
