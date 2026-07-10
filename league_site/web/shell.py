@@ -42,8 +42,26 @@ Usage
     application = with_shell(http_app())
 
 It also serves the design system's stylesheet at ``/theme.css`` (see
-:mod:`league_site.web.theme`) directly, so a caller only has to wrap the app
-once to get both the layout and its styling.
+:mod:`league_site.web.theme`) and the site's one first-party script at
+``/site.js`` (see :mod:`league_site.web.scripts`) directly, so a caller
+only has to wrap the app once to get the layout, its styling, and its
+progressive enhancements (theme toggle, reveal-on-scroll).
+
+JavaScript in the shell — two pieces, both first-party
+------------------------------------------------------
+Shelled pages carry exactly two scripts, and raw passthrough responses
+carry none (they are byte-identical to the unwrapped app, as ever):
+
+* An **inline pre-paint snippet** (:data:`league_site.web.scripts.
+  PRE_PAINT_JS`) placed in ``<head>`` *before* the stylesheet link, so it
+  runs before first paint: it applies a stored explicit theme choice to
+  ``<html data-theme>`` (no flash of the wrong theme) and stamps
+  ``html[data-js]`` so JS-gated reveal styles can never hide content when
+  JavaScript is off.
+* A **deferred ``/site.js``** tag for everything that can wait for the
+  DOM: the header theme-toggle button's behavior and the
+  IntersectionObserver reveal. With JavaScript disabled the toggle button
+  is inert but harmless and theming falls back to the OS preference.
 """
 
 from __future__ import annotations
@@ -51,7 +69,7 @@ from __future__ import annotations
 import html
 from typing import Any, Callable
 
-from league_site.web import theme
+from league_site.web import scripts, theme
 from league_site.web._markdown import extract_title, render
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
@@ -60,6 +78,7 @@ _MD_SUFFIX = ".md"
 _UNSHELLED_PATHS = frozenset({"/llms.txt", "/front"})
 _CT_MARKDOWN = "text/markdown"
 _THEME_PATH = "/theme.css"
+_SITE_JS_PATH = "/site.js"
 
 #: The landing page is reachable at two URLs — the canonical ``/`` (see
 #: :func:`league_site.web.http._with_root_landing`, which rewrites
@@ -101,6 +120,22 @@ _WORDMARK_HTML = (
     "<span>LEAGUE</span>"
     '<span class="wordmark-accent">OF AGENTS</span>'
     "</a>"
+)
+
+#: The header theme-toggle button, rendered in its "system" state — the
+#: truthful default for markup that ships before any script runs (no
+#: ``data-theme`` attribute means the OS decides). ``/site.js`` repaints
+#: the glyph/title/aria-label to the *current* state at load and on every
+#: click (cycling light → dark → system). With JavaScript disabled the
+#: button is inert but harmless: it has a real accessible name, visible
+#: text, and ``type="button"`` so it can never submit anything — pages
+#: stay fully readable and theming falls back to the OS preference.
+#: Styling hook only (class ``theme-toggle``); polish lands with t4/t5's
+#: theme.css work, not here.
+_THEME_TOGGLE_HTML = (
+    '<button type="button" id="theme-toggle" class="theme-toggle"'
+    ' title="Theme: system"'
+    ' aria-label="Theme: system — activate to switch to light">◐</button>'
 )
 
 
@@ -167,6 +202,9 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
         if path == _THEME_PATH:
             return _serve_theme_css(start_response)
 
+        if path == _SITE_JS_PATH:
+            return _serve_site_js(start_response)
+
         captured: dict[str, Any] = {}
 
         def capture_start_response(
@@ -232,6 +270,18 @@ def _serve_theme_css(start_response: Any) -> list[bytes]:
     return [body]
 
 
+def _serve_site_js(start_response: Any) -> list[bytes]:
+    body = scripts.SITE_JS.encode("utf-8")
+    start_response(
+        "200 OK",
+        [
+            ("Content-Type", "application/javascript; charset=utf-8"),
+            ("Content-Length", str(len(body))),
+        ],
+    )
+    return [body]
+
+
 def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) -> str:
     title = _SITE_TITLE if path in _LANDING_PATHS else extract_title(markdown_text) or _SITE_TITLE
     page_title = title if title == _SITE_TITLE else f"{title} — {_SITE_TITLE}"
@@ -245,7 +295,9 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{html.escape(_SITE_DESCRIPTION)}">
 <title>{html.escape(page_title)}</title>
+<script>{scripts.PRE_PAINT_JS}</script>
 <link rel="stylesheet" href="{_THEME_PATH}">
+<script defer src="{_SITE_JS_PATH}"></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -253,6 +305,7 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
 <div class="wrap">
 {_WORDMARK_HTML}
 <nav aria-label="Primary">{nav_html}</nav>
+{_THEME_TOGGLE_HTML}
 </div>
 </header>
 <main id="main" class="wrap">
