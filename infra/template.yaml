@@ -36,6 +36,17 @@ Parameters:
       Email address that receives AWS Budgets threshold notifications. No
       default on purpose — the operator must supply a real address at
       deploy time (see infra/deploy.sh).
+  SessionSecretValue:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: >-
+      HMAC signing secret for session tokens (league_site.auth.sessions,
+      SESSION_SECRET_ENV=LEAGUE_SESSION_SECRET). Empty by default, which
+      leaves sessions disabled — there is no OAuth login flow deployed yet
+      for a secret to protect. NoEcho so CloudFormation never surfaces the
+      value in the console/CLI/DescribeStacks output once an operator sets
+      it at deploy time.
 
   # The four capacity caps below default to exactly
   # league_site.capacity.config.CapacityConfig.default()'s values —
@@ -100,13 +111,13 @@ Globals:
     Tracing: Disabled
 
 # --- resources -------------------------------------------------------------
-# Exactly eight: the HTTP API, the HTTP Lambda function and its log group,
-# the scheduled cleanup Lambda function and its log group, the DynamoDB
-# table, the S3 archive bucket, and the Budget alarm. (SAM's transform
-# additionally provisions an IAM execution role per function, an API
-# stage, and — for the cleanup function's Schedule event below — an
-# EventBridge rule plus the Lambda invoke permission it needs; those are
-# implicit, not written here.)
+# Exactly ten: the HTTP API, the HTTP Lambda function and its log group,
+# the scheduled cleanup Lambda function and its log group, the three
+# DynamoDB tables (matches, tokens, ratings), the S3 archive bucket, and
+# the Budget alarm. (SAM's transform additionally provisions an IAM
+# execution role per function, an API stage, and — for the cleanup
+# function's Schedule event below — an EventBridge rule plus the Lambda
+# invoke permission it needs; those are implicit, not written here.)
 
 Resources:
   # API Gateway HTTP API (not REST API) — HTTP APIs are billed per request
@@ -148,14 +159,29 @@ Resources:
         Variables:
           # Not read by the handler today (league_site/aws_lambda/handler.py
           # only serves the WSGI app, no boto3 import) — provisioned ahead of
-          # a later task that wires league_site.matches persistence into the
-          # deployed stack, so that task has these names ready without a
-          # second template change.
+          # the later task that wires league_site.matches/auth/ratings
+          # persistence into the deployed stack, so that task has these
+          # names ready without a second template change. Names must match
+          # exactly: MATCHES_TABLE_NAME/ARCHIVE_BUCKET_NAME are cross-checked
+          # against league_site.cli._commands._stores' MATCHES_TABLE_ENV/
+          # ARCHIVE_BUCKET_ENV constants, and LEAGUE_SESSION_SECRET against
+          # league_site.auth.sessions.SESSION_SECRET_ENV (see
+          # tests/test_lambda_template.py).
           MATCHES_TABLE_NAME:
             Ref: MatchesTable
           ARCHIVE_BUCKET_NAME:
             Ref: ArchiveBucket
-          # Same "provisioned ahead of the wiring task" reasoning as the two
+          TOKENS_TABLE_NAME:
+            Ref: TokensTable
+          RATINGS_TABLE_NAME:
+            Ref: RatingsTable
+          # Empty string (SessionSecretValue's default) means sessions are
+          # disabled — league_site.auth.sessions.verify/issue require a
+          # non-empty secret; see that parameter's own comment above for why
+          # an empty default is fine pre-OAuth.
+          LEAGUE_SESSION_SECRET:
+            Ref: SessionSecretValue
+          # Same "provisioned ahead of the wiring task" reasoning as the
           # variables above: the match-create path will call
           # league_site.capacity.guard.check_capacity, built from
           # league_site.capacity.config.CapacityConfig.from_env(), which
@@ -168,18 +194,38 @@ Resources:
             Ref: MaxMatchAgeDaysHot
           LEAGUE_CAPACITY_MAX_ARCHIVE_AGE_DAYS:
             Ref: MaxArchiveAgeDays
-      # Scoped CRUD access to exactly this stack's own table/bucket — no
-      # wildcard AWS-managed policies. Also unused by the handler today
+      # Scoped CRUD access to exactly this stack's own tables/bucket — no
+      # wildcard AWS-managed policies. Mostly unused by the handler today
       # (same reason as the env vars above); granting it now means the
       # later persistence-wiring task is a code change only, not an IAM
-      # change too.
+      # change too. DynamoDBCrudPolicy's generated statement already covers
+      # `<table-arn>/index/*` (every GSI on that table), so MatchesTable's
+      # grant below already includes Query access to the by-status-updated
+      # GSI added on MatchesTable further down; the trailing inline
+      # statement makes that specific grant explicit and named for
+      # least-privilege auditability rather than relying on the wildcard
+      # alone.
       Policies:
         - DynamoDBCrudPolicy:
             TableName:
               Ref: MatchesTable
+        - DynamoDBCrudPolicy:
+            TableName:
+              Ref: TokensTable
+        - DynamoDBCrudPolicy:
+            TableName:
+              Ref: RatingsTable
         - S3CrudPolicy:
             BucketName:
               Ref: ArchiveBucket
+        - Version: "2012-10-17"
+          Statement:
+            - Sid: QueryMatchesByStatusUpdatedIndex
+              Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource:
+                Fn::Sub: "${MatchesTable.Arn}/index/by-status-updated"
       Events:
         AnyRequest:
           Type: HttpApi
@@ -187,6 +233,18 @@ Resources:
             ApiId:
               Ref: HttpApi
             Path: /{proxy+}
+            Method: ANY
+        # API Gateway HTTP API's greedy `{proxy+}` route above does not
+        # match the bare root path — verified against the live deployed
+        # stack, where GET / returned API Gateway's own 404 before this
+        # route existed, not the handler's. An explicit `/` route is
+        # required alongside `{proxy+}` to cover it.
+        RootRequest:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /
             Method: ANY
 
   # CloudWatch Logs cost is retention x volume; an explicit LogGroup with a
@@ -249,7 +307,11 @@ Resources:
             Ref: MaxArchiveAgeDays
       # Same scoped CRUD access as HttpHandlerFunction — no wildcard
       # AWS-managed policies. This function actually exercises them today
-      # (unlike HttpHandlerFunction's still-unwired grant above).
+      # (unlike HttpHandlerFunction's still-unwired grant above). Same
+      # "explicit + named" reasoning as HttpHandlerFunction's trailing
+      # inline statement for the by-status-updated GSI: the cleanup sweep
+      # queries it directly (rather than scanning) once wired, per
+      # league_site/aws_lambda/cleanup.py's module docstring.
       Policies:
         - DynamoDBCrudPolicy:
             TableName:
@@ -257,6 +319,14 @@ Resources:
         - S3CrudPolicy:
             BucketName:
               Ref: ArchiveBucket
+        - Version: "2012-10-17"
+          Statement:
+            - Sid: QueryMatchesByStatusUpdatedIndex
+              Effect: Allow
+              Action:
+                - dynamodb:Query
+              Resource:
+                Fn::Sub: "${MatchesTable.Arn}/index/by-status-updated"
       Events:
         # A SAM Schedule event source: this is the "EventBridge scheduled
         # rule targeting the cleanup Lambda" — SAM's transform provisions
@@ -285,6 +355,9 @@ Resources:
   # with the full turn history embedded as a List attribute. See
   # league_site/matches/serialization.py's module docstring for the full
   # key-scheme rationale (kept in exactly one place; not duplicated here).
+  # This is a live, deployed table (league-of-agents-platform-prod) — only
+  # additive changes belong here (e.g. the GSI below); TableName/BillingMode
+  # must never change, since either forces a replacement.
   MatchesTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -301,10 +374,86 @@ Resources:
           AttributeType: S
         - AttributeName: SK
           AttributeType: S
+        # status/updated_at back the by-status-updated GSI below only —
+        # DynamoDB requires every key attribute used anywhere on the table
+        # (base table or any index) declared once, table-wide, here. Both
+        # are already plain string item attributes written by
+        # league_site/matches/serialization.py's to_item (status.value,
+        # updated_at.isoformat()) — no item-shape change, just indexing
+        # attributes that already exist.
+        - AttributeName: status
+          AttributeType: S
+        - AttributeName: updated_at
+          AttributeType: S
       KeySchema:
         - AttributeName: PK
           KeyType: HASH
         - AttributeName: SK
+          KeyType: RANGE
+      # Adding a GSI to an existing table is an in-place update (no
+      # replacement) — see league_site/matches/aws.py's
+      # DynamoDBMatchStore.list_ids docstring: this is exactly the
+      # "suggested access pattern" GSI it names, finally provisioned so a
+      # later handler-wiring task can Query it instead of scanning the
+      # whole table. ProjectionType ALL: the handler/cleanup Query paths
+      # need full match metadata back (not just the key + a few
+      # attributes), and this table's items are small (see
+      # league_site/capacity/config.py's per-item size reasoning), so the
+      # extra projected storage is a rounding error against the ceiling —
+      # the same cost posture that module documents for the base table.
+      GlobalSecondaryIndexes:
+        - IndexName: by-status-updated
+          KeySchema:
+            - AttributeName: status
+              KeyType: HASH
+            - AttributeName: updated_at
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # Agent bearer-token records, keyed by the sha256 hash of the presented
+  # token (never the raw token itself) — mirrors
+  # league_site/auth/aws_tokens.py's DynamoDBTokenStore lookup-by-hash
+  # access pattern (verify() hashes the presented token and looks it up
+  # directly; no scan needed for that path).
+  TokensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: "league-of-agents-${StageName}-tokens"
+      # Same on-demand reasoning as MatchesTable: bursty, low-volume
+      # traffic (token issuance/verification is not a steady stream), no
+      # idle-capacity floor worth paying for at this scale.
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: token_hash
+          AttributeType: S
+      KeySchema:
+        - AttributeName: token_hash
+          KeyType: HASH
+
+  # Append-only per-identity rating ledger — one item per (player_id,
+  # entry_id), never mutated once written. Mirrors
+  # league_site/ratings/ledger.py's RatingLedgerStore/RatingEntry
+  # docstrings: record_match appends exactly one new entry per identity per
+  # match, so entry_id as the sort key gives a natural, ordered history per
+  # player_id without a separate index.
+  RatingsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: "league-of-agents-${StageName}-ratings"
+      # Same on-demand reasoning as MatchesTable/TokensTable.
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: player_id
+          AttributeType: S
+        - AttributeName: entry_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: player_id
+          KeyType: HASH
+        - AttributeName: entry_id
           KeyType: RANGE
 
   # Completed-match archives (league_site/matches/serialization.py's
@@ -381,6 +530,14 @@ Outputs:
     Description: Name of the deployed DynamoDB matches table.
     Value:
       Ref: MatchesTable
+  TokensTableName:
+    Description: Name of the deployed DynamoDB agent-tokens table.
+    Value:
+      Ref: TokensTable
+  RatingsTableName:
+    Description: Name of the deployed DynamoDB ratings-ledger table.
+    Value:
+      Ref: RatingsTable
   ArchiveBucketName:
     Description: Name of the deployed S3 archive bucket.
     Value:
