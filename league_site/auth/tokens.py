@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 from league_site.auth.token_store import TokenRecord, TokenStore
 
-TOKEN_PREFIX = "loa_"
+TOKEN_PREFIX = "loa_"  # nosec B105 - public token-format prefix, not a credential
 
 _BEARER_PREFIX = "bearer "
 
