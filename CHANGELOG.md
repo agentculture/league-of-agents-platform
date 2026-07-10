@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-07-10
+
+### Added
+
+- Launch-sweep spec: clear every raise-the-site blocker and leftover (devague /think, frame the-launch-backlog-is-clear-and-league-of-agents-a)
+
 ## [0.5.1] - 2026-07-10
 
 ### Fixed
