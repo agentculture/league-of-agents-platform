@@ -138,18 +138,22 @@ SITE_JS = """\
     //   delay is only ever given to elements visible at load — a delay
     //   on scroll-time reveals would keep below-fold content invisible
     //   for the delay AFTER it entered the viewport.
-    if (document.querySelector('meta[http-equiv="refresh" i]')) { return; }
+    try {
+      if (document.querySelector('meta[http-equiv="refresh"]')) { return; }
+    } catch (e) { /* selector threw: treat as no refresh meta */ }
     var main = document.getElementById("main");
     if (!main) { return; }
     var fold = window.innerHeight || 0;
     var kids = main.children;
     var picked = [];
     var i;
+    var rect;
     for (i = 0; i < kids.length && picked.length < 12; i++) {
       if (kids[i].classList.contains("hero")) { continue; }
+      rect = kids[i].getBoundingClientRect();
       picked.push({
         el: kids[i],
-        onScreen: kids[i].getBoundingClientRect().top < fold
+        onScreen: rect.top < fold && rect.bottom > 0
       });
     }
     for (i = 0; i < picked.length; i++) {
