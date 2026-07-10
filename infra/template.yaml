@@ -96,15 +96,19 @@ Globals:
     # saving against the 20 USD ceiling with no downside here.
     Architectures:
       - arm64
-    # 256 MB is the smallest size that keeps cold starts reasonable for a
-    # pure-Python handler at this dependency footprint; Lambda cost is
-    # GB-seconds, so this is the main compute lever against the ceiling.
-    # Bump it only if profiling shows it paying for itself in latency.
-    MemorySize: 256
-    # Generous relative to actual handler latency (markdown lookups are
-    # microseconds), but still caps the worst-case cost of a runaway/looping
-    # invocation at 10s x MemorySize instead of the 900s maximum.
-    Timeout: 10
+    # 1024 MB: Lambda CPU scales linearly with memory, and match turns
+    # spawn several `python -m league` child interpreters (arena show,
+    # team register, match new/act/tick/show) — at 256 MB the first
+    # production match-create hit the 10s timeout on subprocess starts
+    # alone (live finding). Cost is GB-seconds: 4x the rate but a far
+    # smaller duration, and match traffic is capacity-capped (see
+    # docs/capacity.md), so the ceiling math still clears comfortably.
+    MemorySize: 1024
+    # 29s: one second under API Gateway HTTP API's ~30s integration
+    # ceiling (the gateway would cut the response anyway), so a slow
+    # multi-subprocess game turn finishes instead of being killed
+    # mid-match; still caps runaway cost far below the 900s maximum.
+    Timeout: 29
     # X-Ray tracing bills per trace with no operational payoff at this
     # scale (single Lambda, no fan-out to trace) — left off to avoid an
     # unbounded-by-traffic cost line.
