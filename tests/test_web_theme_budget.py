@@ -40,29 +40,37 @@ def test_total_asset_budget_is_the_sum_of_the_css_and_js_ceilings() -> None:
 def test_site_js_payload_is_within_the_js_budget() -> None:
     """Auto-activates once a later task adds :mod:`league_site.web.scripts`.
 
-    Until then this skips cleanly — there is no ``SITE_JS`` to measure yet,
-    and the pre-dazzle baseline is genuinely zero JS (see
-    ``test_zero_script_shell_baseline_is_still_true_pre_dazzle`` below).
+    That task (t3) has now landed, so the importorskip is a formality —
+    kept so this file reads the same before and after the module existed.
     """
     scripts = pytest.importorskip("league_site.web.scripts")
     payload = scripts.SITE_JS.encode("utf-8")
     assert len(payload) <= theme.JS_BUDGET_BYTES
 
 
-def test_zero_script_shell_baseline_is_still_true_pre_dazzle() -> None:
-    """The pre-dazzle baseline this budget was renegotiated from: zero JS.
+def test_shell_scripts_are_exactly_the_budgeted_first_party_ones() -> None:
+    """The successor to the pre-dazzle zero-script baseline test.
 
-    :mod:`league_site.web.shell` emits no ``<script>`` tag anywhere in its
-    page template. Once a later task wires in ``/site.js`` (and possibly an
-    inline pre-paint snippet), this assertion is expected to change —
-    that's the renegotiated JS allowance being spent, not a regression.
+    The old assertion here (``"<script" not in inspect.getsource(shell)``)
+    documented the baseline the JS budget was renegotiated *from*; its own
+    docstring said it was expected to change once a later task wired in
+    ``/site.js`` and an inline pre-paint snippet. That task (t3) landed —
+    so the assertion evolves with the contract: the shell may only emit
+    the inline pre-paint snippet plus a deferred first-party ``/site.js``
+    tag, and their combined weight (the snippet counts toward the JS
+    budget even though it never travels via ``/site.js``) stays within
+    :data:`league_site.web.theme.JS_BUDGET_BYTES`.
     """
     import inspect
 
-    from league_site.web import shell
+    from league_site.web import scripts, shell
 
     source = inspect.getsource(shell)
-    assert "<script" not in source
+    assert "<script" in source, "t3's script wiring should be present now"
+    assert '"/site.js"' in source
+    assert 'src="http' not in source and "src='http" not in source
+    combined = len(scripts.SITE_JS.encode("utf-8")) + len(scripts.PRE_PAINT_JS.encode("utf-8"))
+    assert combined <= theme.JS_BUDGET_BYTES
 
 
 def test_stylesheet_still_makes_no_external_requests() -> None:

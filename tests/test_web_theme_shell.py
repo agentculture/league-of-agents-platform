@@ -50,7 +50,13 @@ def test_index_page_carries_the_full_shell() -> None:
     assert "<header" in text and "</header>" in text
     assert "<main" in text and "</main>" in text
     assert "<footer" in text and "</footer>" in text
-    assert "<script" not in text.lower()
+    # The dazzle pass spent (part of) the renegotiated JS allowance: the
+    # only scripts on a page are the inline pre-paint snippet and the
+    # first-party /site.js — never anything external. The zero-script
+    # baseline this evolved from is documented in test_web_theme_budget.py.
+    assert '<script defer src="/site.js"></script>' in text
+    for src in re.findall(r'<script[^>]*\bsrc="([^"]+)"', text):
+        assert src.startswith("/"), f"external script src: {src}"
 
 
 def test_header_carries_wordmark_and_nav_placeholders() -> None:
