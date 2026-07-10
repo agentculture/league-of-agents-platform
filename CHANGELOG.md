@@ -24,8 +24,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `league-site`, which is both correct and short enough:
   - `league_site/cli/_commands/explain.py` — module docstring.
   - `league_site/explain/__init__.py` — the `CliError` remediation, which also
-    pointed at `explain league-of-agents-platform`, a path that is not in the
-    catalog. It now points at `explain explain`, which is.
+    pointed at `explain league-of-agents-platform`, a path that was not in the
+    catalog at the time.
+- The unknown-path remediation promised to "list entries" but pointed at
+  `league-site explain explain`, which renders the `("explain",)` entry — usage
+  text for the verb, with no listing. Bare `league-site explain` resolves the
+  root entry, which carries the `## Verbs` list. The hint now says that, so the
+  advice it gives does what it claims. (The awkward `explain explain` wording
+  existed only because the root was not yet keyed by a resolvable name; the
+  rubric-gate fix below removed that constraint.) Reported by Qodo on #2.
 - Genesis-commit `markdownlint` failure (MD034, bare URL). `guild create`
   injects `--desc` verbatim into the `README.md` intro and the `CLAUDE.md` seed,
   and this repo's description contains `https://league-of-agents.ai`. Both are
