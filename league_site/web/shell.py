@@ -228,11 +228,14 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
         # Static assets answer GET/HEAD only; any other method falls
         # through to the wrapped app so the surface's method handling
         # (405s) stays uniform instead of these two paths accepting POST.
-        if environ.get("REQUEST_METHOD", "GET") in ("GET", "HEAD"):
+        method = environ.get("REQUEST_METHOD", "GET")
+        if method in ("GET", "HEAD"):
             if path == _THEME_PATH:
-                return _serve_static(start_response, _STYLESHEET_BYTES, "text/css")
+                return _serve_static(start_response, _STYLESHEET_BYTES, "text/css", method)
             if path == _SITE_JS_PATH:
-                return _serve_static(start_response, _SITE_JS_BYTES, "application/javascript")
+                return _serve_static(
+                    start_response, _SITE_JS_BYTES, "application/javascript", method
+                )
 
         captured: dict[str, Any] = {}
 
@@ -293,7 +296,13 @@ _STYLESHEET_BYTES = theme.STYLESHEET.encode("utf-8")
 _SITE_JS_BYTES = scripts.SITE_JS.encode("utf-8")
 
 
-def _serve_static(start_response: Any, body: bytes, mime: str) -> list[bytes]:
+def _serve_static(start_response: Any, body: bytes, mime: str, method: str) -> list[bytes]:
+    """Serve one immutable asset for GET or HEAD.
+
+    HEAD gets the exact same headers — including the ``Content-Length`` of
+    the would-be body — but an empty body, per HTTP semantics; many WSGI
+    servers do not strip the body for you.
+    """
     start_response(
         "200 OK",
         [
@@ -301,7 +310,7 @@ def _serve_static(start_response: Any, body: bytes, mime: str) -> list[bytes]:
             ("Content-Length", str(len(body))),
         ],
     )
-    return [body]
+    return [] if method == "HEAD" else [body]
 
 
 #: The LEADING rendered ``<h1>`` block of a landing page's markdown body —
