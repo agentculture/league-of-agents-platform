@@ -11,13 +11,14 @@ entry as ``/<slug>``. The registry built by
 both URLs — this wrapper only rewrites ``PATH_INFO`` before delegating to
 agentfront's own WSGI app.
 
-:func:`site_app` composes this surface with the HTML shell
-(:mod:`league_site.web.shell`) and the footer branding
-(:mod:`league_site.web.branding`) — it is what actually serves the site
-(see :mod:`league_site.aws_lambda.handler`); :func:`http_app` alone stays
-the raw, unshelled markdown surface that :func:`site_app` wraps and that
-existing tests (and the ``.md``/``llms.txt``/``front`` passthroughs) keep
-exercising directly.
+:func:`site_app` composes this surface with the match API
+(:mod:`league_site.api.wsgi`), human/agent auth
+(:mod:`league_site.auth.wsgi`), the HTML shell (:mod:`league_site.web.
+shell`), and the footer branding (:mod:`league_site.web.branding`) — it is
+what actually serves the site (see :mod:`league_site.aws_lambda.handler`);
+:func:`http_app` alone stays the raw, unshelled markdown surface that
+:func:`site_app` wraps and that existing tests (and the
+``.md``/``llms.txt``/``front`` passthroughs) keep exercising directly.
 """
 
 from __future__ import annotations
@@ -25,6 +26,12 @@ from __future__ import annotations
 from typing import Any, Callable
 from wsgiref.simple_server import WSGIServer, make_server
 
+from league_site.api.wsgi import EngineRegistry, with_api
+from league_site.auth import oauth
+from league_site.auth.token_store import TokenStore
+from league_site.auth.wsgi import with_auth
+from league_site.matches import MatchStore
+from league_site.ratings.ledger import RatingLedgerStore
 from league_site.web.app import build_app
 from league_site.web.branding import register_branding
 from league_site.web.shell import with_shell
@@ -62,31 +69,68 @@ def http_app() -> WSGIApp:
     return _md_passthrough(build_app().http_app())
 
 
-def site_app() -> WSGIApp:
-    """Return the platform's composed site app: :func:`http_app` + the HTML shell.
+def site_app(
+    *,
+    transport: oauth.Transport = oauth.default_transport,
+    match_store: MatchStore | None = None,
+    token_store: TokenStore | None = None,
+    ledger_store: RatingLedgerStore | None = None,
+    engine_registry: EngineRegistry | None = None,
+) -> WSGIApp:
+    """Return the platform's composed site app: auth + API + :func:`http_app` + the HTML shell.
 
     This is the app callers actually want to *serve* — the local dev server
     (:func:`serve`) and the Lambda entrypoint
-    (:mod:`league_site.aws_lambda.handler`) both use it. It layers, on top
-    of :func:`http_app`:
+    (:mod:`league_site.aws_lambda.handler`) both use it. Composition order,
+    outermost first::
 
-    * :func:`~league_site.web.branding.register_branding`, which registers
-      the footer acknowledgement fragment into the process-wide
-      :data:`~league_site.web.shell.FOOTER_SLOTS` registry (idempotent, so
-      calling :func:`site_app` more than once — e.g. once per Lambda cold
-      start plus once in a test — never duplicates the footer line).
-    * :func:`~league_site.web.shell.with_shell`, which wraps every rendered
-      markdown page (``/``, ``/<slug>``) in the shared HTML layout —
-      header, main content, and the footer above.
+        with_shell(with_auth(with_api(http_app())))
+
+    * :func:`~league_site.web.branding.register_branding` runs first,
+      registering the footer acknowledgement fragment into the
+      process-wide :data:`~league_site.web.shell.FOOTER_SLOTS` registry
+      (idempotent, so calling :func:`site_app` more than once — e.g. once
+      per Lambda cold start plus once in a test — never duplicates the
+      footer line).
+    * :func:`~league_site.api.wsgi.with_api` is mounted directly on
+      :func:`http_app`, claiming every ``/api/v1/*`` path and passing
+      everything else through unchanged.
+    * :func:`~league_site.auth.wsgi.with_auth` wraps *that* — adding the
+      ``/auth/*`` routes and, on every request (API or page alike),
+      resolving the session cookie into
+      ``environ[league_site.auth.wsgi.SESSION_ENVIRON_KEY]`` before the
+      request reaches ``with_api``. This is why ``with_api`` must sit
+      *inside* ``with_auth`` rather than the other way around — see
+      :mod:`league_site.api.wsgi`'s docstring.
+    * :func:`~league_site.web.shell.with_shell` stays outermost, wrapping
+      every rendered markdown page (``/``, ``/<slug>``) in the shared HTML
+      layout — header, main content, and the footer above. It leaves the
+      API's ``application/json`` responses (and the ``/auth/*`` redirects)
+      alone, since it only ever shells a ``text/markdown`` response.
 
     All of :func:`http_app`'s byte-identical guarantees survive the wrap
     unchanged: raw ``.md`` passthrough, ``/llms.txt``, and ``/front`` are
     exempted by :func:`~league_site.web.shell.with_shell` itself (see that
     module's docstring), so they still return exactly what :func:`http_app`
     would return on its own.
+
+    Every keyword defaults to a fresh in-memory reference implementation
+    (see :func:`~league_site.api.wsgi.with_api`), so a bare ``site_app()``
+    — what the Lambda entrypoint and local dev server both call — is a
+    complete, self-contained app; tests inject their own stores/registry
+    (and OAuth ``transport``, forwarded to :func:`~league_site.auth.wsgi.
+    with_auth` unchanged) to control identity, persistence, and available
+    games.
     """
     register_branding()
-    return with_shell(http_app())
+    api = with_api(
+        http_app(),
+        match_store=match_store,
+        token_store=token_store,
+        ledger_store=ledger_store,
+        engine_registry=engine_registry,
+    )
+    return with_shell(with_auth(api, transport=transport))
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000) -> WSGIServer:
