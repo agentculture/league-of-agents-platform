@@ -26,6 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `league_site/explain/__init__.py` — the `CliError` remediation, which also
     pointed at `explain league-of-agents-platform`, a path that is not in the
     catalog. It now points at `explain explain`, which is.
+- Genesis-commit `markdownlint` failure (MD034, bare URL). `guild create`
+  injects `--desc` verbatim into the `README.md` intro and the `CLAUDE.md` seed,
+  and this repo's description contains `https://league-of-agents.ai`. Both are
+  now angle-bracketed (`<https://league-of-agents.ai>`).
 
 ## [0.4.0] - 2026-06-23
 
