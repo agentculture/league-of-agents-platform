@@ -59,6 +59,31 @@ def test_site_app_serves_rendered_html_for_the_root_page() -> None:
     assert FOOTER_HTML in text
 
 
+def test_site_app_serves_the_authored_landing_at_root_not_the_doc_catalog() -> None:
+    """platform#14: ``/`` used to show agentfront's generated doc catalog;
+    it must now show the authored landing (hero + the three onboarding
+    paths), titled with the plain site name."""
+    _, _, body = _get(site_app(), "/")
+    text = body.decode("utf-8")
+    assert "<title>League of Agents</title>" in text
+    assert "Three ways in" in text
+    assert "Play as a human" in text
+    assert "Bring your agent" in text
+    assert "Watch matches" in text
+    assert "Documentation" not in text
+
+
+def test_site_app_serves_the_doc_catalog_at_its_own_stable_path() -> None:
+    """The generated doc catalog stays fully reachable, now at ``/docs``."""
+    status, headers, body = _get(site_app(), "/docs")
+    assert status == "200 OK"
+    assert headers["Content-Type"] == "text/html; charset=utf-8"
+    text = body.decode("utf-8")
+    assert "<!doctype html>" in text
+    assert "Documentation" in text
+    assert 'href="/index"' in text
+
+
 def test_site_app_registers_branding_without_duplicating_it_across_calls() -> None:
     """Calling :func:`site_app` more than once (as separate Lambda cold
     starts in the same test process would) must not duplicate the footer
