@@ -24,14 +24,20 @@ module's docstring), and every response from here is
 
 Routes
 ------
-* ``POST /api/v1/matches`` — create a match (identity required). Body:
-  ``{"mode": "<game_id>", "opponent": {...}}``, both optional. ``mode``
-  selects a :class:`~league_site.matches.engine.GameEngine` factory from
-  the injected ``engine_registry`` (default:
-  :data:`league_site.api.engines.DEFAULT_ENGINE_REGISTRY`, a single
-  built-in stub engine — the real grid adapter registers into a registry
-  of this same shape post-merge). The requester becomes the first
-  participant; ``opponent`` (see
+* ``POST /api/v1/matches`` — create a match (identity required). Refused
+  with a ``429`` (:func:`~league_site.api.errors.capacity_exceeded`) if
+  :func:`~league_site.capacity.guard.check_capacity` finds the platform
+  already at a configured hard cap — checked before anything else about the
+  request body, so an over-cap create never even reaches mode/opponent
+  validation. Body: ``{"mode": "<game_id>", "opponent": {...}}``, both
+  optional. ``mode`` selects a :class:`~league_site.matches.engine.GameEngine`
+  factory from the injected ``engine_registry`` (default:
+  :func:`league_site.api.registry.default_engine_registry` — the built-in
+  stub engine plus the real League of Agents grid-lane game, one key per
+  bundled launch mode: ``"solo-vs-bot"``, ``"team-vs-team"``, ``"coop-2"``;
+  see that module's docstring for why a launch mode name, not the grid
+  engine's own constant ``game_id``, is the registry key). The requester
+  becomes the first participant; ``opponent`` (see
   :func:`league_site.api.identity.participant_for_opponent_spec`) adds a
   second. Omitting ``opponent`` creates a solo "practice" match against
   the engine itself — not rated on completion, since rating a match needs
@@ -72,14 +78,17 @@ from typing import Any
 from urllib.parse import parse_qs
 
 from league_site.api import errors
-from league_site.api.engines import DEFAULT_ENGINE_REGISTRY, DEFAULT_MODE
+from league_site.api.engines import DEFAULT_MODE
 from league_site.api.identity import (
     RequestIdentity,
     participant_for_identity,
     participant_for_opponent_spec,
     resolve_identity,
 )
+from league_site.api.registry import default_engine_registry
 from league_site.auth.token_store import InMemoryTokenStore, TokenStore
+from league_site.capacity.config import CapacityConfig
+from league_site.capacity.guard import Refusal, check_capacity
 from league_site.matches import (
     GameEngine,
     InMemoryMatchStore,
@@ -120,6 +129,7 @@ def with_api(
     ledger_store: RatingLedgerStore | None = None,
     engine_registry: EngineRegistry | None = None,
     rating_system: RatingSystem | None = None,
+    capacity_config: CapacityConfig | None = None,
 ) -> WSGIApp:
     """Wrap *app* with the ``/api/v1/*`` routes described in the module docstring.
 
@@ -130,14 +140,26 @@ def with_api(
     pre-issue agent tokens on the ``token_store``, or to simulate a
     process restart by handing a *new* :class:`~league_site.matches.
     store.InMemoryMatchStore` a copy of a previous one's serialized items.
+
+    ``capacity_config`` defaults to :meth:`~league_site.capacity.config.
+    CapacityConfig.from_env`, read exactly once here (at construction, i.e.
+    once per process/Lambda cold start) rather than per request — an
+    operator retunes caps by redeploying with new
+    ``LEAGUE_CAPACITY_*`` env vars, not by having every request re-parse
+    them. Tests inject an explicit :class:`~league_site.capacity.config.
+    CapacityConfig` to force a low cap without touching the environment; see
+    :func:`~league_site.capacity.guard.check_capacity`, called on every
+    ``POST /api/v1/matches`` before a new :class:`~league_site.matches.
+    match.Match` is constructed.
     """
     matches = match_store if match_store is not None else InMemoryMatchStore()
     agent_tokens = token_store if token_store is not None else InMemoryTokenStore()
     ledger = ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
     registry: EngineRegistry = (
-        dict(engine_registry) if engine_registry is not None else dict(DEFAULT_ENGINE_REGISTRY)
+        dict(engine_registry) if engine_registry is not None else default_engine_registry()
     )
     ratings = rating_system if rating_system is not None else IntegerEloRatingSystem()
+    capacity = capacity_config if capacity_config is not None else CapacityConfig.from_env()
 
     def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "/")
@@ -155,11 +177,12 @@ def with_api(
                 ledger=ledger,
                 registry=registry,
                 ratings=ratings,
+                capacity=capacity,
             )
         except errors.ApiError as exc:
-            return _json_response(
-                start_response, exc.status, {"code": exc.code, "message": str(exc)}
-            )
+            body: dict[str, Any] = {"code": exc.code, "message": str(exc)}
+            body.update(exc.extra)
+            return _json_response(start_response, exc.status, body)
         return _json_response(start_response, status, payload)
 
     return application
@@ -178,6 +201,7 @@ def _dispatch(
     ledger: RatingLedgerStore,
     registry: EngineRegistry,
     ratings: RatingSystem,
+    capacity: CapacityConfig,
 ) -> tuple[str, Any]:
     if path == _LEADERBOARD_PATH:
         _require_method(method, "GET")
@@ -185,7 +209,7 @@ def _dispatch(
 
     if _MATCHES_PATH.match(path):
         _require_method(method, "POST")
-        return _handle_create_match(environ, matches, agent_tokens, registry)
+        return _handle_create_match(environ, matches, agent_tokens, registry, capacity)
 
     turns_match = _MATCH_TURNS_PATH.match(path)
     if turns_match:
@@ -230,8 +254,18 @@ def _handle_create_match(
     matches: MatchStore,
     agent_tokens: TokenStore,
     registry: EngineRegistry,
+    capacity: CapacityConfig,
 ) -> tuple[str, Any]:
     identity = _require_identity(environ, agent_tokens)
+    decision = check_capacity(matches, capacity)
+    if isinstance(decision, Refusal):
+        raise errors.capacity_exceeded(
+            f"cannot create match: {decision.reason} limit reached "
+            f"({decision.current}/{decision.limit})",
+            reason=decision.reason,
+            current=decision.current,
+            limit=decision.limit,
+        )
     body = _read_json_body(environ)
 
     mode = body.get("mode", DEFAULT_MODE)

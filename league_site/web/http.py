@@ -30,8 +30,8 @@ from league_site.api.wsgi import EngineRegistry, with_api
 from league_site.auth import oauth
 from league_site.auth.token_store import TokenStore
 from league_site.auth.wsgi import with_auth
-from league_site.matches import MatchStore
-from league_site.ratings.ledger import RatingLedgerStore
+from league_site.matches import InMemoryMatchStore, MatchStore
+from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
 from league_site.web.app import build_app
 from league_site.web.branding import register_branding
 from league_site.web.shell import with_shell
@@ -39,6 +39,7 @@ from league_site.web.shell import with_shell
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
 _MD_SUFFIX = ".md"
+_PROFILES_PREFIX = "/profiles/"
 
 
 def _md_passthrough(inner: WSGIApp) -> WSGIApp:
@@ -54,6 +55,24 @@ def _md_passthrough(inner: WSGIApp) -> WSGIApp:
         if path != "/" and path.endswith(_MD_SUFFIX):
             environ = dict(environ)
             environ["PATH_INFO"] = path[: -len(_MD_SUFFIX)]
+        return inner(environ, start_response)
+
+    return application
+
+
+def _with_profiles(inner: WSGIApp, profiles: WSGIApp) -> WSGIApp:
+    """Wrap *inner* so any ``PATH_INFO`` starting with ``/profiles/`` goes to *profiles* instead.
+
+    Checked ahead of everything *inner* does — :func:`site_app` uses this to
+    dispatch to :func:`~league_site.profiles.wsgi.profile_app` before a
+    request ever reaches ``with_shell``/``with_auth``/``with_api``, per that
+    function's docstring.
+    """
+
+    def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+        path = environ.get("PATH_INFO", "/")
+        if path.startswith(_PROFILES_PREFIX):
+            return profiles(environ, start_response)
         return inner(environ, start_response)
 
     return application
@@ -77,14 +96,14 @@ def site_app(
     ledger_store: RatingLedgerStore | None = None,
     engine_registry: EngineRegistry | None = None,
 ) -> WSGIApp:
-    """Return the platform's composed site app: auth + API + :func:`http_app` + the HTML shell.
+    """Return the platform's composed site app: profiles + auth + API + :func:`http_app` + shell.
 
     This is the app callers actually want to *serve* — the local dev server
     (:func:`serve`) and the Lambda entrypoint
     (:mod:`league_site.aws_lambda.handler`) both use it. Composition order,
     outermost first::
 
-        with_shell(with_auth(with_api(http_app())))
+        profiles-or(with_shell(with_auth(with_api(http_app()))))
 
     * :func:`~league_site.web.branding.register_branding` runs first,
       registering the footer acknowledgement fragment into the
@@ -92,6 +111,16 @@ def site_app(
       (idempotent, so calling :func:`site_app` more than once — e.g. once
       per Lambda cold start plus once in a test — never duplicates the
       footer line).
+    * The ``match_store``/``ledger_store`` keywords are resolved to concrete
+      instances (defaulting to a fresh :class:`~league_site.matches.store.
+      InMemoryMatchStore`/:class:`~league_site.ratings.ledger.
+      InMemoryRatingLedgerStore` each, same as :func:`~league_site.api.wsgi.
+      with_api`'s own defaults) *before* either consumer is built, so
+      ``with_api`` and :func:`~league_site.profiles.wsgi.profile_app` are
+      always handed the exact same two objects — critical: a match recorded
+      through the API must be immediately visible on its player's
+      ``/profiles/*`` page, which only holds if both read/write the same
+      store instances rather than each defaulting its own.
     * :func:`~league_site.api.wsgi.with_api` is mounted directly on
       :func:`http_app`, claiming every ``/api/v1/*`` path and passing
       everything else through unchanged.
@@ -102,11 +131,17 @@ def site_app(
       request reaches ``with_api``. This is why ``with_api`` must sit
       *inside* ``with_auth`` rather than the other way around — see
       :mod:`league_site.api.wsgi`'s docstring.
-    * :func:`~league_site.web.shell.with_shell` stays outermost, wrapping
-      every rendered markdown page (``/``, ``/<slug>``) in the shared HTML
-      layout — header, main content, and the footer above. It leaves the
-      API's ``application/json`` responses (and the ``/auth/*`` redirects)
-      alone, since it only ever shells a ``text/markdown`` response.
+    * :func:`~league_site.web.shell.with_shell` wraps that, rendering every
+      markdown page (``/``, ``/<slug>``) in the shared HTML layout — header,
+      main content, and the footer above. It leaves the API's
+      ``application/json`` responses (and the ``/auth/*`` redirects) alone,
+      since it only ever shells a ``text/markdown`` response.
+    * :func:`_with_profiles` sits outermost of all: any ``PATH_INFO``
+      starting with ``/profiles/`` is dispatched straight to
+      :func:`~league_site.profiles.wsgi.profile_app` and never reaches
+      ``with_shell``/``with_auth``/``with_api`` at all — ``profile_app``
+      renders its own self-contained HTML/SVG/JSON, so it has no need for
+      (and must not pick up) the doc shell or the ``/api/v1`` router.
 
     All of :func:`http_app`'s byte-identical guarantees survive the wrap
     unchanged: raw ``.md`` passthrough, ``/llms.txt``, and ``/front`` are
@@ -122,15 +157,30 @@ def site_app(
     with_auth` unchanged) to control identity, persistence, and available
     games.
     """
+    # Imported lazily (not at module scope) to break an import cycle:
+    # league_site.profiles.wsgi imports league_site.web.theme, and importing
+    # any league_site.web.* submodule first runs league_site/web/__init__.py,
+    # which imports this module's http_app/serve — a module-level import
+    # here would deadlock that cycle. By the time site_app() is actually
+    # *called*, every module involved has finished initializing, so a local
+    # import resolves cleanly.
+    from league_site.profiles.wsgi import profile_app
+
     register_branding()
+    resolved_match_store = match_store if match_store is not None else InMemoryMatchStore()
+    resolved_ledger_store = (
+        ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
+    )
     api = with_api(
         http_app(),
-        match_store=match_store,
+        match_store=resolved_match_store,
         token_store=token_store,
-        ledger_store=ledger_store,
+        ledger_store=resolved_ledger_store,
         engine_registry=engine_registry,
     )
-    return with_shell(with_auth(api, transport=transport))
+    composed = with_shell(with_auth(api, transport=transport))
+    profiles = profile_app(resolved_ledger_store, resolved_match_store)
+    return _with_profiles(composed, profiles)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000) -> WSGIServer:

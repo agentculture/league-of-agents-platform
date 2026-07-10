@@ -23,6 +23,7 @@ from league_site.api.wsgi import with_api
 from league_site.auth import sessions, tokens
 from league_site.auth.token_store import InMemoryTokenStore
 from league_site.auth.wsgi import SESSION_ENVIRON_KEY
+from league_site.capacity.config import CapacityConfig
 from league_site.matches import InMemoryMatchStore
 from league_site.ratings.ledger import InMemoryRatingLedgerStore
 from tests._api_support import bearer, call
@@ -39,6 +40,7 @@ def _build(
     token_store: InMemoryTokenStore | None = None,
     ledger_store: InMemoryRatingLedgerStore | None = None,
     engine_registry: Any = None,
+    capacity_config: CapacityConfig | None = None,
 ) -> tuple[Any, InMemoryMatchStore, InMemoryTokenStore, InMemoryRatingLedgerStore]:
     match_store = match_store if match_store is not None else InMemoryMatchStore()
     token_store = token_store if token_store is not None else InMemoryTokenStore()
@@ -49,6 +51,7 @@ def _build(
         token_store=token_store,
         ledger_store=ledger_store,
         engine_registry=engine_registry,
+        capacity_config=capacity_config,
     )
     return app, match_store, token_store, ledger_store
 
@@ -138,6 +141,87 @@ def test_create_match_by_agent_token() -> None:
     assert status == "201 Created"
     assert payload["participants"][0]["kind"] == "agent"
     assert payload["participants"][0]["display_name"] == "Sonnet"
+
+
+# --- create match: capacity guard --------------------------------------------
+
+
+def _tight_capacity_config(*, max_concurrent: int = 1, max_stored: int = 100) -> CapacityConfig:
+    return CapacityConfig(
+        max_concurrent_matches=max_concurrent,
+        max_stored_matches=max_stored,
+        max_match_age_days_hot=3,
+        max_archive_age_days=180,
+    )
+
+
+def test_create_match_is_refused_with_a_structured_429_once_at_the_concurrent_cap() -> None:
+    app, *_ = _build(capacity_config=_tight_capacity_config(max_concurrent=1))
+    status, _, first = call(
+        app, "POST", "/api/v1/matches", body={}, **_human_environ(subject="human-1")
+    )
+    assert status == "201 Created"
+    assert first["status"] == "active"  # counts toward max_concurrent_matches immediately
+
+    status, _, refused = call(
+        app, "POST", "/api/v1/matches", body={}, **_human_environ(subject="human-2")
+    )
+
+    assert status == "429 Too Many Requests"
+    assert refused["code"] == "capacity_exceeded"
+    assert refused["reason"] == "max_concurrent_matches"
+    assert refused["current"] == 1
+    assert refused["limit"] == 1
+
+
+def test_create_match_identity_requirement_is_checked_before_the_capacity_gate() -> None:
+    """An anonymous request gets 401, not a capacity 429, even when the
+    store is already at the configured cap — identity is required before
+    this endpoint does anything else, capacity gate included."""
+    app, *_ = _build(capacity_config=_tight_capacity_config(max_concurrent=1))
+    status, _, first = call(
+        app, "POST", "/api/v1/matches", body={}, **_human_environ(subject="human-1")
+    )
+    assert status == "201 Created"  # store is now at the concurrent cap
+
+    status, _, payload = call(app, "POST", "/api/v1/matches", body={})
+
+    assert status == "401 Unauthorized"
+    assert payload["code"] == "unauthorized"
+
+
+def test_create_match_succeeds_again_once_the_blocking_match_completes() -> None:
+    app, *_ = _build(capacity_config=_tight_capacity_config(max_concurrent=1))
+    human_a = _human_environ(subject="human-1")
+    status, _, first = call(app, "POST", "/api/v1/matches", body={}, **human_a)
+    assert status == "201 Created"
+    match_id = first["match_id"]
+
+    status, _, refused = call(
+        app, "POST", "/api/v1/matches", body={}, **_human_environ(subject="human-2")
+    )
+    assert status == "429 Too Many Requests"
+
+    # drive the first (solo) match to completion — StubDuelEngine's default
+    # target is 10, so four {"points": 3} turns clears it (12 total).
+    payload = first
+    for _ in range(10):
+        if payload["status"] == "completed":
+            break
+        status, _, payload = call(
+            app,
+            "POST",
+            f"/api/v1/matches/{match_id}/turns",
+            body={"action": {"points": 3}},
+            **human_a,
+        )
+        assert status == "200 OK", payload
+    assert payload["status"] == "completed"
+
+    status, _, second = call(
+        app, "POST", "/api/v1/matches", body={}, **_human_environ(subject="human-2")
+    )
+    assert status == "201 Created", second
 
 
 def test_create_match_unknown_mode_is_bad_request() -> None:
