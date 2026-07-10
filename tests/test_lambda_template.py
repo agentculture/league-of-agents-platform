@@ -19,12 +19,16 @@ from typing import Any
 import pytest
 import yaml
 
+from league_site.capacity.config import CapacityConfig
+
 _TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "infra" / "template.yaml"
 
 _EXPECTED_RESOURCES: dict[str, str] = {
     "HttpApi": "AWS::Serverless::HttpApi",
     "HttpHandlerFunction": "AWS::Serverless::Function",
     "HttpHandlerFunctionLogGroup": "AWS::Logs::LogGroup",
+    "CleanupFunction": "AWS::Serverless::Function",
+    "CleanupFunctionLogGroup": "AWS::Logs::LogGroup",
     "MatchesTable": "AWS::DynamoDB::Table",
     "ArchiveBucket": "AWS::S3::Bucket",
     "MonthlyBudget": "AWS::Budgets::Budget",
@@ -107,6 +111,64 @@ def test_archive_bucket_blocks_public_access(template: dict[str, Any]) -> None:
     bucket = template["Resources"]["ArchiveBucket"]["Properties"]
     block = bucket["PublicAccessBlockConfiguration"]
     assert all(block.values())
+
+
+def test_cleanup_function_points_at_the_cleanup_handler_module(template: dict[str, Any]) -> None:
+    function = template["Resources"]["CleanupFunction"]["Properties"]
+    assert function["Handler"] == "league_site.aws_lambda.cleanup.handler"
+
+
+def test_cleanup_function_is_triggered_by_a_daily_schedule_event(template: dict[str, Any]) -> None:
+    events = template["Resources"]["CleanupFunction"]["Properties"]["Events"]
+    schedule_events = [event for event in events.values() if event["Type"] == "Schedule"]
+    assert len(schedule_events) == 1
+    schedule = schedule_events[0]["Properties"]
+    assert schedule["Schedule"] == "rate(1 day)"
+    assert schedule["Enabled"] is True
+
+
+def test_cleanup_function_has_dynamodb_and_s3_policies(template: dict[str, Any]) -> None:
+    policies = template["Resources"]["CleanupFunction"]["Properties"]["Policies"]
+    policy_keys = {key for policy in policies for key in policy}
+    assert "DynamoDBCrudPolicy" in policy_keys
+    assert "S3CrudPolicy" in policy_keys
+
+
+def test_cleanup_function_env_vars_reference_the_matches_table_and_archive_bucket(
+    template: dict[str, Any],
+) -> None:
+    env = template["Resources"]["CleanupFunction"]["Properties"]["Environment"]["Variables"]
+    assert env["MATCHES_TABLE_NAME"] == {"Ref": "MatchesTable"}
+    assert env["ARCHIVE_BUCKET_NAME"] == {"Ref": "ArchiveBucket"}
+
+
+@pytest.mark.parametrize(
+    ("env_var", "parameter"),
+    [
+        ("LEAGUE_CAPACITY_MAX_CONCURRENT_MATCHES", "MaxConcurrentMatches"),
+        ("LEAGUE_CAPACITY_MAX_STORED_MATCHES", "MaxStoredMatches"),
+        ("LEAGUE_CAPACITY_MAX_MATCH_AGE_DAYS_HOT", "MaxMatchAgeDaysHot"),
+        ("LEAGUE_CAPACITY_MAX_ARCHIVE_AGE_DAYS", "MaxArchiveAgeDays"),
+    ],
+)
+def test_capacity_env_vars_are_wired_on_both_functions(
+    template: dict[str, Any], env_var: str, parameter: str
+) -> None:
+    for logical_id in ("HttpHandlerFunction", "CleanupFunction"):
+        env = template["Resources"][logical_id]["Properties"]["Environment"]["Variables"]
+        assert env[env_var] == {"Ref": parameter}
+
+
+def test_capacity_parameter_defaults_match_the_python_capacity_config(
+    template: dict[str, Any],
+) -> None:
+    """The template's capacity defaults and CapacityConfig.default() must never drift apart."""
+    defaults = CapacityConfig.default()
+    parameters = template["Parameters"]
+    assert parameters["MaxConcurrentMatches"]["Default"] == defaults.max_concurrent_matches
+    assert parameters["MaxStoredMatches"]["Default"] == defaults.max_stored_matches
+    assert parameters["MaxMatchAgeDaysHot"]["Default"] == defaults.max_match_age_days_hot
+    assert parameters["MaxArchiveAgeDays"]["Default"] == defaults.max_archive_age_days
 
 
 @pytest.mark.skipif(shutil.which("sam") is None, reason="AWS SAM CLI not installed")

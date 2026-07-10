@@ -3,14 +3,15 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   League of Agents platform — serverless deploy stack. Lambda (WSGI adapter)
   behind an API Gateway HTTP API, a single-table DynamoDB match store, an S3
-  archive bucket, and a Budget alarm pinned to a 20 USD/month ceiling (see
-  docs/deploy.md and docs/architecture.md). Every sizing choice below is
-  commented against that ceiling, not against generic best practice.
-  Intrinsic functions are written in long form (Fn::Sub/Ref/Fn::GetAtt
-  instead of !Sub/!Ref/!GetAtt) on purpose: it keeps this file parseable as
-  plain YAML by any standard loader, with no CloudFormation-specific tag
-  handling required by tooling that just wants to inspect it (see
-  tests/test_lambda_template.py).
+  archive bucket, a daily scheduled cleanup Lambda enforcing the committed
+  capacity config (see docs/capacity.md), and a Budget alarm pinned to a 20
+  USD/month ceiling (see docs/deploy.md and docs/architecture.md). Every
+  sizing choice below is commented against that ceiling, not against
+  generic best practice. Intrinsic functions are written in long form
+  (Fn::Sub/Ref/Fn::GetAtt instead of !Sub/!Ref/!GetAtt) on purpose: it keeps
+  this file parseable as plain YAML by any standard loader, with no
+  CloudFormation-specific tag handling required by tooling that just wants
+  to inspect it (see tests/test_lambda_template.py).
 
 # --- parameters --------------------------------------------------------------
 # One stage per deploy target (e.g. "prod", "dev"). Stateful resource names
@@ -35,6 +36,40 @@ Parameters:
       Email address that receives AWS Budgets threshold notifications. No
       default on purpose — the operator must supply a real address at
       deploy time (see infra/deploy.sh).
+
+  # The four capacity caps below default to exactly
+  # league_site.capacity.config.CapacityConfig.default()'s values —
+  # tests/test_lambda_template.py cross-checks that against the Python
+  # source directly, so the two cannot silently drift. See
+  # docs/capacity.md and that module's docstring for the full price
+  # reasoning behind each number.
+  MaxConcurrentMatches:
+    Type: Number
+    Default: 50
+    Description: >-
+      Hard cap on matches with status ACTIVE or PAUSED at once — new
+      matches over this cap are refused, not degraded (see
+      league_site.capacity.guard.check_capacity).
+  MaxStoredMatches:
+    Type: Number
+    Default: 500
+    Description: >-
+      Hard cap on total matches held in the hot DynamoDB table regardless
+      of status; the cleanup job archives the oldest completed matches
+      first once this is exceeded.
+  MaxMatchAgeDaysHot:
+    Type: Number
+    Default: 3
+    Description: >-
+      Days a completed match stays in the hot DynamoDB table before the
+      cleanup job archives it to S3 and deletes the hot copy.
+  MaxArchiveAgeDays:
+    Type: Number
+    Default: 180
+    Description: >-
+      Days an S3 match archive is retained before the cleanup job deletes
+      it outright (the durable historical record is the versioned JSONL
+      dataset export, not this raw per-match archive).
 
 # --- globals -------------------------------------------------------------
 # Applied to every AWS::Serverless::Function in this template (there is
@@ -65,10 +100,13 @@ Globals:
     Tracing: Disabled
 
 # --- resources -------------------------------------------------------------
-# Exactly six: the HTTP API, the Lambda function, its log group (retention),
-# the DynamoDB table, the S3 archive bucket, and the Budget alarm. (SAM's
-# transform additionally provisions an IAM execution role and an API stage
-# under the hood — those are implicit, not written here.)
+# Exactly eight: the HTTP API, the HTTP Lambda function and its log group,
+# the scheduled cleanup Lambda function and its log group, the DynamoDB
+# table, the S3 archive bucket, and the Budget alarm. (SAM's transform
+# additionally provisions an IAM execution role per function, an API
+# stage, and — for the cleanup function's Schedule event below — an
+# EventBridge rule plus the Lambda invoke permission it needs; those are
+# implicit, not written here.)
 
 Resources:
   # API Gateway HTTP API (not REST API) — HTTP APIs are billed per request
@@ -117,6 +155,19 @@ Resources:
             Ref: MatchesTable
           ARCHIVE_BUCKET_NAME:
             Ref: ArchiveBucket
+          # Same "provisioned ahead of the wiring task" reasoning as the two
+          # variables above: the match-create path will call
+          # league_site.capacity.guard.check_capacity, built from
+          # league_site.capacity.config.CapacityConfig.from_env(), which
+          # reads exactly these four LEAGUE_CAPACITY_* names.
+          LEAGUE_CAPACITY_MAX_CONCURRENT_MATCHES:
+            Ref: MaxConcurrentMatches
+          LEAGUE_CAPACITY_MAX_STORED_MATCHES:
+            Ref: MaxStoredMatches
+          LEAGUE_CAPACITY_MAX_MATCH_AGE_DAYS_HOT:
+            Ref: MaxMatchAgeDaysHot
+          LEAGUE_CAPACITY_MAX_ARCHIVE_AGE_DAYS:
+            Ref: MaxArchiveAgeDays
       # Scoped CRUD access to exactly this stack's own table/bucket — no
       # wildcard AWS-managed policies. Also unused by the handler today
       # (same reason as the env vars above); granting it now means the
@@ -149,6 +200,85 @@ Resources:
       # 14 days is enough to debug a recent incident; this is a hosted
       # side project, not a compliance-retention workload, so there is no
       # reason to pay to keep logs longer than that.
+      RetentionInDays: 14
+
+  # The scheduled cleanup job (league_site.aws_lambda.cleanup.handler): a
+  # price-aware sweep that archives stale completed matches to S3, deletes
+  # aged-out S3 archives, and enforces MaxStoredMatches by archiving
+  # oldest-first overflow — see docs/capacity.md for the full policy and
+  # league_site.capacity.config for the price math it is tuned against.
+  # Triggered daily, not more often: this job's own AWS spend is a rounding
+  # error against the ceiling (see league_site.capacity.config's docstring),
+  # so "daily" is chosen for freshness of the hot/archive boundary, not to
+  # save cost — a job that runs less often than its own retention windows
+  # need would let stale state sit around longer than MaxMatchAgeDaysHot
+  # documents, not save any meaningful money by running less.
+  CleanupFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      # Same reasoning as HttpHandlerFunction's BuildMethod: this repo has
+      # no requirements.txt, so SAM's default Python build can't build it.
+      BuildMethod: makefile
+    Properties:
+      FunctionName:
+        Fn::Sub: "league-of-agents-${StageName}-cleanup"
+      CodeUri: ../
+      Handler: league_site.aws_lambda.cleanup.handler
+      # The HTTP handler's 10s Globals default suits a request/response
+      # path; this job does real work (a DynamoDB scan plus S3 list/put/
+      # delete calls) proportional to MaxStoredMatches, so it gets a
+      # longer, but still bounded, timeout. Even a full 60s run at 256 MB
+      # is 15 GB-seconds — about two-tenths of a cent — so this remains a
+      # cost non-event; the bound exists to fail a runaway run loudly
+      # rather than let it run indefinitely, the same circuit-breaker
+      # posture as Globals.Function.Timeout itself.
+      Timeout: 60
+      Environment:
+        Variables:
+          MATCHES_TABLE_NAME:
+            Ref: MatchesTable
+          ARCHIVE_BUCKET_NAME:
+            Ref: ArchiveBucket
+          LEAGUE_CAPACITY_MAX_CONCURRENT_MATCHES:
+            Ref: MaxConcurrentMatches
+          LEAGUE_CAPACITY_MAX_STORED_MATCHES:
+            Ref: MaxStoredMatches
+          LEAGUE_CAPACITY_MAX_MATCH_AGE_DAYS_HOT:
+            Ref: MaxMatchAgeDaysHot
+          LEAGUE_CAPACITY_MAX_ARCHIVE_AGE_DAYS:
+            Ref: MaxArchiveAgeDays
+      # Same scoped CRUD access as HttpHandlerFunction — no wildcard
+      # AWS-managed policies. This function actually exercises them today
+      # (unlike HttpHandlerFunction's still-unwired grant above).
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName:
+              Ref: MatchesTable
+        - S3CrudPolicy:
+            BucketName:
+              Ref: ArchiveBucket
+      Events:
+        # A SAM Schedule event source: this is the "EventBridge scheduled
+        # rule targeting the cleanup Lambda" — SAM's transform provisions
+        # the underlying AWS::Events::Rule and the Lambda invoke
+        # permission it needs implicitly, the same implicit-resource
+        # pattern HttpApi's Events use for API Gateway routes (see the
+        # comment at the top of this Resources section).
+        DailySweep:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+            Description: >-
+              Daily price-aware archive/cleanup sweep — see docs/capacity.md.
+            Enabled: true
+
+  CleanupFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: "/aws/lambda/${CleanupFunction}"
+      # Same reasoning as HttpHandlerFunctionLogGroup: bound storage cost
+      # instead of the auto-created "Never expire" default.
       RetentionInDays: 14
 
   # Single-table design: one item per match, PK=MATCH#<id> / SK=METADATA,
