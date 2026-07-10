@@ -46,6 +46,12 @@
 - The hero 'video' is theme-native rather than two encoded files: an animated, self-contained scene (CSS/SVG/canvas driven by the site's design tokens) that automatically renders in light or dark — with an optional `<video>` element with per-scheme sources only if an encoded asset is later produced
   - instruction: Build the hero as an inline SVG/CSS (or canvas reading getComputedStyle) scene driven by var(--accent)/var(--bg)/var(--text); acceptance = flipping the toggle re-skins the scene live without reload
   - honesty: The hero scene derives every color from the live CSS custom properties, so flipping the theme re-renders it instantly without reload — proving the light/dark variants are one artifact, not two divergent ones
+- Zero broken links on the site: every nav, footer, and in-content link on every shelled page resolves — internal links to 200-serving pages, external links valid or removed
+  - instruction: Server-side test: render every shelled page via the WSGI app, collect internal hrefs (nav, footer, content), assert each resolves 200; post-deploy, Playwright crawls the live site and asserts the same plus no console errors
+  - honesty: Link integrity is proven by automated crawl — a server-side test walking every shelled page's hrefs plus a live Playwright crawl post-deploy — never by eyeballing
+- Verification is browser-real via the Playwright plugin: both-scheme screenshots, toggle interaction, live hero re-skin proof, reduced-motion emulation, and a full link crawl run against the real rendered site
+  - instruction: Use the playwright plugin MCP tools (browser_navigate, browser_take_screenshot, browser_evaluate for color-scheme/reduced-motion emulation, browser_snapshot) for t7/t8 verification evidence
+  - honesty: The Playwright checks run against the real rendered site (local WSGI during development, the deployed domain at the ship gate) and their evidence — screenshots, crawl results — is attached to the PR
 
 ## Honesty conditions
 
@@ -78,6 +84,8 @@
 ## Decisions
 
 - A framework rewrite is acceptable if it opens a much better experience and flexibility to do more — the no-SPA boundary is not absolute
+- The visual direction is authored through the frontend-design plugin's process before implementation: a token/type/layout/signature design plan grounded in the arena subject, critiqued against the generic-AI-look calibration; the hero is the signature element and boldness concentrates there
+  - instruction: Main agent authors the design direction per the frontend-design skill (two-pass: plan tokens/type/layout/signature, then critique vs the generic-default calibration) and bakes it verbatim into the t4/t5 task briefs; copy follows the skill's writing guidance (plain verbs, active voice, user-side naming)
 
 ## Hard questions
 

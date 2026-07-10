@@ -63,23 +63,105 @@ Palette: light AND dark via ``prefers-color-scheme``
     token used wherever a border *is* the only cue (focus rings, table
     rules) and it clears 3:1 in both schemes as shown above.
 
+    Manual theme toggle: an explicit choice beats the OS
+        A later task (the header toggle) sets ``data-theme="dark"`` or
+        ``data-theme="light"`` on ``<html>``; no attribute at all means "no
+        explicit choice yet", which keeps first-visit behavior exactly as
+        before (the OS decides via ``prefers-color-scheme``). The dark
+        token *values* are unchanged from the table above — this only adds
+        a second way to reach them. ``:root[data-theme="dark"]`` carries
+        the dark tokens unconditionally, so it wins even when the OS is
+        light. The ``@media (prefers-color-scheme: dark)`` block is scoped
+        to ``:root:not([data-theme="light"])`` so an explicit light choice
+        keeps the OS's dark preference from clobbering it; that scoped
+        selector still matches ``data-theme="dark"`` and the no-attribute
+        case, which is exactly the desired fallthrough. ``color-scheme`` is
+        set to match on every path (``dark`` under both the media-query
+        block and ``[data-theme="dark"]``; ``light`` under
+        ``[data-theme="light"]``) so native form controls and scrollbars
+        follow the same decision as the rest of the palette.
+
 Spacing and type scale
     An 8px-based spacing scale (``--space-1`` .. ``--space-8``) and a type
     scale from 0.875rem to 2.75rem keep rhythm consistent without a CSS
     framework.
 
-Performance budget (documented here per the design brief)
-    * This stylesheet is the *only* CSS on the site — no framework, no
-      per-page overrides, under ~10KB served (measured by
+Performance budget (documented here per the design brief; renegotiated,
+not abandoned, for the dazzle pass — spec c11 — see the note below)
+    * CSS: this stylesheet is still the *only* CSS on the site — no
+      framework, no per-page overrides — served under 24KB
+      (:data:`CSS_BUDGET_BYTES`; measured by
       ``tests/test_web_theme_budget.py``; keep new rules within that band).
-    * No JS. :mod:`league_site.web.shell` emits zero ``<script>`` tags.
-    * No external requests: no webfonts, no CDN, no images — the wordmark
-      glyph is a Unicode character, not an asset fetch.
+    * First-party JS: up to 8KB total (:data:`JS_BUDGET_BYTES`) across any
+      inline pre-paint snippet the shell emits plus
+      :mod:`league_site.web.scripts`'s ``SITE_JS`` served at ``/site.js``
+      (also measured by ``tests/test_web_theme_budget.py``, which
+      auto-activates that check once :mod:`league_site.web.scripts`
+      exists). Every byte of that allowance still has to earn its place.
+    * Total first-party asset weight (CSS + JS) stays under 32KB
+      (:data:`TOTAL_ASSET_BUDGET_BYTES`) — the sum of the two ceilings
+      above, so a change to either constant keeps this one honest too.
+    * No external requests, before or after the renegotiation: no
+      webfonts, no CDN, no third-party scripts, no images — CSS and JS
+      alike stay first-party, served by this platform. The wordmark glyph
+      is a Unicode character, not an asset fetch.
     * Fonts are 100% system stacks (:data:`_FONT_SANS`, :data:`_FONT_MONO`)
       so there is no font-download cost and no flash-of-unstyled-text.
     These are exactly the levers Lighthouse performance scores reward
     (payload size, request count, main-thread JS), which is why the budget
-    is stated here next to the styles that have to stay inside it.
+    is stated here next to the styles/scripts that have to stay inside it.
+
+    Renegotiation note: the pre-dazzle-pass budget was CSS <= 10KB and
+    *zero* JS — :mod:`league_site.web.shell` emitted no ``<script>`` tag
+    at all, a baseline re-verified against this repo (not recalled from
+    memory) before renegotiating it. The dazzle pass (this module's spec
+    calls it out as requirement c11) needs room for motion and a manual
+    theme toggle, so the ceilings above were deliberately raised ahead of
+    any dazzle code landing, with ``tests/test_web_theme_budget.py``
+    written/updated first to enforce the new numbers — the budget evolved
+    under negotiation, it was not quietly dropped.
+
+Motion system (t4): one orchestrated moment, quiet reveals everywhere else
+    Per ``docs/design/dazzle-direction.md``: the landing page-load sequence
+    (a later task) is the one orchestrated motion moment; everywhere else on
+    the site gets quiet scroll reveals and small hovers only. The site's
+    signature rhythm is turn-based — step and settle, not continuous drift.
+
+    * ``--accent-glow``: a new token (the accent at low alpha — light
+      ``rgba(194, 65, 12, .18)``, dark ``rgba(255, 138, 61, .22)``) added to
+      all three token blocks (``:root``, ``:root[data-theme="dark"]``, and
+      the ``@media (prefers-color-scheme: dark)`` block), kept in sync the
+      same way the rest of that block's tokens are (see the palette section
+      above). Used for hover glows only — decorative, never the sole cue.
+    * ``.reveal`` / ``.revealed``: the scroll-reveal primitive. The hidden
+      initial state (``opacity: 0``, ``transform: translateY(8px)``) only
+      applies under ``html[data-js]`` — set by a later task's pre-paint
+      inline snippet before first paint — so an element is never hidden
+      with JS off. ``.revealed`` (toggled by that task's ``/site.js`` via
+      IntersectionObserver — a class toggle only, no scroll-linked layout
+      reads) transitions it to fully visible. Staggerable per-element via
+      ``transition-delay: var(--reveal-delay, 0s)``.
+    * Hover micro-interactions: ``.button`` lifts (``translateY(-1px)``)
+      with an ``--accent-glow`` box-shadow; ``.card`` lifts
+      (``translateY(-2px)``) and its border-color change stays a static,
+      unguarded rule (nav links and the wordmark were already color-only).
+    * ``@view-transition { navigation: auto; }`` plus a ~180ms
+      ``::view-transition-old(root)``/``::view-transition-new(root)``
+      crossfade, nested inside the guard below so the browser never starts
+      the view-transition machinery at all when motion is reduced —
+      navigation becomes an instant swap, not a suppressed animation.
+    * ``.wordmark-glyph`` gets a "lit signal" pulse — a ``@keyframes`` rule
+      animating only ``opacity`` (1 <-> 0.75) with a long hold and a short
+      dip, so it reads as a discrete blink rather than a smooth fade cycle.
+
+    The reduced-motion guarantee: every rule above — every ``transition:``,
+    ``animation:``, ``@keyframes``, and the view-transition rules — lives
+    inside one ``@media (prefers-reduced-motion: no-preference) { ... }``
+    block near the end of :data:`STYLESHEET`. With reduced motion requested,
+    none of it applies; static color/border-color hover cues still work.
+    Nothing in this system animates a layout property (width, height,
+    margin, padding, top/left/right/bottom) — only ``transform``/``opacity``
+    continuously, plus ``box-shadow`` on hover-triggered transitions.
 """
 
 from __future__ import annotations
@@ -94,8 +176,46 @@ _FONT_MONO = (
 )
 
 # Kept in sync with the numbers documented in this module's docstring above —
-# change a color there and here together.
-CSS_BUDGET_BYTES = 10 * 1024
+# change a ceiling there and here together.
+#
+# Renegotiated for the dazzle pass (spec c11): CSS 10KB -> 24KB, and a new
+# first-party JS allowance (JS_BUDGET_BYTES) where there was previously
+# none at all. See the "Renegotiation note" at the end of the docstring's
+# Performance budget section for why — the old zero-JS budget was
+# deliberately evolved, not abandoned.
+CSS_BUDGET_BYTES = 24 * 1024
+
+#: First-party JS ceiling in bytes — covers any inline pre-paint snippet
+#: emitted by :mod:`league_site.web.shell` plus
+#: :mod:`league_site.web.scripts`'s ``SITE_JS`` served at ``/site.js``,
+#: combined. Zero before this renegotiation; see :data:`CSS_BUDGET_BYTES`'s
+#: comment above.
+JS_BUDGET_BYTES = 8 * 1024
+
+#: Combined first-party asset weight ceiling (CSS + JS). Derived from the
+#: two ceilings above rather than restated, so it can never drift out of
+#: sync with them.
+TOTAL_ASSET_BUDGET_BYTES = CSS_BUDGET_BYTES + JS_BUDGET_BYTES
+
+#: The dark palette, written ONCE and interpolated into both selectors that
+#: need it (:root[data-theme="dark"] and the prefers-color-scheme media
+#: block). Plain CSS cannot reuse a custom-property block across selectors,
+#: but this file is Python — generating both blocks from one constant makes
+#: drift between explicit-choice dark and OS-default dark structurally
+#: impossible instead of comment-policed.
+_DARK_TOKENS = """\
+  color-scheme: dark;
+
+  --bg: #12151a;
+  --surface: #1b1f27;
+  --surface-2: #232833;
+  --text: #e6e9ef;
+  --text-muted: #a3adc2;
+  --border: #2b313d;
+  --border-strong: #5b6478;
+  --accent: #ff8a3d;
+  --accent-ink: #14171c;
+  --accent-glow: rgba(255, 138, 61, .22);"""
 
 STYLESHEET = f"""\
 /* League of Agents — design tokens + stylesheet. See league_site/web/theme.py
@@ -113,6 +233,7 @@ STYLESHEET = f"""\
   --border-strong: #828a9a;
   --accent: #c2410c;
   --accent-ink: #ffffff;
+  --accent-glow: rgba(194, 65, 12, .18);
   --link: var(--accent);
 
   --font-sans: {_FONT_SANS};
@@ -138,17 +259,27 @@ STYLESHEET = f"""\
   --max-width: 46rem;
 }}
 
+/* Explicit visitor choice: data-theme="dark"/"light" on <html>, set by the
+   header toggle (league_site/web/shell.py + scripts.py). An explicit choice
+   always beats the OS. No attribute at all (first visit) falls through to
+   the @media (prefers-color-scheme: dark) block below, which is the only
+   place the OS decides. */
+:root[data-theme="dark"] {{
+{_DARK_TOKENS}
+}}
+
+:root[data-theme="light"] {{
+  color-scheme: light;
+}}
+
+/* OS default: only applies when the visitor has not explicitly picked
+   light (:not([data-theme="light"]) also matches data-theme="dark" and no
+   attribute at all — harmless in the first case since the values are the
+   SAME interpolated _DARK_TOKENS constant as :root[data-theme="dark"]
+   above, and exactly the desired first-visit behavior in the second). */
 @media (prefers-color-scheme: dark) {{
-  :root {{
-    --bg: #12151a;
-    --surface: #1b1f27;
-    --surface-2: #232833;
-    --text: #e6e9ef;
-    --text-muted: #a3adc2;
-    --border: #2b313d;
-    --border-strong: #5b6478;
-    --accent: #ff8a3d;
-    --accent-ink: #14171c;
+  :root:not([data-theme="light"]) {{
+{_DARK_TOKENS}
   }}
 }}
 
@@ -313,6 +444,7 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
   padding: var(--space-5);
   margin-bottom: var(--space-4);
 }}
+.card:hover {{ border-color: var(--border-strong); }}
 
 .button {{
   display: inline-block;
@@ -328,6 +460,22 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 }}
 .button:hover, .button:focus-visible {{ text-decoration: none; filter: brightness(1.08); }}
 
+.theme-toggle {{
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}}
+.theme-toggle:hover, .theme-toggle:focus-visible {{
+  color: var(--accent);
+  border-color: var(--accent);
+}}
+
 .site-footer {{
   border-top: 1px solid var(--border);
   padding: var(--space-5) 0;
@@ -339,5 +487,85 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 @media (max-width: 40rem) {{
   main {{ padding-top: var(--space-5); }}
   h1 {{ font-size: var(--text-xl); }}
+}}
+
+/* ==========================================================================
+   Motion system (t4) — reveals, micro-interactions, view transitions.
+   Every animated rule in this file lives inside this single guard: with
+   reduced motion requested, none of it applies, and nothing above needed a
+   fallback because none of it ever hides content on its own — see this
+   module's docstring ("Motion system" section) for the full contract.
+   ========================================================================== */
+@media (prefers-reduced-motion: no-preference) {{
+
+  /* --- Reveal primitives: quiet scroll reveals, gated on JS + motion ---
+     t3's pre-paint inline snippet sets html[data-js] before first paint;
+     t3's /site.js adds the .revealed class to .reveal elements via
+     IntersectionObserver (a class toggle only — no scroll-linked layout
+     reads here). Without html[data-js] (JS disabled/blocked) or with
+     reduced motion, no rule below applies, so .reveal elements simply keep
+     the browser default (fully visible) — content is never hidden behind
+     JS or motion preference. */
+  html[data-js] .reveal {{
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 500ms cubic-bezier(0.2, 0.6, 0.2, 1),
+      transform 500ms cubic-bezier(0.2, 0.6, 0.2, 1);
+    transition-delay: var(--reveal-delay, 0s);
+  }}
+  html[data-js] .reveal.revealed {{
+    opacity: 1;
+    transform: translateY(0);
+  }}
+
+  /* --- Micro-interactions: small hovers, the site's turn-based rhythm ---
+     Step and settle, not continuous drift. Color-only hover cues (nav
+     links, the wordmark, .card's border-color above) already work without
+     JS or motion and stay outside this guard; only the transform/box-shadow
+     motion lives here. */
+  .button {{
+    transition: transform 160ms ease, box-shadow 160ms ease;
+  }}
+  .button:hover, .button:focus-visible {{
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 6px var(--accent-glow);
+  }}
+  .card {{
+    transition: transform 160ms ease;
+  }}
+  .card:hover {{
+    transform: translateY(-2px);
+  }}
+  .theme-toggle {{
+    transition: box-shadow 160ms ease;
+  }}
+  .theme-toggle:hover, .theme-toggle:focus-visible {{
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }}
+
+  /* --- View transitions: a gentle crossfade, nested so reduced motion
+     means instant navigation, not a suppressed animation. Nesting the
+     @view-transition rule itself inside this guard means the browser never
+     starts the view-transition machinery at all when motion is reduced —
+     navigation is a plain, instant page swap. */
+  @view-transition {{
+    navigation: auto;
+  }}
+  ::view-transition-old(root),
+  ::view-transition-new(root) {{
+    animation-duration: 180ms;
+  }}
+
+  /* --- Wordmark glyph: a lit-signal pulse, not a smooth fade loop ---
+     A long hold followed by a short dip reads as a discrete blink (the
+     turn-based rhythm), not a continuous glow cycle. */
+  @keyframes wordmark-pulse {{
+    0%, 88% {{ opacity: 1; }}
+    94% {{ opacity: 0.75; }}
+    100% {{ opacity: 1; }}
+  }}
+  .wordmark-glyph {{
+    animation: wordmark-pulse 4s ease-in-out infinite;
+  }}
 }}
 """

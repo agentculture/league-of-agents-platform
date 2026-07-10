@@ -4,7 +4,7 @@
   "schema_version": 2,
   "status": "exported",
   "created": "2026-07-10T16:25:50Z",
-  "updated": "2026-07-10T16:34:36Z",
+  "updated": "2026-07-10T17:23:18Z",
   "claims": [
     {
       "id": "c1",
@@ -333,6 +333,53 @@
       "hard_questions": [],
       "links": [],
       "instruction": "Deliver dazzle via theme.css evolution + a small /site.js (and inline pre-paint theme snippet); no build step, no framework deps; View Transitions API for cross-page smoothness where supported"
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Zero broken links on the site: every nav, footer, and in-content link on every shelled page resolves \u2014 internal links to 200-serving pages, external links valid or removed",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h17",
+          "text": "Link integrity is proven by automated crawl \u2014 a server-side test walking every shelled page's hrefs plus a live Playwright crawl post-deploy \u2014 never by eyeballing",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Server-side test: render every shelled page via the WSGI app, collect internal hrefs (nav, footer, content), assert each resolves 200; post-deploy, Playwright crawls the live site and asserts the same plus no console errors"
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "Verification is browser-real via the Playwright plugin: both-scheme screenshots, toggle interaction, live hero re-skin proof, reduced-motion emulation, and a full link crawl run against the real rendered site",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [
+        {
+          "id": "h18",
+          "text": "The Playwright checks run against the real rendered site (local WSGI during development, the deployed domain at the ship gate) and their evidence \u2014 screenshots, crawl results \u2014 is attached to the PR",
+          "status": "confirmed",
+          "instruction": ""
+        }
+      ],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Use the playwright plugin MCP tools (browser_navigate, browser_take_screenshot, browser_evaluate for color-scheme/reduced-motion emulation, browser_snapshot) for t7/t8 verification evidence"
+    },
+    {
+      "id": "c22",
+      "kind": "decision",
+      "text": "The visual direction is authored through the frontend-design plugin's process before implementation: a token/type/layout/signature design plan grounded in the arena subject, critiqued against the generic-AI-look calibration; the hero is the signature element and boldness concentrates there",
+      "origin": "user",
+      "status": "confirmed",
+      "honesty_conditions": [],
+      "hard_questions": [],
+      "links": [],
+      "instruction": "Main agent authors the design direction per the frontend-design skill (two-pass: plan tokens/type/layout/signature, then critique vs the generic-default calibration) and bakes it verbatim into the t4/t5 task briefs; copy follows the skill's writing guidance (plain verbs, active voice, user-side naming)"
     }
   ],
   "open_vagueness": [

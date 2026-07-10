@@ -37,7 +37,7 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 
 ### t4 — Motion system in theme.css: entrance reveals, hover/focus micro-interactions, view-transition smoothness — transform/opacity keyframes only, every motion rule inside @media (prefers-reduced-motion: no-preference)
 
-- instruction: All in theme.py's stylesheet: .reveal entrance (opacity 0 + translateY(8px) -> visible via .revealed, staggerable via a custom-property delay) — initial hidden state gated on html[data-js] AND the motion media query so content is never hidden with JS off or reduced motion on; hover/focus micro-interactions on .button/.card/nav (small transform + accent glow); @view-transition {navigation: auto} for cross-page fades where supported; subtle wordmark-glyph pulse. Keyframes/transitions animate transform/opacity only; every motion rule inside @media (prefers-reduced-motion: no-preference).
+- instruction: All in theme.py's stylesheet: .reveal entrance (opacity 0 + translateY(8px) -> visible via .revealed, staggerable via a custom-property delay) — initial hidden state gated on html[data-js] AND the motion media query so content is never hidden with JS off or reduced motion on; hover/focus micro-interactions on .button/.card/nav (small transform + accent glow); @view-transition {navigation: auto} for cross-page fades where supported; subtle wordmark-glyph pulse. Keyframes/transitions animate transform/opacity only; every motion rule inside @media (prefers-reduced-motion: no-preference). Per the frontend-design direction: one orchestrated moment (the landing page-load sequence into the hero) over scattered effects — motion elsewhere stays quiet and disciplined; follow the design-direction brief supplied in the task prompt.
 - depends on: t2
 - covers: c7, h3, c9
 - acceptance:
@@ -47,7 +47,7 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 
 ### t5 — The hero: a theme-native animated League of Agents arena scene (inline SVG/CSS driven by var(--accent)/var(--bg)/var(--text)) embedded above the fold on the landing page only — agents advance and clash on a grid, score pulses, accent flares
 
-- instruction: New module league_site/web/hero.py exporting the hero fragment (inline SVG + its own scoped `<style>` so the file stays disjoint from t4's theme.py work); shell.py embeds it only for `_LANDING_PATHS`, as the first element of `<main>` before the rendered markdown. Scene: stylized arena grid (var(--border)/var(--surface-2)), 3-5 geometric agent pieces advancing along lanes (transform keyframes), a clash with an accent flare (var(--accent) opacity/scale pulse), a score tick; ~12s seamless loop; zero hardcoded colors — every fill/stroke via var(). Under prefers-reduced-motion the scene is a dignified still mid-clash. Overlay: headline + CTA using the existing .button. The landing's .md passthrough stays byte-identical (hero is shell-injected, never content).
+- instruction: New module league_site/web/hero.py exporting the hero fragment (inline SVG + its own scoped style block so the file stays disjoint from t4's theme.py work); shell.py embeds it only for `_LANDING_PATHS`, as the first element of main before the rendered markdown. Implement the SIGNATURE ELEMENT exactly per the design-direction brief supplied in the task prompt (authored via the frontend-design skill: arena-grounded scene, agents advancing/clashing on a grid arena, accent flare at the clash, score tick; ~12s seamless loop). Zero hardcoded colors — every fill/stroke via var(--accent)/var(--bg)/var(--surface-2)/var(--border)/var(--text). Under prefers-reduced-motion the scene is a dignified still mid-clash. Headline + CTA copy follows the frontend-design writing guidance (plain verbs, active voice, user-side naming — no marketing filler). The landing's .md passthrough stays byte-identical (hero is shell-injected, never content).
 - depends on: t3, t4
 - covers: c1, c3, c4, c5, c13, h1, h8, h13
 - acceptance:
@@ -67,23 +67,32 @@ slug: `league-of-agents-ai-dazzles-the-plain-arena-site-t` · status: `exported`
 
 ### t7 — Accessibility hardening: test asserting the stylesheet guards all motion behind prefers-reduced-motion; toggle keyboard-operable with a visible focus ring and an accessible name/state
 
-- instruction: Tests only: parse served /theme.css and assert every @keyframes/animation/transition declaration sits inside the prefers-reduced-motion: no-preference block; assert the theme toggle button exposes an accessible name reflecting its current state. Any markup fix this surfaces belongs in t3's files — flag it, don't fork shell.py in parallel.
+- instruction: Tests + browser-real evidence: parse served /theme.css and assert every @keyframes/animation/transition declaration sits inside the prefers-reduced-motion: no-preference block; assert the theme toggle button exposes an accessible name reflecting its current state. Then verify in a real browser via the playwright plugin MCP tools: emulate reduced-motion and both color schemes, keyboard-operate the toggle, confirm no content is hidden and focus stays visible. Any markup fix this surfaces belongs in t3's files — flag it, don't fork shell.py in parallel.
 - depends on: t3, t4
-- covers: c9, h4
+- covers: c9, h4, c21
 - acceptance:
   - a test asserts every animation/transition rule in the served stylesheet is inside the prefers-reduced-motion guard
   - the toggle is fully keyboard-operable, exposes an accessible name and current state, and keeps a visible focus indicator
 
 ### t8 — Ship gate (ops, main session): deploy, then Lighthouse >=90 perf / >=95 a11y on the live landing in both schemes (desktop+mobile), zero-third-party network-panel check, walkthrough screenshots of /, /docs, /leaderboard, /about in both schemes attached to the PR; diff review confirms no framework/build step and the match viewer untouched (c16), honoring the open-rewrite decision (c18)
 
-- instruction: Main-session ops after the code waves merge: deploy via the repo's standing path (infra/ + Makefile), run Lighthouse desktop+mobile against <https://league-of-agents.ai> in both schemes (via the toggle and via OS preference), record scores in the PR; DevTools network panel zero-third-party check on /, /docs, /leaderboard; both-schemes screenshots of /, /docs, /leaderboard, /about; final diff review: no framework deps in pyproject, no build step, match viewer untouched. Any gate failure iterates before 'shipped'; if the shell provably cannot deliver, stop and return the rewrite decision to the user.
+- instruction: Main-session ops after the code waves merge: deploy via the repo's standing path (infra/ + Makefile), then browser-real gate via the playwright plugin: navigate the live site in both schemes (toggle + emulated OS preference), capture screenshots of /, /docs, /leaderboard, /about in both schemes, exercise the toggle and confirm the hero re-skins live, crawl every link on every page (internal AND external) asserting zero broken links and no console errors; run Lighthouse desktop+mobile against the live domain in both schemes and record scores in the PR. Final diff review: no framework deps in pyproject, no build step, match viewer untouched. Any gate failure iterates before shipped; if the shell provably cannot deliver, stop and return the rewrite decision to the user.
 - depends on: t5, t6, t7
-- covers: c1, c3, c17, c19, h2, h9, h10, h12, h15, h16
+- covers: c1, c3, c17, c19, h2, h9, h10, h12, h15, h16, c21, h18
 - acceptance:
   - Lighthouse reports >=90 performance and >=95 accessibility on the deployed landing in both schemes, desktop and mobile — report attached to the PR
   - DevTools network panel shows zero third-party origins across /, /docs, /leaderboard
   - both-schemes walkthrough screenshots of /, /docs, /leaderboard, /about are attached to the PR
   - diff review confirms: no frontend framework or build step, match viewer untouched beyond inherited theme.css; if the shell provably cannot deliver a required experience, work stops and the rewrite decision returns to the user
+
+### t9 — Link integrity proof: server-side crawl test asserting zero broken links across all shelled pages (nav, footer, in-content)
+
+- instruction: New test module (e.g. tests/test_web_links.py), tests only: spin the shelled WSGI app in-process, start from /, walk every internal href found in rendered HTML (dedup; nav, footer, content, hero CTA), GET each and assert 200 + non-empty body; external http(s) hrefs are collected and reported but not fetched in unit tests (the live Playwright crawl at the ship gate covers them).
+- depends on: t5
+- covers: c20, h17
+- acceptance:
+  - a test renders every shelled page via the WSGI app, collects every internal href, and asserts each resolves 200 with a rendered body
+  - nav and footer targets (/index, /docs, /leaderboard, /about) all resolve; the test fails on any 404/500 or dangling anchor
 
 ## Risks
 

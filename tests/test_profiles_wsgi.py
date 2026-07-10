@@ -31,6 +31,7 @@ from league_site.ratings import (
     leaderboard,
     outcome_from_match,
 )
+from league_site.web import scripts
 from tests._profiles_support import (
     ADA_IDENTITY,
     RIVAL_IDENTITY,
@@ -321,7 +322,14 @@ def test_hostile_display_name_is_escaped_on_the_html_page() -> None:
     status, _, body = _get(app, f"/profiles/{slug}")
     assert status == "200 OK"
     text = body.decode("utf-8")
-    assert "<script>" not in text
+    # The page legitimately carries the dazzle layer's two known scripts
+    # (the inline pre-paint snippet and deferred /site.js) — the escape
+    # proof is that the hostile payload itself appears ONLY entity-escaped,
+    # never as markup: strip the two known tags and no <script> remains.
+    sanitized = text.replace(f"<script>{scripts.PRE_PAINT_JS}</script>", "").replace(
+        '<script defer src="/site.js"></script>', ""
+    )
+    assert "<script" not in sanitized
     assert "&lt;script&gt;" in text
 
 

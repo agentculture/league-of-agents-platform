@@ -32,6 +32,19 @@ def _get(app: WSGIApp, path: str) -> tuple[str, dict[str, str], bytes]:
     return captured["status"], captured["headers"], body
 
 
+def _head(app: WSGIApp, path: str) -> tuple[str, dict[str, str], bytes]:
+    """Minimal WSGI test client: HEAD *path*, return (status, headers, body)."""
+    captured: dict[str, Any] = {}
+
+    def start_response(status: str, headers: list[tuple[str, str]]) -> None:
+        captured["status"] = status
+        captured["headers"] = dict(headers)
+
+    environ = {"REQUEST_METHOD": "HEAD", "PATH_INFO": path}
+    body = b"".join(app(environ, start_response))
+    return captured["status"], captured["headers"], body
+
+
 def _shelled() -> WSGIApp:
     """A shelled app with its own footer registry, isolated from the process-wide default."""
     return with_shell(http_app(), footer_slots=FooterSlotRegistry())
@@ -50,7 +63,13 @@ def test_index_page_carries_the_full_shell() -> None:
     assert "<header" in text and "</header>" in text
     assert "<main" in text and "</main>" in text
     assert "<footer" in text and "</footer>" in text
-    assert "<script" not in text.lower()
+    # The dazzle pass spent (part of) the renegotiated JS allowance: the
+    # only scripts on a page are the inline pre-paint snippet and the
+    # first-party /site.js — never anything external. The zero-script
+    # baseline this evolved from is documented in test_web_theme_budget.py.
+    assert '<script defer src="/site.js"></script>' in text
+    for src in re.findall(r'<script[^>]*\bsrc="([^"]+)"', text):
+        assert src.startswith("/"), f"external script src: {src}"
 
 
 def test_header_carries_wordmark_and_nav_placeholders() -> None:
@@ -160,6 +179,22 @@ def test_theme_css_served_bytes_are_within_the_documented_budget() -> None:
     _, headers, body = _get(_shelled(), "/theme.css")
     assert len(body) <= theme.CSS_BUDGET_BYTES
     assert headers["Content-Length"] == str(len(body))
+
+
+def test_head_on_static_assets_returns_the_get_headers_with_an_empty_body() -> None:
+    """Per HTTP semantics a HEAD response carries the same headers as the
+    GET -- including the ``Content-Length`` of the would-be body -- but an
+    EMPTY body; many WSGI servers do not strip it for you, so the shell
+    must not send it."""
+    app = _shelled()
+    for path in ("/theme.css", "/site.js"):
+        get_status, get_headers, get_body = _get(app, path)
+        head_status, head_headers, head_body = _head(app, path)
+        assert head_status == get_status == "200 OK", path
+        assert head_body == b"", path
+        assert head_headers["Content-Type"] == get_headers["Content-Type"], path
+        assert head_headers["Content-Length"] == get_headers["Content-Length"], path
+        assert head_headers["Content-Length"] == str(len(get_body)), path
 
 
 def test_with_shell_closes_a_closeable_inner_response_iterable() -> None:

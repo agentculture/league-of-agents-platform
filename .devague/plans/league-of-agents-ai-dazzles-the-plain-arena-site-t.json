@@ -5,7 +5,7 @@
   "schema_version": 2,
   "status": "exported",
   "created": "2026-07-10T16:35:35Z",
-  "updated": "2026-07-10T16:42:18Z",
+  "updated": "2026-07-10T17:24:39Z",
   "targets": [
     {
       "id": "c1",
@@ -166,6 +166,26 @@
       "id": "h16",
       "kind": "honesty",
       "text": "If during implementation the shell provably cannot deliver a required experience, work stops and the rewrite decision comes back to the user rather than being made unilaterally"
+    },
+    {
+      "id": "c20",
+      "kind": "requirement",
+      "text": "Zero broken links on the site: every nav, footer, and in-content link on every shelled page resolves \u2014 internal links to 200-serving pages, external links valid or removed"
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Link integrity is proven by automated crawl \u2014 a server-side test walking every shelled page's hrefs plus a live Playwright crawl post-deploy \u2014 never by eyeballing"
+    },
+    {
+      "id": "c21",
+      "kind": "requirement",
+      "text": "Verification is browser-real via the Playwright plugin: both-scheme screenshots, toggle interaction, live hero re-skin proof, reduced-motion emulation, and a full link crawl run against the real rendered site"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The Playwright checks run against the real rendered site (local WSGI during development, the deployed domain at the ship gate) and their evidence \u2014 screenshots, crawl results \u2014 is attached to the PR"
     }
   ],
   "tasks": [
@@ -244,7 +264,7 @@
         "h3",
         "c9"
       ],
-      "instruction": "All in theme.py's stylesheet: .reveal entrance (opacity 0 + translateY(8px) -> visible via .revealed, staggerable via a custom-property delay) \u2014 initial hidden state gated on html[data-js] AND the motion media query so content is never hidden with JS off or reduced motion on; hover/focus micro-interactions on .button/.card/nav (small transform + accent glow); @view-transition {navigation: auto} for cross-page fades where supported; subtle wordmark-glyph pulse. Keyframes/transitions animate transform/opacity only; every motion rule inside @media (prefers-reduced-motion: no-preference)."
+      "instruction": "All in theme.py's stylesheet: .reveal entrance (opacity 0 + translateY(8px) -> visible via .revealed, staggerable via a custom-property delay) \u2014 initial hidden state gated on html[data-js] AND the motion media query so content is never hidden with JS off or reduced motion on; hover/focus micro-interactions on .button/.card/nav (small transform + accent glow); @view-transition {navigation: auto} for cross-page fades where supported; subtle wordmark-glyph pulse. Keyframes/transitions animate transform/opacity only; every motion rule inside @media (prefers-reduced-motion: no-preference). Per the frontend-design direction: one orchestrated moment (the landing page-load sequence into the hero) over scattered effects \u2014 motion elsewhere stays quiet and disciplined; follow the design-direction brief supplied in the task prompt."
     },
     {
       "id": "t5",
@@ -271,7 +291,7 @@
         "h8",
         "h13"
       ],
-      "instruction": "New module league_site/web/hero.py exporting the hero fragment (inline SVG + its own scoped <style> so the file stays disjoint from t4's theme.py work); shell.py embeds it only for _LANDING_PATHS, as the first element of <main> before the rendered markdown. Scene: stylized arena grid (var(--border)/var(--surface-2)), 3-5 geometric agent pieces advancing along lanes (transform keyframes), a clash with an accent flare (var(--accent) opacity/scale pulse), a score tick; ~12s seamless loop; zero hardcoded colors \u2014 every fill/stroke via var(). Under prefers-reduced-motion the scene is a dignified still mid-clash. Overlay: headline + CTA using the existing .button. The landing's .md passthrough stays byte-identical (hero is shell-injected, never content)."
+      "instruction": "New module league_site/web/hero.py exporting the hero fragment (inline SVG + its own scoped style block so the file stays disjoint from t4's theme.py work); shell.py embeds it only for _LANDING_PATHS, as the first element of main before the rendered markdown. Implement the SIGNATURE ELEMENT exactly per the design-direction brief supplied in the task prompt (authored via the frontend-design skill: arena-grounded scene, agents advancing/clashing on a grid arena, accent flare at the clash, score tick; ~12s seamless loop). Zero hardcoded colors \u2014 every fill/stroke via var(--accent)/var(--bg)/var(--surface-2)/var(--border)/var(--text). Under prefers-reduced-motion the scene is a dignified still mid-clash. Headline + CTA copy follows the frontend-design writing guidance (plain verbs, active voice, user-side naming \u2014 no marketing filler). The landing's .md passthrough stays byte-identical (hero is shell-injected, never content)."
     },
     {
       "id": "t6",
@@ -309,9 +329,10 @@
       ],
       "covers": [
         "c9",
-        "h4"
+        "h4",
+        "c21"
       ],
-      "instruction": "Tests only: parse served /theme.css and assert every @keyframes/animation/transition declaration sits inside the prefers-reduced-motion: no-preference block; assert the theme toggle button exposes an accessible name reflecting its current state. Any markup fix this surfaces belongs in t3's files \u2014 flag it, don't fork shell.py in parallel."
+      "instruction": "Tests + browser-real evidence: parse served /theme.css and assert every @keyframes/animation/transition declaration sits inside the prefers-reduced-motion: no-preference block; assert the theme toggle button exposes an accessible name reflecting its current state. Then verify in a real browser via the playwright plugin MCP tools: emulate reduced-motion and both color schemes, keyboard-operate the toggle, confirm no content is hidden and focus stays visible. Any markup fix this surfaces belongs in t3's files \u2014 flag it, don't fork shell.py in parallel."
     },
     {
       "id": "t8",
@@ -339,9 +360,29 @@
         "h10",
         "h12",
         "h15",
-        "h16"
+        "h16",
+        "c21",
+        "h18"
       ],
-      "instruction": "Main-session ops after the code waves merge: deploy via the repo's standing path (infra/ + Makefile), run Lighthouse desktop+mobile against https://league-of-agents.ai in both schemes (via the toggle and via OS preference), record scores in the PR; DevTools network panel zero-third-party check on /, /docs, /leaderboard; both-schemes screenshots of /, /docs, /leaderboard, /about; final diff review: no framework deps in pyproject, no build step, match viewer untouched. Any gate failure iterates before 'shipped'; if the shell provably cannot deliver, stop and return the rewrite decision to the user."
+      "instruction": "Main-session ops after the code waves merge: deploy via the repo's standing path (infra/ + Makefile), then browser-real gate via the playwright plugin: navigate the live site in both schemes (toggle + emulated OS preference), capture screenshots of /, /docs, /leaderboard, /about in both schemes, exercise the toggle and confirm the hero re-skins live, crawl every link on every page (internal AND external) asserting zero broken links and no console errors; run Lighthouse desktop+mobile against the live domain in both schemes and record scores in the PR. Final diff review: no framework deps in pyproject, no build step, match viewer untouched. Any gate failure iterates before shipped; if the shell provably cannot deliver, stop and return the rewrite decision to the user."
+    },
+    {
+      "id": "t9",
+      "summary": "Link integrity proof: server-side crawl test asserting zero broken links across all shelled pages (nav, footer, in-content)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a test renders every shelled page via the WSGI app, collects every internal href, and asserts each resolves 200 with a rendered body",
+        "nav and footer targets (/index, /docs, /leaderboard, /about) all resolve; the test fails on any 404/500 or dangling anchor"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c20",
+        "h17"
+      ],
+      "instruction": "New test module (e.g. tests/test_web_links.py), tests only: spin the shelled WSGI app in-process, start from /, walk every internal href found in rendered HTML (dedup; nav, footer, content, hero CTA), GET each and assert 200 + non-empty body; external http(s) hrefs are collected and reported but not fetched in unit tests (the live Playwright crawl at the ship gate covers them)."
     }
   ],
   "risks": [
