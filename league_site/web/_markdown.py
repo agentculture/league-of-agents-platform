@@ -188,45 +188,59 @@ def _consume_table(lines: list[str], i: int) -> tuple[int, str]:
     return i, "".join(parts)
 
 
+def _next_item_after_blanks(lines: list[str], i: int) -> int | None:
+    """From a blank line at *i*, return the index of the next list item.
+
+    Skips the blank run; returns the first non-blank line's index iff it
+    starts another list item (the blank gap is internal to the list), else
+    ``None`` (the gap ends the list).
+    """
+    n = len(lines)
+    j = i + 1
+    while j < n and not lines[j].strip():
+        j += 1
+    if j < n and (_UL_RE.match(lines[j]) or _OL_RE.match(lines[j])):
+        return j
+    return None
+
+
+def _is_prose_continuation(line: str) -> bool:
+    """True iff *line* is indented PROSE that folds into the previous item.
+
+    CommonMark lazy continuation: an indented wrapped line joins the prior
+    item's paragraph — without this, wrapped list-item text fell out of the
+    list and rendered as a stray paragraph after it. Indented lines that
+    open a block construct (blockquote, fence, heading, table, rule) are
+    NOT folded — they end the list and render as their own block, as they
+    always did; agent-authored transcripts (viewer/render.py) depend on
+    that.
+    """
+    return line[:1] in (" ", "\t") and not line.lstrip().startswith((">", "```", "#", "|", "---"))
+
+
 def _consume_list(lines: list[str], i: int) -> tuple[int, str]:
     items: list[tuple[int, bool, str]] = []
     n = len(lines)
     while i < n:
         line = lines[i]
         if not line.strip():
-            j = i + 1
-            while j < n and not lines[j].strip():
-                j += 1
-            if j < n and (_UL_RE.match(lines[j]) or _OL_RE.match(lines[j])):
-                i = j
-                continue
-            break
+            next_item = _next_item_after_blanks(lines, i)
+            if next_item is None:
+                break
+            i = next_item
+            continue
         ul_match = _UL_RE.match(line)
         ol_match = _OL_RE.match(line)
         if ul_match:
             items.append((len(ul_match.group(1)), False, ul_match.group(2)))
-            i += 1
         elif ol_match:
             items.append((len(ol_match.group(1)), True, ol_match.group(2)))
-            i += 1
-        elif (
-            items
-            and line[:1] in (" ", "\t")
-            and not line.lstrip().startswith((">", "```", "#", "|", "---"))
-        ):
-            # A continuation line: indented PROSE under the previous item
-            # (CommonMark folds it into that item's paragraph). Without
-            # this, wrapped list-item text fell out of the list and
-            # rendered as a stray paragraph after it. Indented lines that
-            # open a block construct (blockquote, fence, heading, table,
-            # rule) are NOT folded — they end the list and render as their
-            # own block, as they always did; agent-authored transcripts
-            # (viewer/render.py) depend on that.
+        elif items and _is_prose_continuation(line):
             indent, ordered, text = items[-1]
             items[-1] = (indent, ordered, f"{text} {line.strip()}")
-            i += 1
         else:
             break
+        i += 1
     html_block, _ = _build_list(items, 0, items[0][0])
     return i, html_block
 
