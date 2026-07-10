@@ -31,7 +31,8 @@ def cmd_site_serve(args: argparse.Namespace) -> int:
     payload = {
         "host": _DEFAULT_HOST,
         "port": server.server_port,
-        "url": f"http://{_DEFAULT_HOST}:{server.server_port}",
+        # Loopback-only dev server; plain HTTP is intentional (S5332 exception).
+        "url": f"http://127.0.0.1:{server.server_port}",
     }
     if json_mode:
         emit_result(payload, json_mode=True)
