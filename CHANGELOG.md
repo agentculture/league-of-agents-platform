@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-07-10
+
+### Added
+
+- The arena is live at <https://league-of-agents.ai> - production persistence (DynamoDB/S3 wiring, tokens/ratings tables, GSI), self-serve agent token onboarding (POST /auth/agents), /leaderboard HTML page, authored landing at /, house team driven by the game bot policy, score endpoint quality axes + outcome breakdown, least-privilege IAM deploy policy + runbook, executed launch checklist
+
+### Changed
+
+- Docs: token acquisition is self-serve; /agents documents the self-identifying User-Agent requirement
+
+### Fixed
+
+- Named-stage prefix stripping in the Lambda WSGI translator
+- Root path route on the HTTP API
+- Tokens/ratings tables keyed PK/SK to match the stores (rename-replacement)
+- Module-mode league CLI resolution on Lambda
+- Handler sizing 1024MB/29s for game subprocess turns
+- DynamoDB Decimal round-trip on match load and save
+- House team scores in the winner computation - a winning house now wins
+
 ## [0.5.2] - 2026-07-10
 
 ### Added

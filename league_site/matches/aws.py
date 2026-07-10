@@ -10,13 +10,10 @@ installed raises a clear ``RuntimeError`` only when an adapter is actually
 Both classes below accept a pre-built ``resource``/``client`` so callers
 (and tests) can inject a fake and never touch real AWS — no credentials or
 region configuration are required to exercise this module.
-:meth:`DynamoDBMatchStore.list_ids` is a paginated full-table scan (see its
-own docstring) — good enough for ``check_capacity``/the cleanup Lambda at
-launch scale, since :mod:`league_site.capacity.config` bounds table size
-directly. Wiring these adapters further into the live platform (table/bucket
-provisioning, retries, a GSI for "list matches by status/game" so a scan
-isn't needed at all) is a later task; this module only fixes the item/key
-shape so that task has a stable target — see
+:meth:`DynamoDBMatchStore.list_ids` queries the
+:data:`BY_STATUS_UPDATED_INDEX` GSI (one paginated ``Query`` per
+:class:`~league_site.matches.match.MatchStatus` partition — see its own
+docstring) rather than scanning the whole table. See
 :mod:`league_site.matches.serialization` for the DynamoDB single-table
 design and the S3 archive key scheme.
 """
@@ -35,9 +32,60 @@ else:
     _IMPORT_ERROR = None
 
 from league_site.matches.errors import MatchNotFoundError
-from league_site.matches.match import Match
+from league_site.matches.match import Match, MatchStatus
 from league_site.matches.serialization import archive_key, from_item, to_archive_dict, to_item
 from league_site.matches.store import MatchStore
+
+#: Name of the matches table's GSI keyed on ``status`` (HASH) /
+#: ``updated_at`` (RANGE). Must match the index name provisioned by
+#: ``infra/template.yaml`` exactly — :meth:`DynamoDBMatchStore.list_ids`
+#: queries it by this name.
+BY_STATUS_UPDATED_INDEX = "by-status-updated"
+
+
+def _plain_numbers(obj: Any) -> Any:
+    """Recursively turn boto3's read-side ``Decimal``\\ s back into int/float.
+
+    DynamoDB has one number type; boto3 deserializes every stored number as
+    :class:`decimal.Decimal`. The match record's nested ``game_state``/turn
+    payloads must round-trip to the exact JSON-native shapes the engine
+    wrote (live-prod finding: the first persisted match made
+    ``GET /api/v1/matches/<id>`` 500 with "Object of type Decimal is not
+    JSON serializable"). Whole-valued Decimals become ``int``, fractional
+    ones ``float``; bools/str/None pass through untouched.
+    """
+    from decimal import Decimal
+
+    if isinstance(obj, Decimal):
+        return int(obj) if obj == obj.to_integral_value() else float(obj)
+    if isinstance(obj, list):
+        return [_plain_numbers(value) for value in obj]
+    if isinstance(obj, dict):
+        return {key: _plain_numbers(value) for key, value in obj.items()}
+    return obj
+
+
+def _dynamo_numbers(obj: Any) -> Any:
+    """Recursively turn Python floats into ``Decimal`` for DynamoDB writes.
+
+    The write-side mirror of :func:`_plain_numbers`: boto3 refuses Python
+    floats outright ("Float types are not supported. Use Decimal types
+    instead.") and the game state legitimately carries fractional numbers
+    (live-prod finding: the first finished match's save crashed). Going
+    through ``str`` keeps the decimal representation exact rather than
+    inheriting binary-float noise.
+    """
+    from decimal import Decimal
+
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, list):
+        return [_dynamo_numbers(value) for value in obj]
+    if isinstance(obj, dict):
+        return {key: _dynamo_numbers(value) for key, value in obj.items()}
+    return obj
 
 
 def _require_boto3() -> None:
@@ -64,53 +112,59 @@ class DynamoDBMatchStore(MatchStore):
         self._table = self._resource.Table(table_name)
 
     def save(self, match: Match) -> None:
-        self._table.put_item(Item=to_item(match))
+        self._table.put_item(Item=_dynamo_numbers(to_item(match)))
 
     def load(self, match_id: str) -> Match:
         response = self._table.get_item(Key={"PK": f"MATCH#{match_id}", "SK": "METADATA"})
         item = response.get("Item")
         if item is None:
             raise MatchNotFoundError(match_id)
-        return from_item(item)
+        return from_item(_plain_numbers(item))
 
     def delete(self, match_id: str) -> None:
         self._table.delete_item(Key={"PK": f"MATCH#{match_id}", "SK": "METADATA"})
 
     def list_ids(self) -> list[str]:
-        """Every persisted match id, via a paginated full-table scan.
+        """Every persisted match id, via the :data:`BY_STATUS_UPDATED_INDEX` GSI.
 
-        No GSI exists yet for "list matches by status" (see the module
-        docstring's "suggested access patterns" in
-        :mod:`league_site.matches.serialization`), so this is a plain
-        ``Table.scan`` — O(n) in the table's size, which is exactly why
-        :class:`~league_site.capacity.config.CapacityConfig` bounds
-        ``max_stored_matches``: n stays small by construction (see that
-        module's docstring). ``ProjectionExpression`` limits what comes back
-        over the wire to just the attributes this method needs, and a
-        ``FilterExpression`` narrows the scan to match-metadata items only
-        (single-table design — see :mod:`league_site.matches.serialization`)
-        in case a future entity type ever shares this table. Every page is
-        followed via ``LastEvaluatedKey``/``ExclusiveStartKey`` until the
-        scan is exhausted, so this returns *every* match id regardless of
-        how many pages DynamoDB splits the table into.
+        The GSI partitions on ``status`` (HASH) and orders each partition by
+        ``updated_at`` (RANGE); since every match item carries exactly one
+        :class:`~league_site.matches.match.MatchStatus`, one ``Query`` per
+        status value covers the whole table without a ``Scan``. Non-match
+        entity types sharing this table (single-table design — see
+        :mod:`league_site.matches.serialization`) never appear in the index
+        at all: DynamoDB only projects items that carry both GSI key
+        attributes, so no ``FilterExpression`` is needed.
+        ``ProjectionExpression`` limits what comes back over the wire to the
+        one attribute this method needs, and every page of every partition
+        is followed via ``LastEvaluatedKey``/``ExclusiveStartKey``, so this
+        returns *every* match id regardless of how DynamoDB paginates.
+
+        GSI queries are eventually consistent — a match saved milliseconds
+        ago may be missing from one call's result. Both consumers tolerate
+        that: :func:`~league_site.capacity.guard.check_capacity` treats caps
+        as a safety margin (see :mod:`league_site.capacity.config`), and the
+        cleanup Lambda runs on a daily schedule.
         """
-        from boto3.dynamodb.conditions import Attr
+        from boto3.dynamodb.conditions import Key
 
         match_ids: list[str] = []
-        scan_kwargs: dict[str, Any] = {
-            "ProjectionExpression": "match_id, entity_type",
-            "FilterExpression": Attr("entity_type").eq("match"),
-        }
-        while True:
-            response = self._table.scan(**scan_kwargs)
-            for item in response.get("Items", []):
-                match_id = item.get("match_id")
-                if match_id is not None:
-                    match_ids.append(match_id)
-            last_key = response.get("LastEvaluatedKey")
-            if not last_key:
-                break
-            scan_kwargs["ExclusiveStartKey"] = last_key
+        for status in MatchStatus:
+            query_kwargs: dict[str, Any] = {
+                "IndexName": BY_STATUS_UPDATED_INDEX,
+                "KeyConditionExpression": Key("status").eq(status.value),
+                "ProjectionExpression": "match_id",
+            }
+            while True:
+                response = self._table.query(**query_kwargs)
+                for item in response.get("Items", []):
+                    match_id = item.get("match_id")
+                    if match_id is not None:
+                        match_ids.append(match_id)
+                last_key = response.get("LastEvaluatedKey")
+                if not last_key:
+                    break
+                query_kwargs["ExclusiveStartKey"] = last_key
         return match_ids
 
 

@@ -14,10 +14,19 @@ A :data:`Snapshot` is a plain ``dict[str, str]`` mapping a POSIX-style path
 ``"matches/m-1/log.jsonl"``) to that file's exact text content. Being a
 plain dict of strings, a snapshot is trivially JSON-safe and archivable
 alongside the rest of a match record.
+
+:func:`resolve_workdir_root` resolves the *base* directory per-match
+workdirs are created under (the ``root`` passed to :func:`hydrate` /
+:func:`persist` above lives one level below that base). Locally this is
+just the current working directory, unchanged from before this function
+existed; on Lambda, only ``/tmp`` is writable, so the Lambda handler
+bootstrap (a separate concern from this module) sets ``LEAGUE_WORKDIR_ROOT``
+to point there.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Mapping
 
@@ -25,6 +34,27 @@ from typing import Mapping
 Snapshot = Mapping[str, str]
 
 _LEAGUE_DIR_NAME = ".league"
+
+#: Env var overriding the base directory :func:`resolve_workdir_root`
+#: resolves to. Unset in every local/dev invocation (resolves to the
+#: current working directory, unchanged); the Lambda handler bootstrap sets
+#: this to ``/tmp`` (or a subdirectory of it) since that's the only
+#: writable filesystem path in the Lambda execution environment.
+WORKDIR_ROOT_ENV_VAR = "LEAGUE_WORKDIR_ROOT"
+
+
+def resolve_workdir_root() -> Path:
+    """Resolve the base directory per-match workdirs are created under.
+
+    Reads :data:`WORKDIR_ROOT_ENV_VAR`: when set to a non-empty value, that
+    path is used verbatim. When unset (or empty — treated the same as
+    unset), resolves to the current working directory, matching the
+    behavior every caller already got before this function existed.
+    """
+    override = os.environ.get(WORKDIR_ROOT_ENV_VAR)
+    if override:
+        return Path(override)
+    return Path.cwd()
 
 
 def hydrate(root: Path | str, snapshot: Snapshot) -> Path:

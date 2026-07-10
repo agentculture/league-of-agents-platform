@@ -7,18 +7,47 @@ output), and an end-to-end fake test driving a game state through
 :func:`~league_site.game.normalize.build_match_view` into
 :func:`~league_site.byok.runner.run_turn` with a stubbed provider — one
 legal order passes through untouched, one illegal order is dropped.
+
+Also covers platform issue #10 (surface quality axes + outcome breakdown on
+the score endpoint): :func:`~league_site.game.normalize.fetch_score_report`,
+:func:`~league_site.game.normalize.normalize_outcome`,
+:func:`~league_site.game.normalize.normalize_quality_axes`, and the combined
+:func:`~league_site.game.normalize.score_breakdown`. ``tests/fixtures/
+grid_match_score.json`` is a real, unedited ``league match score --json``
+capture (a ``team-vs-team`` bot-vs-bot draw, ``league-of-agents`` 0.16.0 —
+see that file's sibling ``docs/game-integration.md`` for how it was played)
+used to ground the normalization against the game's actual output shape,
+not a hand-typed guess at it.
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from typing import Any
+
+import pytest
 
 from league_site.byok.providers import TransportRequest, TransportResponse
 from league_site.byok.runner import run_turn
 from league_site.byok.vault import InMemoryKeyVault
-from league_site.game.normalize import build_match_view, legal_actions_to_pairs
+from league_site.game.normalize import (
+    build_match_view,
+    fetch_score_report,
+    legal_actions_to_pairs,
+    normalize_outcome,
+    normalize_quality_axes,
+    score_breakdown,
+)
+from league_site.game.runner import LeagueRunnerError
 
 API_KEY = "sk-test-key-normalize"  # nosec B105 - test fixture
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures"
+
+
+def _load_fixture(name: str) -> dict:
+    return json.loads((_FIXTURES_DIR / name).read_text(encoding="utf-8"))
 
 
 class RecordingTransport:
@@ -288,3 +317,235 @@ def test_end_to_end_game_state_through_normalize_into_run_turn_legal_passes_ille
     # orders-json `{"actions": [...]}` shape, unchanged.
     actions_payload = {"actions": [order["action"] for order in decision.orders]}
     assert actions_payload == {"actions": [{"unit_id": "solo-u1", "action": "hold"}]}
+
+
+# --- fetch_score_report: platform issue #10 ----------------------------------
+
+
+class _CannedRunner:
+    """A minimal ``LeagueRunner``-shaped fake: always answers ``match score``
+    with a fixed payload, recording the exact argv it was called with plus
+    every file actually hydrated under ``cwd/.league`` *while it still
+    exists* (:func:`fetch_score_report` tears the scratch dir down again
+    before returning, so a caller can't inspect it afterward) — see
+    ``tests/test_game_adapter_fake.py``'s fuller ``ScriptedRunner`` for the
+    pattern this borrows."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+        self.calls: list[tuple[str, ...]] = []
+        self.hydrated_files: dict[str, str] = {}
+
+    def run(self, args: list[str], *, cwd: Path, timeout: float | None = None) -> Any:
+        self.calls.append(tuple(args))
+        assert tuple(args[:2]) == ("match", "score"), args
+        league_dir = Path(cwd) / ".league"
+        if league_dir.is_dir():
+            for path in sorted(league_dir.rglob("*")):
+                if path.is_file():
+                    self.hydrated_files[path.relative_to(league_dir).as_posix()] = path.read_text(
+                        encoding="utf-8"
+                    )
+        return self.payload
+
+
+class _FailingRunner:
+    """Simulates the ``league`` CLI being unreachable in this environment."""
+
+    def run(self, args: list[str], *, cwd: Path, timeout: float | None = None) -> Any:
+        raise LeagueRunnerError("league CLI not found")
+
+
+def test_fetch_score_report_returns_none_for_a_non_grid_shaped_state() -> None:
+    assert fetch_score_report({"turns_taken": 0}) is None
+    assert fetch_score_report({"match_id": "m-1"}) is None  # missing snapshot
+    assert fetch_score_report({"snapshot": {"teams/solo.json": "{}"}}) is None  # missing match_id
+
+
+def test_fetch_score_report_hydrates_the_snapshot_and_runs_match_score(tmp_path: Path) -> None:
+    report = _load_fixture("grid_match_score.json")
+    runner = _CannedRunner(report)
+    state = {
+        "match_id": "m-preset-team-vs-team",
+        "snapshot": {"teams/blue.json": '{"id": "blue"}'},
+    }
+
+    result = fetch_score_report(state, runner=runner, workdir_root=str(tmp_path))
+
+    assert result == report
+    assert runner.calls == [("match", "score", "m-preset-team-vs-team", "--json")]
+    assert runner.hydrated_files == {"teams/blue.json": '{"id": "blue"}'}
+    # the scratch workdir this call hydrated is torn down after use --
+    # nothing is left behind under `workdir_root`.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_fetch_score_report_defaults_to_a_real_league_runner_when_none_is_given() -> None:
+    """No ``runner=`` kwarg -> a real :class:`~league_site.game.runner.LeagueRunner`
+    is constructed internally; proven here by a state with no snapshot/match_id
+    (so the call short-circuits to ``None`` before ever touching a subprocess)."""
+    assert fetch_score_report({}) is None
+
+
+# --- normalize_outcome --------------------------------------------------------
+
+
+def test_normalize_outcome_extracts_the_four_int_fields_per_team() -> None:
+    report = {
+        "outcome": {
+            "blue": {"total": 7, "missions": 2, "control": 3, "resources": 2},
+            "red": {"total": 3, "missions": 0, "control": 0, "resources": 3},
+        }
+    }
+
+    assert normalize_outcome(report) == {
+        "blue": {"total": 7, "missions": 2, "control": 3, "resources": 2},
+        "red": {"total": 3, "missions": 0, "control": 0, "resources": 3},
+    }
+
+
+def test_normalize_outcome_defaults_missing_subfields_to_zero() -> None:
+    report = {"outcome": {"solo": {"total": 4}}}
+
+    assert normalize_outcome(report) == {
+        "solo": {"total": 4, "missions": 0, "control": 0, "resources": 0}
+    }
+
+
+def test_normalize_outcome_values_are_plain_ints() -> None:
+    report = {
+        "outcome": {"blue": {"total": 7.0, "missions": 2.0, "control": 3.0, "resources": 2.0}}
+    }
+
+    normalized = normalize_outcome(report)
+
+    assert all(isinstance(v, int) for v in normalized["blue"].values())
+
+
+def test_normalize_outcome_sorts_team_ids_for_determinism() -> None:
+    report = {"outcome": {"red": {"total": 1}, "blue": {"total": 2}}}
+
+    assert list(normalize_outcome(report)) == ["blue", "red"]
+
+
+def test_normalize_outcome_handles_a_missing_outcome_key() -> None:
+    assert normalize_outcome({}) == {}
+
+
+def test_normalize_outcome_from_the_real_fixture() -> None:
+    """Grounds the shape against a real, unedited ``league match score
+    --json`` capture — see this module's docstring."""
+    report = _load_fixture("grid_match_score.json")
+
+    assert normalize_outcome(report) == {
+        "blue": {"total": 0, "missions": 0, "control": 0, "resources": 0},
+        "red": {"total": 0, "missions": 0, "control": 0, "resources": 0},
+    }
+
+
+# --- normalize_quality_axes ---------------------------------------------------
+
+
+def test_normalize_quality_axes_float_coerces_every_grade() -> None:
+    axes = {"p-1": {"mvp": 1, "lvp": 0, "cooperation_score": 80, "span_of_control_score": 55}}
+
+    normalized = normalize_quality_axes(axes)
+
+    assert normalized == {
+        "p-1": {
+            "mvp": 1.0,
+            "lvp": 0.0,
+            "cooperation_score": 80.0,
+            "span_of_control_score": 55.0,
+        }
+    }
+    assert all(isinstance(v, float) for v in normalized["p-1"].values())
+
+
+def test_normalize_quality_axes_sorts_participant_ids_for_determinism() -> None:
+    axes = {"p-2": {"mvp": 0.0}, "p-1": {"mvp": 1.0}}
+
+    assert list(normalize_quality_axes(axes)) == ["p-1", "p-2"]
+
+
+def test_normalize_quality_axes_handles_an_empty_mapping() -> None:
+    assert normalize_quality_axes({}) == {}
+
+
+# --- score_breakdown: engine duck typing + graceful degradation --------------
+
+
+class _NoQualityAxesEngine:
+    """Mirrors the built-in stub engine's public surface: no ``quality_axes``
+    method at all — the "stub-engine matches simply omit the extra keys"
+    contract from platform issue #10."""
+
+    def score(self, state: Any) -> dict[str, float]:
+        return {}
+
+
+class _FakeGridEngine:
+    """Duck-types ``GridLaneEngine``'s ``quality_axes`` surface only — enough
+    for :func:`score_breakdown` to combine it with a fetched score report."""
+
+    def __init__(self, axes: dict[str, dict[str, float]]) -> None:
+        self._axes = axes
+        self.calls_with: list[Any] = []
+
+    def quality_axes(self, state: Any) -> dict[str, dict[str, float]]:
+        self.calls_with.append(state)
+        return self._axes
+
+
+def test_score_breakdown_is_none_when_the_engine_has_no_quality_axes(tmp_path: Path) -> None:
+    state = {"match_id": "m-1", "snapshot": {}}
+    assert score_breakdown(_NoQualityAxesEngine(), state, workdir_root=str(tmp_path)) is None
+
+
+def test_score_breakdown_is_none_when_the_state_is_not_grid_shaped() -> None:
+    engine = _FakeGridEngine({"p-1": {"mvp": 1.0}})
+    assert score_breakdown(engine, {"turns_taken": 3}) is None
+
+
+def test_score_breakdown_combines_normalized_outcome_and_quality_axes(tmp_path: Path) -> None:
+    report = _load_fixture("grid_match_score.json")
+    runner = _CannedRunner(report)
+    axes = {
+        "p-1": {"cooperation_score": 80, "mvp": 1, "lvp": 0, "span_of_control_score": 0},
+        "p-2": {"cooperation_score": 80, "mvp": 0, "lvp": 1, "span_of_control_score": 0},
+    }
+    engine = _FakeGridEngine(axes)
+    state = {"match_id": "m-preset-team-vs-team", "snapshot": {}}
+
+    extras = score_breakdown(engine, state, runner=runner, workdir_root=str(tmp_path))
+
+    assert extras == {
+        "outcome": normalize_outcome(report),
+        "quality_axes": normalize_quality_axes(axes),
+    }
+    assert engine.calls_with == [state]  # quality_axes was asked about this exact state
+
+
+def test_score_breakdown_returns_none_when_the_league_cli_is_unreachable(tmp_path: Path) -> None:
+    engine = _FakeGridEngine({"p-1": {"mvp": 1.0}})
+    state = {"match_id": "m-x", "snapshot": {}}
+
+    extras = score_breakdown(engine, state, runner=_FailingRunner(), workdir_root=str(tmp_path))
+
+    assert extras is None
+
+
+@pytest.mark.parametrize("axis_value", [1, 1.0])
+def test_score_breakdown_quality_axes_are_always_floats_regardless_of_input_type(
+    tmp_path: Path, axis_value: Any
+) -> None:
+    report = _load_fixture("grid_match_score.json")
+    runner = _CannedRunner(report)
+    engine = _FakeGridEngine({"p-1": {"mvp": axis_value}})
+    state = {"match_id": "m-preset-team-vs-team", "snapshot": {}}
+
+    extras = score_breakdown(engine, state, runner=runner, workdir_root=str(tmp_path))
+
+    assert extras is not None
+    assert extras["quality_axes"]["p-1"]["mvp"] == 1.0
+    assert isinstance(extras["quality_axes"]["p-1"]["mvp"], float)

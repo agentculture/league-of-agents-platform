@@ -37,19 +37,28 @@ class TeamSpec:
     ``driver_kind`` is recorded on ``league match new --driver`` purely as
     audit metadata (see the module docstring) — it never changes engine
     behavior. ``is_bot`` marks a team no platform participant ever controls
-    (the house side): its orders are never staged by
-    :meth:`~league_site.game.adapter.GridLaneEngine.apply_turn`, so the
-    adapter must force resolution with ``league match tick --apply`` once
-    every non-bot team has staged (see :attr:`LaunchMode.bot_team_ids`).
+    (the house side). ``bot_policy`` names the *game's own* bot policy that
+    plays a bot team each turn (platform#9): after the participant side(s)
+    stage, :meth:`~league_site.game.adapter.GridLaneEngine.apply_turn`
+    drives every policy-carrying bot team through ``league harness run``
+    (see :mod:`league_site.game.bot` for the label -> harness-driver
+    mapping, e.g. ``"bot:greedy"`` -> the game's deterministic greedy
+    baseline). A bot team with ``bot_policy=None`` is a deliberately
+    passive house: it never stages, and the adapter force-resolves with
+    ``league match tick --apply`` (that team simply holds) once every other
+    team has staged (see :attr:`LaunchMode.bot_team_ids`).
     ``action_cap`` is the platform-enforced per-turn order limit for this
     team (``None`` = unlimited); solo mode's fairness handicap is
-    ``action_cap=1`` on the lone human/agent-controlled team.
+    ``action_cap=1`` on the lone human/agent-controlled team — the player
+    side only, exactly like the game's own solo preset (its ``solo`` team
+    declares ``max_actions: 1``, its ``house`` team is uncapped).
     """
 
     team_id: str
     driver_kind: str
     is_bot: bool = False
     action_cap: int | None = None
+    bot_policy: str | None = None
 
 
 @dataclass(frozen=True)
@@ -125,13 +134,21 @@ SOLO_VS_BOT = LaunchMode(
     expected_participants=1,
     teams=(
         TeamSpec(team_id="solo", driver_kind="stateless", is_bot=False, action_cap=1),
-        TeamSpec(team_id="house", driver_kind="bot", is_bot=True, action_cap=None),
+        TeamSpec(
+            team_id="house",
+            driver_kind="bot",
+            is_bot=True,
+            action_cap=None,
+            bot_policy="bot:greedy",
+        ),
     ),
     description=(
         "One participant commands the whole roster alone, handicapped to a single "
-        "action per turn (platform-enforced), against the house side — which never "
-        "stages orders, so the adapter force-resolves every turn with "
-        "'league match tick --apply' once the solo side has staged."
+        "action per turn (platform-enforced, player side only), against the house "
+        "side played by the game's own deterministic greedy bot baseline "
+        "('bot:greedy'): each turn, once the solo side has staged, the adapter "
+        "stages the house orders via 'league harness run' — which auto-resolves "
+        "the turn."
     ),
 )
 

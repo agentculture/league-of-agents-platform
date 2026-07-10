@@ -199,3 +199,23 @@ def test_require_boto3_raises_runtime_error_when_boto3_is_unavailable(monkeypatc
 
     with pytest.raises(RuntimeError, match="aws"):
         DynamoDBTokenStore("league-agent-tokens", resource=FakeDynamoDBResource())
+
+
+def test_dynamodb_token_store_list_all_returns_every_record_revoked_included() -> None:
+    """`list_all` feeds the self-serve issuance guard (see token_store.py) —
+
+    it must return every record, revoked included, across scan pages (the
+    FakeTable's page size of 2 forces pagination with three records).
+    """
+    store = DynamoDBTokenStore("tokens-table", resource=FakeDynamoDBResource())
+    records_in = [_record(token_hash=ch * 64) for ch in ("a", "b", "c")]
+    for record in records_in:
+        store.save(record)
+    store.revoke(records_in[1].token_id)
+
+    records = store.list_all()
+
+    assert {r.token_hash for r in records} == {r.token_hash for r in records_in}
+    revoked_flags = {r.token_hash: r.revoked for r in records}
+    assert revoked_flags[records_in[1].token_hash] is True
+    assert revoked_flags[records_in[0].token_hash] is False

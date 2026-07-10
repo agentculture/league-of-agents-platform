@@ -60,23 +60,33 @@ def test_header_carries_wordmark_and_nav_placeholders() -> None:
     assert "OF AGENTS" in text
     for label, href in (
         ("Home", "/index"),
-        ("Docs", "/"),
+        ("Docs", "/docs"),
         ("Leaderboard", "/leaderboard"),
         ("About", "/about"),
     ):
         assert f'<a href="{href}">{label}</a>' in text
 
 
-def test_landing_page_title_is_the_site_name_not_documentation() -> None:
-    """``/`` (the landing page) is agentfront's own generated doc index --
-    its body legitimately opens with an ``# Documentation`` heading (see
-    ``agentfront.http_surface._index``) -- but the *site's* landing page
-    must not present that as its title; it should read the plain site
-    name, exactly like a page with no H1 at all falls back to it."""
-    _, _, body = _get(_shelled(), "/")
-    title = _title(body)
-    assert "League of Agents" in title
-    assert "Documentation" not in title
+def test_landing_page_title_is_the_site_name_at_both_its_urls() -> None:
+    """``/`` and ``/index`` both serve the authored landing (platform#14 --
+    see ``league_site.web.http._with_root_landing``) and both must present
+    the plain site name as their title, exactly like a page with no H1 at
+    all falls back to it -- not whatever their body's own ``# `` heading
+    happens to read, so the title stays correct even if that heading is
+    ever edited to something more conversational than the site name."""
+    for path in ("/", "/index"):
+        _, _, body = _get(_shelled(), path)
+        title = _title(body)
+        assert title == "League of Agents", path
+
+
+def test_docs_catalog_title_is_its_own_heading_not_the_bare_site_name() -> None:
+    """``/docs`` is agentfront's own generated doc catalog (formerly served
+    at ``/`` -- see ``agentfront.http_surface._index``); it is not a
+    landing path, so it gets a sensible title derived from its own ``# ``
+    heading, like any other doc page (:func:`test_docs_page_title_is_its_own_h1`)."""
+    _, _, body = _get(_shelled(), "/docs")
+    assert _title(body) == "Documentation — League of Agents"
 
 
 def test_docs_page_title_is_its_own_h1() -> None:

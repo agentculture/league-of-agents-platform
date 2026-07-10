@@ -45,6 +45,16 @@ def event_to_environ(event: dict[str, Any]) -> dict[str, Any]:
 
     method = http_ctx.get("method", "GET")
     path = event.get("rawPath") or http_ctx.get("path") or "/"
+    # A named stage (StageName=prod) prefixes execute-api paths with
+    # "/<stage>"; custom-domain invocations carry no such prefix. Strip
+    # exactly that prefix so the app always sees the app-relative path.
+    stage = request_context.get("stage", "")
+    if stage and stage != "$default":
+        prefix = f"/{stage}"
+        if path == prefix:
+            path = "/"
+        elif path.startswith(prefix + "/"):
+            path = path[len(prefix) :]
     query_string = event.get("rawQueryString", "") or ""
 
     headers = {str(k).lower(): v for k, v in (event.get("headers") or {}).items()}

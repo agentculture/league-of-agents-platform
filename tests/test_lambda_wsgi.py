@@ -357,3 +357,42 @@ def test_translator_404s_through_the_real_platform_app() -> None:
     environ = event_to_environ(get_event("/not-a-real-page"))
     result = call_wsgi_app(app, environ)
     assert result["statusCode"] == 404
+
+
+# --- named-stage prefix stripping -------------------------------------------
+#
+# With a named API Gateway stage (StageName=prod), execute-api invocations
+# carry the stage as a rawPath prefix ("/prod/about") while custom-domain
+# invocations do not. The translator must strip exactly that prefix so the
+# WSGI app always sees the app-relative path.
+
+
+def _staged_event(raw_path: str, stage: str) -> dict:
+    event = get_event(raw_path)
+    event["requestContext"]["stage"] = stage
+    return event
+
+
+def test_named_stage_prefix_is_stripped_from_path_info() -> None:
+    environ = event_to_environ(_staged_event("/prod/about", "prod"))
+    assert environ["PATH_INFO"] == "/about"
+
+
+def test_named_stage_bare_prefix_maps_to_root() -> None:
+    environ = event_to_environ(_staged_event("/prod", "prod"))
+    assert environ["PATH_INFO"] == "/"
+
+
+def test_custom_domain_path_without_stage_prefix_is_untouched() -> None:
+    environ = event_to_environ(_staged_event("/about", "prod"))
+    assert environ["PATH_INFO"] == "/about"
+
+
+def test_default_stage_never_strips() -> None:
+    environ = event_to_environ(_staged_event("/prod/about", "$default"))
+    assert environ["PATH_INFO"] == "/prod/about"
+
+
+def test_lookalike_path_segment_is_not_stripped() -> None:
+    environ = event_to_environ(_staged_event("/production/about", "prod"))
+    assert environ["PATH_INFO"] == "/production/about"

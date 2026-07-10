@@ -79,6 +79,29 @@ def test_start_agent_page_links_back_to_the_full_agent_onboarding_doc() -> None:
     assert 'href="/agent-onboarding"' in text
 
 
+def test_agents_token_page_is_registered_and_documents_self_serve_minting() -> None:
+    """The /agents page carries the self-serve acquisition path (issue #12)."""
+    app = build_app()
+    doc = app.get_doc("agents")
+    assert doc is not None
+    assert "/auth/agents" in doc.text
+    assert "curl" in doc.text
+
+
+def test_agents_token_page_is_served_over_http() -> None:
+    _, _, body = _get(_shelled(), "/agents")
+    text = body.decode("utf-8")
+    assert "/auth/agents" in text
+
+
+def test_start_agent_page_points_at_self_serve_token_minting() -> None:
+    """Step one no longer says 'ask the operator' — it links the mint-it-yourself page."""
+    _, _, body = _get(_shelled(), "/start-agent")
+    text = body.decode("utf-8")
+    assert "/auth/agents" in text
+    assert 'href="/agents"' in text
+
+
 def test_start_agent_content_is_grounded_in_agent_onboarding_doc() -> None:
     """The onboarding teaser doesn't contradict the canonical agent-onboarding doc."""
     app = build_app()

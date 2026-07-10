@@ -2,14 +2,23 @@
 
 ``agentfront``'s own :meth:`agentfront.App.http_app` already serves every
 registered doc as raw markdown (``Content-Type: text/markdown``) at
-``/<slug>`` — see :mod:`agentfront.http_surface`. This module adds one thin
-routing behavior on top: a ``.md`` suffix passthrough, so a consumer that
-expects an explicit ``/<slug>.md`` "raw" URL (the common docs-site
-convention, distinct from the page URL) resolves to the exact same registry
-entry as ``/<slug>``. The registry built by
-:func:`league_site.web.app.build_app` stays the single source of truth for
-both URLs — this wrapper only rewrites ``PATH_INFO`` before delegating to
-agentfront's own WSGI app.
+``/<slug>`` — see :mod:`agentfront.http_surface`. This module adds two thin
+routing behaviors on top, neither of which forks the registry — both only
+ever rewrite ``PATH_INFO`` before delegating to agentfront's own WSGI app:
+
+* A ``.md`` suffix passthrough, so a consumer that expects an explicit
+  ``/<slug>.md`` "raw" URL (the common docs-site convention, distinct from
+  the page URL) resolves to the exact same registry entry as ``/<slug>``.
+* A root-landing swap (platform#14): agentfront's own ``/`` is its
+  *generated* doc catalog (see :func:`agentfront.http_surface._index`), not
+  the authored landing page a visitor to the site's root URL should see.
+  :func:`_with_root_landing` rewrites ``GET /`` onto the authored ``index``
+  doc instead, and gives the generated catalog a stable home of its own at
+  ``GET /docs``. See that function's docstring for the full rationale,
+  including why ``/index`` keeps serving directly rather than redirecting.
+
+The registry built by :func:`league_site.web.app.build_app` stays the
+single source of truth for every URL these two wrappers touch.
 
 :func:`site_app` composes this surface with the match API
 (:mod:`league_site.api.wsgi`), human/agent auth
@@ -29,7 +38,7 @@ from wsgiref.simple_server import WSGIServer, make_server
 
 from league_site.api.wsgi import EngineRegistry, with_api
 from league_site.auth import oauth
-from league_site.auth.token_store import TokenStore
+from league_site.auth.token_store import InMemoryTokenStore, TokenStore
 from league_site.auth.wsgi import with_auth
 from league_site.matches import InMemoryMatchStore, MatchStore
 from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
@@ -40,6 +49,19 @@ from league_site.web.shell import with_shell
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
 _MD_SUFFIX = ".md"
+_ROOT_PATH = "/"
+_LANDING_SLUG_PATH = "/index"
+_DOCS_CATALOG_PATH = "/docs"
+#: agentfront's own generated doc catalog is only reachable, inside
+#: agentfront's own ``http_surface``, at the exact path ``"/"`` (see
+#: :func:`agentfront.http_surface.make_http_app`'s ``path == "/"`` branch,
+#: which calls ``_index(app)``). ``PATH_INFO`` must equal this exact string
+#: by the time it reaches ``build_app().http_app()`` to hit that branch --
+#: named separately from :data:`_ROOT_PATH` even though the value is
+#: identical, since the two constants mean different things: one is the
+#: *outward-facing* URL this module remaps away from the catalog, the other
+#: is the catalog's fixed *internal* address inside agentfront.
+_CATALOG_SOURCE_PATH = "/"
 _PROFILES_PREFIX = "/profiles/"
 #: Matches ``league_site.viewer.wsgi.WATCH_PATH_RE`` exactly — duplicated here
 #: (rather than imported at module scope) for the same reason
@@ -64,6 +86,44 @@ def _md_passthrough(inner: WSGIApp) -> WSGIApp:
         if path != "/" and path.endswith(_MD_SUFFIX):
             environ = dict(environ)
             environ["PATH_INFO"] = path[: -len(_MD_SUFFIX)]
+        return inner(environ, start_response)
+
+    return application
+
+
+def _with_root_landing(inner: WSGIApp) -> WSGIApp:
+    """Wrap *inner* so ``GET /`` serves the authored landing doc and ``GET
+    /docs`` serves agentfront's generated doc catalog — the page that
+    otherwise lives at ``/`` (see :func:`agentfront.http_surface._index`).
+
+    Same rewrite-``PATH_INFO``-and-delegate technique as
+    :func:`_md_passthrough`: neither the doc registry nor agentfront's own
+    routing is forked, only the ``PATH_INFO`` agentfront sees is remapped —
+    so both URLs resolve to the exact same registry entries agentfront
+    already serves, byte-identical to what ``/index`` and (formerly) ``/``
+    always returned.
+
+    ``/index`` keeps serving the identical landing content directly too —
+    it is *not* redirected, by design: redirecting would mean an agent (or
+    a human's browser history) following the old ``/index`` URL bounces
+    through a 301 instead of getting the page directly, and the raw
+    ``/index.md`` passthrough some consumers already depend on must stay
+    byte-identical regardless. ``/`` becomes the *additional*, canonical
+    URL for the same content — PATH_INFO is rewritten internally rather
+    than the caller being redirected, so the root URL stays canonical in
+    the address bar (see :mod:`league_site.web.shell`'s landing-title
+    handling, which treats ``/`` and ``/index`` as the same page for the
+    purpose of the ``<title>``).
+    """
+
+    def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+        path = environ.get("PATH_INFO", "/")
+        if path == _ROOT_PATH:
+            environ = dict(environ)
+            environ["PATH_INFO"] = _LANDING_SLUG_PATH
+        elif path == _DOCS_CATALOG_PATH:
+            environ = dict(environ)
+            environ["PATH_INFO"] = _CATALOG_SOURCE_PATH
         return inner(environ, start_response)
 
     return application
@@ -102,7 +162,7 @@ def _with_viewer(inner: WSGIApp, viewer: WSGIApp) -> WSGIApp:
 
     def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "/")
-        if _WATCH_PATH_RE.match(path):
+        if _WATCH_PATH_RE.match(path) or path == "/leaderboard":
             return viewer(environ, start_response)
         return inner(environ, start_response)
 
@@ -114,9 +174,13 @@ def http_app() -> WSGIApp:
 
     Builds a fresh registry via :func:`~league_site.web.app.build_app` and
     derives its HTTP surface via :meth:`agentfront.App.http_app`, wrapped
-    with the ``.md`` suffix passthrough (see :func:`_md_passthrough`).
+    with the root-landing swap (see :func:`_with_root_landing` — ``/`` gets
+    the authored landing, ``/docs`` gets the generated catalog) and, around
+    that, the ``.md`` suffix passthrough (see :func:`_md_passthrough`) —
+    applied outermost so it also covers the two new URLs (``/docs.md``
+    resolves the same way ``/index.md`` always has).
     """
-    return _md_passthrough(build_app().http_app())
+    return _md_passthrough(_with_root_landing(build_app().http_app()))
 
 
 def site_app(
@@ -213,14 +277,15 @@ def site_app(
     resolved_ledger_store = (
         ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
     )
+    resolved_token_store = token_store if token_store is not None else InMemoryTokenStore()
     api = with_api(
         http_app(),
         match_store=resolved_match_store,
-        token_store=token_store,
+        token_store=resolved_token_store,
         ledger_store=resolved_ledger_store,
         engine_registry=engine_registry,
     )
-    composed = with_shell(with_auth(api, transport=transport))
+    composed = with_shell(with_auth(api, transport=transport, token_store=resolved_token_store))
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
     viewer = viewer_app(resolved_match_store, resolved_ledger_store)
     return _with_viewer(_with_profiles(composed, profiles), viewer)

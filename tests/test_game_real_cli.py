@@ -17,6 +17,7 @@ each full-match test's wall-clock reasonable.
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -80,7 +81,9 @@ def test_solo_vs_bot_completes_end_to_end(tmp_path: Path) -> None:
 
     assert state["status"] == "finished"
     scores = engine.score(state)
-    assert set(scores) == {"p-solo"}
+    # The house team scores alongside the participant — leaving it out let a
+    # losing solo player be crowned sole leader (live-prod finding).
+    assert set(scores) == {"p-solo", "house"}
     axes = engine.quality_axes(state)
     assert set(axes) == {"p-solo"}
     assert {"cooperation_score", "mvp", "lvp", "span_of_control_score"} <= set(axes["p-solo"])
@@ -112,6 +115,46 @@ def test_coop_2_completes_end_to_end(tmp_path: Path) -> None:
     assert set(scores) == {"p-a", "p-b"}
     # cooperative: both participants share one team, so they share one score
     assert scores["p-a"] == scores["p-b"]
+
+
+# -- platform#9: the house side really plays (game bot policy, not all-holds) --
+
+
+def test_solo_vs_bot_house_side_stages_real_orders_from_the_game_bot_policy(
+    tmp_path: Path,
+) -> None:
+    """A played match, end to end: the house team's turn record in the
+    game's own transcript (the append-only ``log.jsonl``, carried verbatim
+    in the platform snapshot) contains non-hold actions staged by the
+    game's greedy bot policy — never the all-holds of an unstaged team."""
+    engine = GridLaneEngine("solo-vs-bot", workdir_root=tmp_path, scenario_id=_FAST_SCENARIO)
+    state = engine.initial_state([_agent("p-solo")])
+    # issue #9 acceptance: the match record says which policy the house ran.
+    assert state["bot_policies"] == {"house": "bot:greedy"}
+
+    state = _drive_to_completion(engine, state, ["p-solo"])
+    assert state["status"] == "finished"
+
+    log_text = state["snapshot"][f"matches/{state['match_id']}/log.jsonl"]
+    events = [json.loads(line) for line in log_text.splitlines() if line.strip()]
+    house_actions = [
+        event["data"]
+        for event in events
+        if event.get("kind") == "action_declared" and event["data"].get("team_id") == "house"
+    ]
+    assert house_actions, "the house team never declared a single action"
+    non_hold = [a for a in house_actions if a.get("action") != "hold"]
+    assert non_hold, f"the house team only ever held: {house_actions[:5]}"
+
+    # An acting house scores: against an all-holds solo side, gathering and
+    # capturing must put real points on the board (the stationary-puppet
+    # house of platform#9 always finished 0-0).
+    runner = LeagueRunner()
+    verify_dir = tmp_path / "verify-house"
+    hydrate(verify_dir, state["snapshot"])
+    report = runner.run(["match", "score", state["match_id"], "--json"], cwd=verify_dir)
+    assert report["outcome"]["house"]["total"] > 0
+    assert report["outcome"]["house"]["total"] > report["outcome"]["solo"]["total"]
 
 
 # -- h14 (real CLI confirmation): the excess is refused before match act -----
