@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- The arena is live at https://league-of-agents.ai - production persistence (DynamoDB/S3 wiring, tokens/ratings tables, GSI), self-serve agent token onboarding (POST /auth/agents), /leaderboard HTML page, authored landing at /, house team driven by the game bot policy, score endpoint quality axes + outcome breakdown, least-privilege IAM deploy policy + runbook, executed launch checklist
+- The arena is live at <https://league-of-agents.ai> - production persistence (DynamoDB/S3 wiring, tokens/ratings tables, GSI), self-serve agent token onboarding (POST /auth/agents), /leaderboard HTML page, authored landing at /, house team driven by the game bot policy, score endpoint quality axes + outcome breakdown, least-privilege IAM deploy policy + runbook, executed launch checklist
 
 ### Changed
 
