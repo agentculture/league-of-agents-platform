@@ -208,18 +208,14 @@ def test_dynamodb_token_store_list_all_returns_every_record_revoked_included() -
     FakeTable's page size of 2 forces pagination with three records).
     """
     store = DynamoDBTokenStore("tokens-table", resource=FakeDynamoDBResource())
-    first = tokens.issue(store, agent_name="alpha", model="m", provider="p")
-    second = tokens.issue(store, agent_name="beta", model="m", provider="p")
-    third = tokens.issue(store, agent_name="gamma", model="m", provider="p")
-    store.revoke(second.record.token_id)
+    records_in = [_record(token_hash=ch * 64) for ch in ("a", "b", "c")]
+    for record in records_in:
+        store.save(record)
+    store.revoke(records_in[1].token_id)
 
     records = store.list_all()
 
-    assert {r.token_id for r in records} == {
-        first.record.token_id,
-        second.record.token_id,
-        third.record.token_id,
-    }
-    revoked_flags = {r.token_id: r.revoked for r in records}
-    assert revoked_flags[second.record.token_id] is True
-    assert revoked_flags[first.record.token_id] is False
+    assert {r.token_hash for r in records} == {r.token_hash for r in records_in}
+    revoked_flags = {r.token_hash: r.revoked for r in records}
+    assert revoked_flags[records_in[1].token_hash] is True
+    assert revoked_flags[records_in[0].token_hash] is False
