@@ -5,7 +5,7 @@ API Gateway HTTP API in front of a Lambda WSGI adapter
 (`league_site/aws_lambda/`), a single-table DynamoDB match store, an S3
 archive bucket, and a Budget alarm pinned to the platform's 20 USD/month
 ceiling. The infrastructure-as-code lives in `infra/` — `infra/template.yaml`
-(AWS SAM), `infra/Makefile` (the Lambda build step), and `infra/deploy.sh`
+(AWS SAM), `the repo-root Makefile` (the Lambda build step), and `infra/deploy.sh`
 (the one-command wrapper). See [architecture](architecture.md) for how this
 stack fits the rest of the platform and [operations](operations.md) for the
 day-2 operator CLI.
@@ -70,7 +70,7 @@ live AWS account is the live-launch-checklist task's job (see
 This project manages dependencies with `uv` against a PEP 621
 `pyproject.toml`, not a `requirements.txt`. `sam build`'s built-in Python
 build workflow only knows how to install from `requirements.txt`, so it
-cannot build this function directly. `infra/Makefile` instead runs:
+cannot build this function directly. `the repo-root Makefile` instead runs:
 
 ```bash
 pip install --no-cache-dir --target "$ARTIFACTS_DIR" "$CODE_ROOT"
@@ -88,7 +88,7 @@ export BUDGET_ALERT_EMAIL=you@example.com   # receives Budget threshold alerts
 infra/deploy.sh prod "$BUDGET_ALERT_EMAIL"
 ```
 
-This runs `sam build` (using `infra/Makefile`, see above) followed by
+This runs `sam build` (using `the repo-root Makefile`, see above) followed by
 `sam deploy` with:
 
 - `--stack-name league-of-agents-platform-prod`

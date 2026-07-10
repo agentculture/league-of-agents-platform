@@ -134,9 +134,9 @@ Resources:
       # requirements.txt at the repo root (this project uses uv + a PEP 621
       # pyproject.toml), so SAM's built-in Python build workflow — which
       # only looks for requirements.txt — can't build this function. A
-      # Makefile build target (infra/Makefile) instead runs
+      # Makefile build target (the repo-root Makefile) instead runs
       # `pip install --target "$(ARTIFACTS_DIR)" .` from the repo root,
-      # which reads pyproject.toml directly. See infra/Makefile and
+      # which reads pyproject.toml directly. See the repo-root Makefile and
       # docs/deploy.md.
       BuildMethod: makefile
     Properties:
