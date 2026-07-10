@@ -9,10 +9,14 @@ installed raises a clear ``RuntimeError`` only when an adapter is actually
 
 Both classes below accept a pre-built ``resource``/``client`` so callers
 (and tests) can inject a fake and never touch real AWS — no credentials or
-region configuration are required to exercise this module. Wiring these
-adapters into the live platform (table/bucket provisioning, pagination,
-retries, GSIs for "list matches by status") is a later task; this module
-only fixes the item/key shape so that task has a stable target — see
+region configuration are required to exercise this module.
+:meth:`DynamoDBMatchStore.list_ids` is a paginated full-table scan (see its
+own docstring) — good enough for ``check_capacity``/the cleanup Lambda at
+launch scale, since :mod:`league_site.capacity.config` bounds table size
+directly. Wiring these adapters further into the live platform (table/bucket
+provisioning, retries, a GSI for "list matches by status/game" so a scan
+isn't needed at all) is a later task; this module only fixes the item/key
+shape so that task has a stable target — see
 :mod:`league_site.matches.serialization` for the DynamoDB single-table
 design and the S3 archive key scheme.
 """
@@ -73,9 +77,41 @@ class DynamoDBMatchStore(MatchStore):
         self._table.delete_item(Key={"PK": f"MATCH#{match_id}", "SK": "METADATA"})
 
     def list_ids(self) -> list[str]:
-        raise NotImplementedError(
-            "listing matches requires a GSI query; wiring is a later task (see module docstring)"
-        )
+        """Every persisted match id, via a paginated full-table scan.
+
+        No GSI exists yet for "list matches by status" (see the module
+        docstring's "suggested access patterns" in
+        :mod:`league_site.matches.serialization`), so this is a plain
+        ``Table.scan`` — O(n) in the table's size, which is exactly why
+        :class:`~league_site.capacity.config.CapacityConfig` bounds
+        ``max_stored_matches``: n stays small by construction (see that
+        module's docstring). ``ProjectionExpression`` limits what comes back
+        over the wire to just the attributes this method needs, and a
+        ``FilterExpression`` narrows the scan to match-metadata items only
+        (single-table design — see :mod:`league_site.matches.serialization`)
+        in case a future entity type ever shares this table. Every page is
+        followed via ``LastEvaluatedKey``/``ExclusiveStartKey`` until the
+        scan is exhausted, so this returns *every* match id regardless of
+        how many pages DynamoDB splits the table into.
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        match_ids: list[str] = []
+        scan_kwargs: dict[str, Any] = {
+            "ProjectionExpression": "match_id, entity_type",
+            "FilterExpression": Attr("entity_type").eq("match"),
+        }
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                match_id = item.get("match_id")
+                if match_id is not None:
+                    match_ids.append(match_id)
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last_key
+        return match_ids
 
 
 class S3MatchArchive:

@@ -8,15 +8,32 @@ guarantees for this suite.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from league_site.auth import tokens
 from league_site.auth.aws_tokens import DynamoDBTokenStore
-from league_site.auth.token_store import InMemoryTokenStore, TokenRecord
+from league_site.auth.token_store import InMemoryTokenStore, TokenNotFoundError, TokenRecord
 
 
 class FakeTable:
-    """Stand-in for a boto3 DynamoDB Table resource: an in-process dict."""
+    """Stand-in for a boto3 DynamoDB Table resource: an in-process dict.
+
+    :meth:`scan` and :meth:`update_item` mimic just enough of the real
+    ``Table`` contract to exercise :meth:`DynamoDBTokenStore.revoke`'s
+    paginated-scan fallback (see that method's docstring): ``scan`` hands
+    back at most :attr:`scan_page_size` items per call plus a
+    ``LastEvaluatedKey`` whenever more remain, and ``update_item`` flips
+    ``revoked`` on the addressed item in place — neither evaluates
+    ``FilterExpression``/``UpdateExpression`` for real (this fake's items are
+    all single-attribute-per-update already), the point is proving the
+    scan-then-update pagination loop, not reimplementing DynamoDB's
+    expression language.
+    """
+
+    #: Small on purpose so a handful of saved items already forces >1 page.
+    scan_page_size = 2
 
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, object]] = {}
@@ -29,6 +46,31 @@ class FakeTable:
     def get_item(self, *, Key: dict[str, str]) -> dict[str, object]:  # noqa: N803
         item = self.items.get((Key["PK"], Key["SK"]))
         return {"Item": item} if item is not None else {}
+
+    def scan(self, **kwargs: object) -> dict[str, object]:
+        ordered = list(self.items.values())
+        start_key: Any = kwargs.get("ExclusiveStartKey")
+        start_index = 0
+        if start_key is not None:
+            needle = (start_key["PK"], start_key["SK"])
+            for i, item in enumerate(ordered):
+                if (item["PK"], item["SK"]) == needle:
+                    start_index = i + 1
+                    break
+        page = ordered[start_index : start_index + self.scan_page_size]
+        response: dict[str, object] = {"Items": page}
+        next_index = start_index + self.scan_page_size
+        if next_index < len(ordered):
+            last = page[-1]
+            response["LastEvaluatedKey"] = {"PK": last["PK"], "SK": last["SK"]}
+        return response
+
+    def update_item(
+        self, *, Key: dict[str, str], UpdateExpression: str, ExpressionAttributeValues: dict
+    ) -> None:  # noqa: N803
+        assert UpdateExpression == "SET revoked = :revoked"
+        item = self.items[(Key["PK"], Key["SK"])]
+        item["revoked"] = ExpressionAttributeValues[":revoked"]
 
 
 class FakeDynamoDBResource:
@@ -107,10 +149,46 @@ def test_dynamodb_token_store_stored_item_never_carries_the_plaintext_token() ->
     assert issued.token not in str(stored_item)
 
 
-def test_dynamodb_token_store_revoke_is_not_wired_up_yet() -> None:
+def test_dynamodb_token_store_revoke_marks_the_matching_record_revoked() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    record = _record(token_hash="c" * 64)
+    store.save(record)
+    assert store.get_by_hash(record.token_hash).revoked is False
+
+    store.revoke(record.token_id)
+
+    reloaded = store.get_by_hash(record.token_hash)
+    assert reloaded.revoked is True
+    # every other field is untouched
+    assert reloaded.token_id == record.token_id
+    assert reloaded.agent_name == record.agent_name
+
+
+def test_dynamodb_token_store_revoke_raises_token_not_found_for_an_unknown_id() -> None:
     store = DynamoDBTokenStore("league-agent-tokens", resource=FakeDynamoDBResource())
-    with pytest.raises(NotImplementedError):
-        store.revoke("tok-1")
+    with pytest.raises(TokenNotFoundError):
+        store.revoke("does-not-exist")
+
+
+def test_dynamodb_token_store_revoke_finds_the_record_across_multiple_scan_pages() -> None:
+    """FakeTable.scan_page_size (2) is smaller than the number of saved
+    tokens below: this only passes if revoke() actually follows
+    LastEvaluatedKey across pages rather than giving up after the first."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    records = [_record(token_hash=str(i) * 64) for i in range(1, 6)]
+    for record in records:
+        store.save(record)
+    target = records[-1]  # lands on a later scan page
+    assert resource.table.scan_page_size < len(records)
+
+    store.revoke(target.token_id)
+
+    assert store.get_by_hash(target.token_hash).revoked is True
+    # nothing else got touched
+    for other in records[:-1]:
+        assert store.get_by_hash(other.token_hash).revoked is False
 
 
 def test_require_boto3_raises_runtime_error_when_boto3_is_unavailable(monkeypatch) -> None:

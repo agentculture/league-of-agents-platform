@@ -9,6 +9,7 @@ guarantees for this suite.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -28,7 +29,21 @@ def _mid_game_match(match_id: str = "m-aws") -> Match:
 
 
 class FakeTable:
-    """Stand-in for a boto3 DynamoDB Table resource: an in-process dict."""
+    """Stand-in for a boto3 DynamoDB Table resource: an in-process dict.
+
+    :meth:`scan` mimics just enough of the real ``Table.scan`` contract to
+    exercise pagination: it hands back at most :attr:`scan_page_size` items
+    per call plus a ``LastEvaluatedKey`` whenever more remain, exactly the
+    shape a real paginated ``DynamoDBMatchStore.list_ids`` scan loop must
+    round-trip back in as ``ExclusiveStartKey`` on the next call. It doesn't
+    actually evaluate ``FilterExpression``/``ProjectionExpression`` (this
+    fake's items are all match-metadata items already, so there is nothing to
+    filter) — the point of this fake is proving the pagination loop, not
+    reimplementing DynamoDB's expression language.
+    """
+
+    #: Small on purpose so a handful of saved items already forces >1 page.
+    scan_page_size = 2
 
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, object]] = {}
@@ -44,6 +59,24 @@ class FakeTable:
 
     def delete_item(self, *, Key: dict[str, str]) -> None:  # noqa: N803
         self.items.pop((Key["PK"], Key["SK"]), None)
+
+    def scan(self, **kwargs: object) -> dict[str, object]:
+        ordered = list(self.items.values())
+        start_key: Any = kwargs.get("ExclusiveStartKey")
+        start_index = 0
+        if start_key is not None:
+            needle = (start_key["PK"], start_key["SK"])
+            for i, item in enumerate(ordered):
+                if (item["PK"], item["SK"]) == needle:
+                    start_index = i + 1
+                    break
+        page = ordered[start_index : start_index + self.scan_page_size]
+        response: dict[str, object] = {"Items": page}
+        next_index = start_index + self.scan_page_size
+        if next_index < len(ordered):
+            last = page[-1]
+            response["LastEvaluatedKey"] = {"PK": last["PK"], "SK": last["SK"]}
+        return response
 
 
 class FakeDynamoDBResource:
@@ -118,10 +151,46 @@ def test_dynamodb_match_store_delete_removes_item() -> None:
         store.load(match.match_id)
 
 
-def test_dynamodb_match_store_list_ids_is_not_wired_up_yet() -> None:
+def test_dynamodb_match_store_list_ids_on_an_empty_table_returns_an_empty_list() -> None:
     store = DynamoDBMatchStore("league-matches", resource=FakeDynamoDBResource())
-    with pytest.raises(NotImplementedError):
-        store.list_ids()
+    assert store.list_ids() == []
+
+
+def test_dynamodb_match_store_list_ids_returns_every_saved_match_id_across_pages() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBMatchStore("league-matches", resource=resource)
+    match_ids = [f"m-{i}" for i in range(5)]
+    for match_id in match_ids:
+        store.save(_mid_game_match(match_id))
+    # FakeTable.scan_page_size (2) is smaller than 5 items: this only passes
+    # if list_ids() actually follows LastEvaluatedKey across multiple pages
+    # rather than reading just the first page.
+    assert resource.table.scan_page_size < len(match_ids)
+
+    assert sorted(store.list_ids()) == sorted(match_ids)
+
+
+def test_dynamodb_match_store_list_ids_round_trips_last_evaluated_key(monkeypatch) -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBMatchStore("league-matches", resource=resource)
+    for match_id in ("m-a", "m-b", "m-c"):
+        store.save(_mid_game_match(match_id))
+
+    seen_start_keys: list[object] = []
+    original_scan = resource.table.scan
+
+    def _recording_scan(**kwargs: object) -> dict[str, object]:
+        seen_start_keys.append(kwargs.get("ExclusiveStartKey"))
+        return original_scan(**kwargs)
+
+    monkeypatch.setattr(resource.table, "scan", _recording_scan)
+
+    store.list_ids()
+
+    # First call has no start key; every later call is seeded from the prior
+    # response's LastEvaluatedKey (never re-scans from the beginning).
+    assert seen_start_keys[0] is None
+    assert all(key is not None for key in seen_start_keys[1:])
 
 
 def test_s3_match_archive_writes_the_documented_key_and_body() -> None:

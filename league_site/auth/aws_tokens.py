@@ -25,11 +25,13 @@ single item::
 ``token_hash`` is the partition key because every request-path lookup is by
 hash (:func:`league_site.auth.tokens.verify` hashes the presented bearer
 token and looks it up). Revoking by ``token_id`` — the identifier
-:func:`league_site.auth.tokens.revoke` receives — therefore needs a GSI on
-``token_id`` that isn't wired up yet; :meth:`DynamoDBTokenStore.revoke`
-raises ``NotImplementedError`` until that GSI exists, the same skeleton
-pattern as ``DynamoDBMatchStore.list_ids`` in
-:mod:`league_site.matches.aws`.
+:func:`league_site.auth.tokens.revoke` receives — would ideally use a GSI on
+``token_id`` that isn't wired up yet; until it exists,
+:meth:`DynamoDBTokenStore.revoke` falls back to a paginated full-table scan
+(the same O(n)-at-launch-scale tradeoff ``DynamoDBMatchStore.list_ids`` in
+:mod:`league_site.matches.aws` documents) so revocation isn't blocked on
+standing up the GSI first — see that method's docstring for the
+recommendation to add the GSI later.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ except ImportError as exc:  # pragma: no cover - exercised only without the aws 
 else:
     _IMPORT_ERROR = None
 
-from league_site.auth.token_store import TokenRecord, TokenStore
+from league_site.auth.token_store import TokenNotFoundError, TokenRecord, TokenStore
 
 
 def _require_boto3() -> None:
@@ -109,7 +111,45 @@ class DynamoDBTokenStore(TokenStore):
         return _from_item(item)
 
     def revoke(self, token_id: str) -> None:
-        raise NotImplementedError(
-            "revoking by token_id requires a GSI on token_id; wiring is a later task "
-            "(see module docstring)"
-        )
+        """Mark the token identified by ``token_id`` as revoked.
+
+        No GSI on ``token_id`` exists yet (see the module docstring), so this
+        is a paginated full-table scan filtered to ``token_id`` followed by a
+        targeted ``update_item`` on the one matching item — O(n) in the
+        number of issued tokens. That is an accepted, documented tradeoff at
+        launch scale (agent token counts are small; see
+        :mod:`league_site.capacity.config` for the same reasoning applied to
+        matches) so that revocation isn't blocked on standing up the GSI
+        first. Recommendation for a follow-up: add a GSI keyed on
+        ``token_id`` (``GSI1PK=TOKEN_ID#<id>``) once issued-token volume
+        makes an O(n) scan noticeable, and swap this for a ``Query``.
+
+        Raises :class:`~league_site.auth.token_store.TokenNotFoundError` if
+        no record has that ``token_id`` — the scan exhausts every page
+        without finding a match.
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        scan_kwargs: dict[str, Any] = {
+            "ProjectionExpression": "PK, SK, token_id",
+            "FilterExpression": Attr("token_id").eq(token_id),
+        }
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            # Re-check `token_id` client-side rather than trusting every
+            # returned item already matches: `FilterExpression` is applied
+            # server-side by real DynamoDB, but this stays correct even
+            # against a scan that doesn't (or can't) filter server-side.
+            for item in response.get("Items", []):
+                if item.get("token_id") == token_id:
+                    self._table.update_item(
+                        Key={"PK": item["PK"], "SK": item["SK"]},
+                        UpdateExpression="SET revoked = :revoked",
+                        ExpressionAttributeValues={":revoked": True},
+                    )
+                    return
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last_key
+        raise TokenNotFoundError(token_id)

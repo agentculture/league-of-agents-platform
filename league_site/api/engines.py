@@ -3,11 +3,12 @@
 This is a placeholder registry entry, not a real game: a minimal,
 deterministic turn-taking engine good enough to exercise the whole match
 API surface end to end (create -> turns -> auto-complete -> score ->
-rating) before the real grid-lane game exists. The real adapter
-(``league_site.game``, being built in parallel by another task) registers
-into a :mod:`league_site.api.wsgi` ``engine_registry`` post-merge — this
-module intentionally never imports ``league_site.game``, so that wiring
-stays a later, purely additive change.
+rating) with no external process involved. The real grid-lane game
+(``league_site.game``) is wired in alongside this stub by
+:func:`league_site.api.registry.default_engine_registry` — see that
+module's docstring; this module intentionally never imports
+``league_site.game`` itself, keeping the stub's own import graph minimal
+regardless of how it's composed.
 """
 
 from __future__ import annotations

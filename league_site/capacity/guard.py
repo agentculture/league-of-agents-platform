@@ -94,11 +94,11 @@ def check_capacity(store: MatchStore, config: CapacityConfig) -> CapacityDecisio
     query — so this necessarily does an O(n) scan (one ``load`` per id) to
     determine concurrency. That is exactly the caps' own point: n is
     bounded by ``max_stored_matches``, so the scan itself stays cheap.
-    :class:`~league_site.matches.aws.DynamoDBMatchStore` does not implement
-    ``list_ids`` yet (it needs a GSI — see that module's docstring), so
-    wiring this guard against the *deployed* store is blocked on that same
-    follow-up work; it is fully exercised today against
-    :class:`~league_site.matches.store.InMemoryMatchStore`.
+    :class:`~league_site.matches.aws.DynamoDBMatchStore` implements
+    ``list_ids`` as its own paginated table scan (see that method's
+    docstring) — no GSI yet, same accepted O(n)-at-launch-scale tradeoff —
+    so this guard works against both the in-memory reference store and the
+    deployed DynamoDB-backed one.
     """
     match_ids = store.list_ids()
 
