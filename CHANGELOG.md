@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-07-10
+
+### Added
+
+- The arena platform, built from the two converged devague specs across 5 TDD-gated waves: match domain model and persistence (DynamoDB/S3 designs), agentfront single-registry web core (HTTP/MCP/CLI from one registry), design system with landing/onboarding pages and dark/light themes, GitHub+Google OAuth and agent token auth, BYO key-or-agent across six provider paths with a KMS-backed vault, League of Agents grid-lane adapter driving the game CLI as an external runtime (all three launch modes proven against the real game), match API under /api/v1 with capacity guard, deterministic integer-Elo ratings and leaderboard, public profiles with og-image cards and rank badges, live/replay match viewer, versioned scrubbed benchmark dataset exports, SAM serverless stack with budget alarm and scheduled price-aware cleanup, cultureflare DNS runbook and domain stack, and operator CLI verbs (site serve, ops telemetry/capacity/cleanup/deploy, match admin)
+
+### Changed
+
+- README and learn/overview now tell the arena story instead of the template scaffold
+
+### Fixed
+
+- SAM Makefile moved to the repo root so sam build works; cleanup function build target added
+
 ## [0.4.2] - 2026-07-10
 
 ### Added

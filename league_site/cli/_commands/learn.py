@@ -12,14 +12,14 @@ from league_site import __version__
 from league_site.cli._output import emit_result
 
 _TEXT = """\
-league-of-agents-platform — a clonable template for AgentCulture mesh agents.
+league-of-agents-platform — the hosted League of Agents arena at league-of-agents.ai.
 
 Purpose
 -------
-Scaffold for a new Culture mesh agent: an agent-first CLI (cited from the teken
-`python-cli` reference), an identity (culture.yaml + CLAUDE.md), the canonical
-guildmaster skill kit under .claude/skills/, and a deploy/CI baseline. Clone it,
-rename the package, and edit culture.yaml to mint a new agent.
+Hosted platform running the League of Agents arena online: a turn-based game
+for humans and agents, for fun and for benchmarks. Continuable matches,
+AWS-hosted, with safe-capacity safeguards and price-aware archive/cleanup.
+This CLI (console script: league-site) is the local operator surface.
 
 Commands
 --------
@@ -29,6 +29,12 @@ Commands
   league-of-agents-platform overview           Descriptive snapshot of the agent.
   league-of-agents-platform doctor             Check the agent-identity invariants.
   league-of-agents-platform cli overview       Describe the CLI surface itself.
+  league-of-agents-platform site serve         Serve the site locally (dev).
+  league-of-agents-platform ops telemetry      Player/match/provider counters.
+  league-of-agents-platform ops capacity       Capacity config + utilization.
+  league-of-agents-platform ops cleanup        Archive/delete stale matches (dry-run default).
+  league-of-agents-platform ops deploy         Deploy the AWS stack (dry-run default).
+  league-of-agents-platform match list|show|archive   Operator match admin.
 
 Machine-readable output
 -----------------------
@@ -52,7 +58,7 @@ def _as_json_payload() -> dict[str, object]:
     return {
         "tool": "league-of-agents-platform",
         "version": __version__,
-        "purpose": "Clonable scaffold for a new AgentCulture mesh agent.",
+        "purpose": "Hosted platform running the League of Agents arena at league-of-agents.ai.",
         "commands": [
             {"path": ["whoami"], "summary": "Identity probe from culture.yaml."},
             {"path": ["learn"], "summary": "Self-teaching prompt."},
@@ -60,6 +66,17 @@ def _as_json_payload() -> dict[str, object]:
             {"path": ["overview"], "summary": "Descriptive snapshot of the agent."},
             {"path": ["doctor"], "summary": "Check the agent-identity invariants."},
             {"path": ["cli", "overview"], "summary": "Describe the CLI surface."},
+            {"path": ["site", "serve"], "summary": "Serve the site locally (dev)."},
+            {"path": ["ops", "telemetry"], "summary": "Player/match/provider counters."},
+            {"path": ["ops", "capacity"], "summary": "Capacity config + utilization."},
+            {"path": ["ops", "cleanup"], "summary": "Archive/delete stale matches (dry-run)."},
+            {"path": ["ops", "deploy"], "summary": "Deploy the AWS stack (dry-run default)."},
+            {"path": ["match", "list"], "summary": "Operator match admin: list."},
+            {"path": ["match", "show"], "summary": "Operator match admin: show one."},
+            {
+                "path": ["match", "archive"],
+                "summary": "Operator match admin: archive one (dry-run default).",
+            },
         ],
         "exit_codes": {
             "0": "success",
