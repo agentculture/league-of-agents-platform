@@ -53,5 +53,8 @@ def test_stylesheet_payload_is_within_the_documented_budget() -> None:
     assert len(payload) <= theme.CSS_BUDGET_BYTES
 
 
-def test_css_budget_constant_matches_the_documented_ten_kilobyte_budget() -> None:
-    assert theme.CSS_BUDGET_BYTES == 10 * 1024
+def test_css_budget_constant_matches_the_documented_budget() -> None:
+    # Renegotiated from 10KB to 24KB ahead of the dazzle pass (spec c11);
+    # see tests/test_web_theme_budget.py for the full budget contract
+    # (CSS + first-party JS + total asset weight) this constant is part of.
+    assert theme.CSS_BUDGET_BYTES == 24 * 1024
