@@ -1,0 +1,182 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  League of Agents platform — Cloudflare-front domain stack. A *second*,
+  independent stack from infra/template.yaml (the main compute/data
+  stack): an ACM certificate for league-of-agents.ai (+ www) with DNS
+  validation, and a REGIONAL API Gateway custom domain + API mapping onto
+  the main stack's HttpApi. Cloudflare DNS is deliberately *not*
+  provisioned here — it is managed exclusively through the cultureflare
+  CLI, outside CloudFormation's reach, by scripts/dns-runbook.sh (see
+  docs/runbooks/cloudflare-league-of-agents-ai.md). This template only
+  produces the AWS-side target that runbook points Cloudflare at.
+  Cloudflare Access is not used — league-of-agents.ai is a public site.
+  Intrinsic functions are long-form (Fn::Sub/Ref/Fn::GetAtt, not
+  !Sub/!Ref/!GetAtt) on purpose, matching infra/template.yaml's
+  convention: plain YAML parses this with no CFN-tag-aware loader needed
+  (see tests/test_domain_template.py).
+
+# --- parameters --------------------------------------------------------------
+# ApiId and ApiStage cross this stack over to infra/template.yaml's HttpApi
+# without either template importing the other: infra/template.yaml declares
+# no Export, and this template deliberately does not require one, so the two
+# stacks can be deployed, versioned, and torn down independently (a domain
+# rename or a re-cert never has to touch the compute stack, and vice versa).
+# The operator supplies both as --parameter-overrides at deploy time, read
+# off the main stack's own resources/outputs — see
+# docs/runbooks/cloudflare-league-of-agents-ai.md for the exact
+# `aws cloudformation describe-stack-resources` / `describe-stacks` commands
+# that produce them.
+
+Parameters:
+  ApiId:
+    Type: String
+    Description: >-
+      The HttpApi resource ID from the main platform stack
+      (infra/template.yaml's `HttpApi`), e.g. resolved via
+      `aws cloudformation describe-stack-resources --stack-name
+      league-of-agents-platform-<stage> --logical-resource-id HttpApi
+      --query 'StackResources[0].PhysicalResourceId' --output text`. No
+      default: this is a required cross-stack link, not a guessable value.
+  ApiStage:
+    Type: String
+    Default: prod
+    Description: >-
+      Stage name of the main stack's HttpApi (infra/template.yaml's
+      `StageName` parameter — defaults to "prod" there too). Must match
+      whatever stage the main stack was actually deployed with, or the API
+      mapping below resolves to a stage that does not exist.
+  DomainName:
+    Type: String
+    Default: league-of-agents.ai
+    Description: >-
+      Apex domain to front. The "www" host is always
+      `www.<DomainName>` (see the WwwDomainName Fn::Sub usages below) — kept
+      as one parameter, not two, so the apex and www names can never drift
+      out of sync with each other.
+
+# --- resources -------------------------------------------------------------
+# Exactly five: one ACM certificate (apex + www as a SAN), one REGIONAL API
+# Gateway custom domain per hostname (API Gateway does not support wildcard
+# SANs spanning "apex + www" any other way), and one API mapping per
+# hostname onto the main stack's HttpApi/stage.
+
+Resources:
+  # DNS-validated (not email-validated) so issuance and renewal are both
+  # unattended once the validation CNAME exists — see the runbook's Phase 1.
+  # ValidationMethod: DNS with no DomainValidationOptions/HostedZoneId means
+  # this is *not* wired to Route 53 auto-validation (DNS lives on Cloudflare,
+  # not Route 53): CloudFormation will hold this resource — and therefore
+  # this whole stack — in CREATE_IN_PROGRESS until the validation CNAME(s)
+  # below are created and ACM observes them. That is expected, not a bug;
+  # see the runbook's "Why the stack appears to hang" note.
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName:
+        Ref: DomainName
+      SubjectAlternativeNames:
+        - Fn::Sub: "www.${DomainName}"
+      ValidationMethod: DNS
+      Tags:
+        - Key: Project
+          Value: league-of-agents-platform
+
+  # REGIONAL (not EDGE-optimized): league-of-agents.ai is *already* fronted
+  # by Cloudflare's own global edge network — stacking a second CloudFront
+  # distribution in front of API Gateway (what EDGE-optimized does
+  # internally) would double the edge hops and the cost for no benefit.
+  # REGIONAL exposes a plain regional API Gateway endpoint that Cloudflare
+  # proxies to directly.
+  DomainNameApex:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName:
+        Ref: DomainName
+      DomainNameConfigurations:
+        - CertificateArn:
+            Ref: Certificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  DomainNameWww:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName:
+        Fn::Sub: "www.${DomainName}"
+      DomainNameConfigurations:
+        - CertificateArn:
+            Ref: Certificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  # Root-path mapping (no ApiMappingKey) onto the main stack's HttpApi/stage:
+  # https://league-of-agents.ai/<anything> maps straight onto that stage's
+  # existing `/{proxy+}` route in infra/template.yaml — no path rewriting.
+  ApiMappingApex:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      DomainName:
+        Ref: DomainNameApex
+      ApiId:
+        Ref: ApiId
+      Stage:
+        Ref: ApiStage
+
+  ApiMappingWww:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      DomainName:
+        Ref: DomainNameWww
+      ApiId:
+        Ref: ApiId
+      Stage:
+        Ref: ApiStage
+
+Outputs:
+  # The pointer scripts/dns-runbook.sh's Phase 1 needs: CloudFormation
+  # assigns this ARN the moment the Certificate resource *starts* creating,
+  # so `aws cloudformation describe-stack-resources` can read it even while
+  # this stack is still CREATE_IN_PROGRESS (waiting on DNS validation) — see
+  # the runbook. `AWS::CertificateManager::Certificate` has no Fn::GetAtt
+  # attributes in CloudFormation, so the validation CNAME's own name/value
+  # cannot be a stack Output here; the runbook fetches those from the ACM
+  # API directly (`aws acm describe-certificate`) using this ARN, and prints
+  # them to the operator — see the runbook doc's honesty note.
+  CertificateArn:
+    Description: >-
+      ARN of the ACM certificate. Feed this to `aws acm describe-certificate`
+      to read the pending DNS validation record(s) (Phase 1 of the runbook).
+    Value:
+      Ref: Certificate
+
+  # The Cloudflare-side target: scripts/dns-runbook.sh's Phase 2 CNAMEs the
+  # apex and www records at these regional domain names (proxied/orange
+  # cloud — Cloudflare's CNAME flattening handles the apex CNAME
+  # restriction). These are only resolvable once the stack reaches
+  # CREATE_COMPLETE (i.e. after Phase 1's validation record has propagated
+  # and ACM has issued the certificate).
+  ApexRegionalDomainName:
+    Description: >-
+      API Gateway regional domain target for the apex host. Cloudflare
+      CNAME target for `league-of-agents.ai` (proxied).
+    Value:
+      Fn::GetAtt: DomainNameApex.RegionalDomainName
+  WwwRegionalDomainName:
+    Description: >-
+      API Gateway regional domain target for the www host. Cloudflare CNAME
+      target for `www.league-of-agents.ai` (proxied).
+    Value:
+      Fn::GetAtt: DomainNameWww.RegionalDomainName
+
+  # Not consumed by the Cloudflare runbook (Cloudflare, not Route 53, is the
+  # DNS provider here) — provisioned as an Output anyway because it costs
+  # nothing to expose and is exactly what an operator would need if a
+  # future task ever added a Route 53 alias record instead of (or in
+  # addition to) the Cloudflare CNAME.
+  ApexRegionalHostedZoneId:
+    Description: >-
+      API Gateway regional hosted zone ID for the apex host (Route 53 alias
+      target zone id, if ever needed — unused by the Cloudflare runbook).
+    Value:
+      Fn::GetAtt: DomainNameApex.RegionalHostedZoneId
