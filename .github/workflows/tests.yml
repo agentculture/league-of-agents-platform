@@ -27,7 +27,7 @@ jobs:
 
       - run: uv python install 3.12
 
-      - run: uv sync
+      - run: uv sync --extra aws
 
       - run: uv run pytest -n auto --cov=league_site --cov-report=xml:coverage.xml --cov-report=term -v
 
@@ -52,7 +52,7 @@ jobs:
 
       - run: uv python install 3.12
 
-      - run: uv sync
+      - run: uv sync --extra aws
 
       - name: black --check
         run: uv run black --check league_site tests
@@ -69,7 +69,7 @@ jobs:
       - name: markdownlint-cli2
         run: |
           npm install -g markdownlint-cli2@0.21.0
-          markdownlint-cli2 "**/*.md" "#node_modules" "#.local" "#.claude/skills" "#.teken"
+          markdownlint-cli2 "**/*.md" "#node_modules" "#.local" "#.claude/skills" "#.teken" "#.venv"
 
       - name: afi rubric gate
         run: uv run teken cli doctor . --strict
