@@ -188,7 +188,7 @@ def test_sam_validate_if_sam_cli_present() -> None:
     docs/runbooks/cloudflare-league-of-agents-ai.md.
     """
     result = subprocess.run(
-        ["sam", "validate", "--template-file", str(_TEMPLATE_PATH)],
+        ["sam", "validate", "--region", "us-east-1", "--template-file", str(_TEMPLATE_PATH)],
         capture_output=True,
         text=True,
         check=False,

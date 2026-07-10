@@ -24,7 +24,7 @@ jobs:
 
       - run: uv python install 3.12
 
-      - run: uv sync
+      - run: uv sync --extra aws
 
       - run: uv run pytest -n auto -v
 
@@ -45,7 +45,7 @@ jobs:
 
       - run: uv python install 3.12
 
-      - run: uv sync
+      - run: uv sync --extra aws
 
       - name: Set dev version
         run: |
@@ -80,7 +80,7 @@ jobs:
 
       - run: uv python install 3.12
 
-      - run: uv sync
+      - run: uv sync --extra aws
 
       - name: Build and publish to PyPI
         run: |
