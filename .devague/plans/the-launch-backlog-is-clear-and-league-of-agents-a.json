@@ -1,0 +1,494 @@
+{
+  "slug": "the-launch-backlog-is-clear-and-league-of-agents-a",
+  "title": "The launch backlog is clear and league-of-agents.ai is live in production",
+  "frame_slug": "the-launch-backlog-is-clear-and-league-of-agents-a",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-10T14:20:09Z",
+  "updated": "2026-07-10T14:25:16Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "The launch backlog is clear and league-of-agents.ai is live in production"
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Every trail item (platform #4-#7, #9-#12, #14; league-of-agents #35-#37; devague #64) ends the sweep closed by a merged PR or explicitly re-parked with a written reason - none silently dropped"
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Players - humans and agents - arriving cold at <https://league-of-agents.ai>; the maintainer clearing the launch backlog; sibling-repo agents (league-of-agents, devague) receiving upstream fixes"
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "Each audience path is exercised at launch: an anonymous human reaches the landing page, an agent reaches /llms.txt and the API surface, and each sibling-repo fix lands via that repo own merged PR with green CI"
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "Platform 0.5.1 is fully built and live-verified on a laptop only. The fixed AWS root login works (CloudFormation responds; no platform stack exists yet). The Lambda handler as shipped serves only the doc site with in-memory state - no auth, no match API, no persistence, no game CLI in the artifact. Open trail: platform #4-#7, #9-#12, #14; league-of-agents #35-#37; devague #64"
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "The before-state is evidenced live: aws cloudformation list-stacks shows no platform stack, handler.py composes site_app() only, and the trail issues are open on GitHub as of the frame date"
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The effort only lands when a stranger - human or agent - can reach and play the arena without the maintainer laptop; and a backlog cleared while fresh costs a fraction of one cleared cold"
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "A person or agent with no repo access completes a full match using only public URLs and public docs"
+    },
+    {
+      "id": "c6",
+      "kind": "requirement",
+      "text": "The SAM platform stack and domain stack deploy from the fixed root login, the Cloudflare DNS runbook (validate/route/verify) completes, and <https://league-of-agents.ai> serves the site over TLS (platform#7)"
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "curl -sSf <https://league-of-agents.ai> returns the landing page over a valid TLS cert, and the CloudFormation stacks (platform + domain) show CREATE_COMPLETE/UPDATE_COMPLETE"
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The Lambda handler composes the full arena app (auth + API + viewer/profiles) over DynamoDB/S3-backed stores - matches, tokens, ratings - with the league CLI packaged into the artifact and its workdir under /tmp, so play survives instance recycling (platform#4)"
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A match created through the production API is still retrievable and continuable after a forced cold start (config touch or new instance) - proving state lives in DynamoDB/S3, not process memory"
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "An agent can self-serve a bearer token on the site without the operator running code (platform#12)"
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "A fresh agent, given only the public site, obtains a bearer token and plays a rated match with zero operator involvement"
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "The leaderboard nav link renders an HTML leaderboard page instead of a 404 (platform#11)"
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "GET /leaderboard returns 200 HTML listing rated players ordered by Elo, and the nav link resolves to it"
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The authored landing page serves at the site root and the doc catalog moves off / (platform#14)"
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "GET / returns the authored landing page (League of Agents title and hero), while the doc catalog stays reachable at its own path"
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "The solo-vs-bot house team acts each turn via the game real bot policy instead of holding forever (platform#9)"
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "In a solo-vs-bot match the house team units observably move/gather/deliver in the turn record, driven by the game bot policy - not all-holds"
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The score endpoint surfaces the game quality axes and outcome breakdown, not just raw points (platform#10)"
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "The platform score endpoint returns the same quality axes and outcome breakdown as league match score --json for the same finished match"
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "The game stepwise cmatch loop gains fog support, --message/--plan on act, and bot-briefing message threading (league-of-agents#35-#37)"
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "A stepwise cmatch run with fog and messages enabled replays byte-identical to the one-shot driver on the same seed (extending the existing parity proof)"
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "devague export emits markdownlint-safe specs and plans - no MD026/MD034 hand-fixes after export (devague#64)"
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "markdownlint-cli2 passes with zero hand-edits on a spec and a plan freshly exported by the patched devague"
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "The t20 launch checklist (deploy, DNS, production pause/resume, Lighthouse) runs green against production - the plan last open task closes"
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The checklist lands in the repo checked off with captured command output for every line, all run against production league-of-agents.ai"
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "Every AWS service and action touched during deploy and maintenance is recorded as it happens, and the sweep ships a least-privilege IAM policy document plus runbook for a dedicated deploy/maintenance user - root credentials become a one-time bootstrap"
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "The policy document enumerates every service-action pair actually used (from CloudTrail or logged CLI calls), and a simulated or real run of the deploy under that policy succeeds"
+    },
+    {
+      "id": "c20",
+      "kind": "boundary",
+      "text": "No new features beyond the filed issues; the continuous-lane adapter and the maturation frame stay parked for the next cycle; no multi-region, no CDN work beyond Cloudflare proxying"
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The sweep merged PRs stay within the filed issues scope - no continuous-lane or maturation-frame code appears in any diff"
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "A stranger completes a match on <https://league-of-agents.ai>; the t20 checklist is green on production; the trail issues across the three repos are closed by merged PRs; an IAM policy document exists that would have sufficed for the whole sweep"
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "The signal is captured concretely: a production match record created by a non-maintainer identity exists, the checked-off t20 checklist is committed, and gh issue list shows the trail closed"
+    },
+    {
+      "id": "c24",
+      "kind": "after_state",
+      "text": "The production stack serves the arena (pages, agent-token API, viewer, profiles, leaderboard) at <https://league-of-agents.ai> fronted by Cloudflare; matches persist in DynamoDB/S3 across Lambda instances; humans browse and spectate, agents play via bearer tokens; the t20 launch checklist has run green against production; every in-sweep trail issue is closed by a merged PR and OAuth (platform#6) is annotated for the next iteration"
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "Every after-state element maps to an in-sweep requirement whose honesty condition is verified against production; the OAuth deferral is visible as an annotated open platform#6, not silence"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "OPS: Deploy the platform SAM stack to prod, recording every AWS action from the first call",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "describe-stacks shows league-of-agents-platform-prod CREATE_COMPLETE and the HttpApi URL serves the site shell",
+        "every aws/sam invocation and its service-action pairs is appended to an access log as it runs; pre-deploy list-stacks output captured as before-state evidence",
+        "MonthlyBudgetUsd deploys at the default 20 with capacity caps unchanged; root creds used only from this machine, nothing derived committed or logged"
+      ],
+      "deps": [],
+      "covers": [
+        "c3",
+        "h16"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t2",
+      "summary": "OPS: Domain stack + Cloudflare DNS runbook (validate/route/verify) until league-of-agents.ai serves over TLS",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "domain stack (ACM cert + API mappings) reaches CREATE_COMPLETE; dns-runbook.sh validate --apply, route --apply, verify all pass",
+        "curl -sSf <https://league-of-agents.ai> returns the landing page over a valid TLS cert"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c6",
+        "h1"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t3",
+      "summary": "Wire DynamoDB/S3-backed stores into the Lambda handler (full arena composition)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "handler composes viewer/profiles + with_shell(with_auth(with_api(...))) over DynamoDB/S3 stores selected by env; local site_app behavior unchanged when env is unset",
+        "store round-trips (match, token, rating) covered by unit tests without real AWS"
+      ],
+      "deps": [],
+      "covers": [
+        "c7"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t4",
+      "summary": "Infra template additions for persistence: tokens/ratings tables, function env, least-privilege function IAM",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "template.yaml declares the missing stateful resources with least-privilege function policies; tests cross-check template env names against the Python source",
+        "capacity caps and the 20 USD budget stay byte-identical"
+      ],
+      "deps": [],
+      "covers": [
+        "c7"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t5",
+      "summary": "Package the league CLI into the Lambda artifact with a /tmp-resolved game workdir",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Makefile build targets install the league package into the artifact; a test asserts the runner resolves the league entrypoint in a simulated artifact layout",
+        "game workdir resolves under /tmp when running on Lambda (env-driven), CWD-relative locally"
+      ],
+      "deps": [],
+      "covers": [
+        "c7"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t6",
+      "summary": "Self-serve agent token onboarding surface (platform#12)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "an agent can obtain a bearer token through a shipped page/API without operator-run code; the token lands in the token store and authenticates /api/v1",
+        "an abuse guard (issuance rate/cap) is enforced and covered by tests"
+      ],
+      "deps": [],
+      "covers": [
+        "c9"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t7",
+      "summary": "Leaderboard HTML page (platform#11)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET /leaderboard returns 200 HTML listing rated players ordered by Elo and the nav link resolves to it",
+        "the empty-ladder state renders a welcoming zero-state, not an error"
+      ],
+      "deps": [],
+      "covers": [
+        "c10",
+        "h5"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t8",
+      "summary": "Authored landing page at the site root (platform#14)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET / serves the authored landing (League of Agents title and hero) while the doc catalog stays reachable at its own path",
+        "the shell title special-case and nav stay correct for both routes, with tests"
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h6"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t9",
+      "summary": "House team acts via the game real bot policy (platform#9)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "in a solo-vs-bot match the house team staged orders come from the game bot policy - a played test shows non-hold actions in the turn record",
+        "mode fairness caps still enforced (solo 1-action cap unchanged)"
+      ],
+      "deps": [],
+      "covers": [
+        "c12",
+        "h7"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t10",
+      "summary": "Score endpoint quality axes and outcome breakdown (platform#10)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET score returns quality axes + outcome breakdown matching league match score --json for the same finished match, fixture-verified"
+      ],
+      "deps": [],
+      "covers": [
+        "c13",
+        "h8"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t11",
+      "summary": "UPSTREAM league-of-agents: cmatch fog + act --message/--plan + briefing threading (#35-#37)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a stepwise cmatch run with fog and messages replays byte-identical to the one-shot driver on the same seed, extending the existing parity proof",
+        "league 0.17.0 releases with green CI and the three issues closed by the PR"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h9"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t12",
+      "summary": "UPSTREAM devague: markdownlint-safe exports (#64)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "devague test suite asserts markdownlint-cli2 passes with zero hand-edits on a freshly exported spec and plan",
+        "devague releases with green CI and #64 closed"
+      ],
+      "deps": [],
+      "covers": [
+        "c15",
+        "h10"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t13",
+      "summary": "OPS: Redeploy with persistence and verify production play (go-live per the launch-gate decision)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "a match created through the production API is retrievable and continuable after a forced cold start (state proven in DynamoDB/S3, not process memory)",
+        "a fresh agent, using only the public site, obtains a token and completes a rated match with zero operator involvement"
+      ],
+      "deps": [
+        "t2",
+        "t3",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "h2",
+        "h4",
+        "c5",
+        "h18"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t14",
+      "summary": "OPS: OAuth next-iteration prep - annotate platform#6 with exact registration steps and production callback URLs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "platform#6 carries GitHub OAuth app + Google OAuth client registration steps with exact production callback URLs and the SSM parameter names the deploy will read; no OAuth code ships in this sweep"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c24"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t15",
+      "summary": "OPS: Least-privilege IAM policy document + maintenance runbook from the recorded access log",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the policy JSON enumerates every service-action pair actually used (access log cross-checked against CloudTrail); a simulated or real deploy run under that policy succeeds",
+        "the runbook documents deploy-user creation, key rotation, and retiring root from the loop"
+      ],
+      "deps": [
+        "t13"
+      ],
+      "covers": [
+        "c17",
+        "h12"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t16",
+      "summary": "OPS: t20 launch checklist green on production + final sweep audit",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "the checklist is committed checked-off with captured command output per line against <https://league-of-agents.ai>, including Lighthouse and production pause/resume",
+        "every in-sweep trail issue is closed by a merged PR or re-parked in writing; the sweep diffs stay within filed-issue scope; each audience path (anonymous human, agent via /llms.txt and API, sibling-repo PRs) is exercised and recorded"
+      ],
+      "deps": [
+        "t7",
+        "t8",
+        "t9",
+        "t10",
+        "t13",
+        "t14",
+        "t15"
+      ],
+      "covers": [
+        "c16",
+        "h11",
+        "c21",
+        "h20",
+        "c1",
+        "h14",
+        "c2",
+        "h15",
+        "c20",
+        "h19",
+        "h21"
+      ],
+      "instruction": ""
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "t3 and t6 may overlap in the web/http composition files - pre-stage shared edits as a deps commit before fan-out (same pattern as the 0.5.0 build)",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r2",
+      "text": "ACM DNS-validation latency: certificate issuance can take minutes to hours after the validation CNAMEs land - t2 may straddle a wait",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    },
+    {
+      "id": "r3",
+      "text": "Lambda artifact size with the league CLI packaged (250MB unzipped cap) - expected fine, verify at build",
+      "kind": "unknown_nonblocking",
+      "task_id": null
+    }
+  ]
+}
