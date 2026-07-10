@@ -61,16 +61,26 @@ _UNSHELLED_PATHS = frozenset({"/llms.txt", "/front"})
 _CT_MARKDOWN = "text/markdown"
 _THEME_PATH = "/theme.css"
 
-#: The landing page — ``/`` — is agentfront's own generated doc index (see
-#: ``agentfront.http_surface._index``), not an authored page: its body
-#: legitimately opens with an ``# Documentation`` heading, listing every
-#: registered doc. That heading is honest as *body* content but wrong as
-#: the page's ``<title>`` — a visitor landing on the site's root URL should
-#: not see "Documentation" before anything else. This path alone skips
-#: :func:`~league_site.web._markdown.extract_title` and always falls back
-#: to the plain site name, the same title a page with no H1 at all would
-#: get (see :func:`_render_page`).
-_LANDING_PATH = "/"
+#: The landing page is reachable at two URLs — the canonical ``/`` (see
+#: :func:`league_site.web.http._with_root_landing`, which rewrites
+#: ``PATH_INFO`` internally rather than redirecting, so the root URL stays
+#: canonical in the address bar) and the legacy/stable ``/index``, which
+#: keeps serving directly rather than 301-ing to ``/``. Both serve
+#: byte-identical authored content (``league_site/web/content/index.md``)
+#: whose own ``# `` heading already reads "League of Agents" — but both
+#: paths are pinned to the plain site name here rather than trusting that
+#: coincidence, the same title a page with no H1 at all would get (see
+#: :func:`_render_page`), so the landing's title stays correct even if that
+#: heading is ever edited to something more conversational than the site
+#: name.
+#:
+#: agentfront's own generated doc catalog — formerly served at ``/``, where
+#: its body's honest ``# Documentation`` heading was wrong as a landing
+#: *title* — now lives at its own stable path, ``/docs`` (platform#14). It
+#: is not a landing path, so it is deliberately absent from this set: it
+#: falls through to the normal case in :func:`_render_page` below and gets
+#: its own heading as its title, exactly like any other doc page.
+_LANDING_PATHS = frozenset({"/", "/index"})
 
 _SITE_TITLE = "League of Agents"
 _SITE_DESCRIPTION = (
@@ -80,7 +90,7 @@ _SITE_DESCRIPTION = (
 
 _NAV_ITEMS = (
     ("Home", "/index"),
-    ("Docs", "/"),
+    ("Docs", "/docs"),
     ("Leaderboard", "/leaderboard"),
     ("About", "/about"),
 )
@@ -223,7 +233,7 @@ def _serve_theme_css(start_response: Any) -> list[bytes]:
 
 
 def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) -> str:
-    title = _SITE_TITLE if path == _LANDING_PATH else extract_title(markdown_text) or _SITE_TITLE
+    title = _SITE_TITLE if path in _LANDING_PATHS else extract_title(markdown_text) or _SITE_TITLE
     page_title = title if title == _SITE_TITLE else f"{title} — {_SITE_TITLE}"
     body_html = render(markdown_text)
     nav_html = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)

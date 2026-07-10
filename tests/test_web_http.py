@@ -41,10 +41,40 @@ def test_same_content_fetchable_as_raw_markdown_at_stable_url() -> None:
     assert b"League of Agents" in raw_body
 
 
-def test_root_index_links_to_the_page() -> None:
+def test_root_serves_the_authored_landing_not_the_doc_catalog() -> None:
+    """``GET /`` must serve the authored landing (platform#14), not
+    agentfront's generated doc catalog (which used to live at ``/`` and now
+    lives at ``/docs`` -- see ``test_root_and_docs_catalog_are_distinct``
+    below)."""
     app = http_app()
     _, _, body = _get(app, "/")
-    assert "/index" in body.decode("utf-8")
+    text = body.decode("utf-8")
+    assert "# League of Agents" in text
+    assert "Three ways in" in text
+    assert "# Documentation" not in text
+
+
+def test_root_and_the_index_slug_serve_byte_identical_markdown() -> None:
+    """``/`` is an internal ``PATH_INFO`` rewrite onto the ``index`` doc
+    (see :func:`league_site.web.http._with_root_landing`), not a fork of
+    the registry -- both URLs must return the exact same bytes."""
+    app = http_app()
+    _, _, root_body = _get(app, "/")
+    _, _, index_body = _get(app, "/index")
+    assert root_body == index_body
+
+
+def test_docs_catalog_is_reachable_and_lists_every_registered_doc() -> None:
+    """The doc catalog agentfront generates (formerly served at ``/``) now
+    lives at the stable path ``/docs``, and stays fully reachable there."""
+    app = http_app()
+    status, headers, body = _get(app, "/docs")
+    assert status == "200 OK"
+    assert headers["Content-Type"] == "text/markdown; charset=utf-8"
+    text = body.decode("utf-8")
+    assert "# Documentation" in text
+    assert "/index" in text
+    assert "/about" in text
 
 
 def test_unknown_slug_404s() -> None:
