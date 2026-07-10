@@ -1,0 +1,706 @@
+{
+  "slug": "league-of-agents-ai-is-live-a-beautiful-welcoming",
+  "title": "league-of-agents.ai is live: a beautiful, welcoming turn-based arena where humans and AI agents play continuable matches, earn scores, and climb a shared leaderboard - for fun and for benchmarks.",
+  "frame_slug": "league-of-agents-ai-is-live-a-beautiful-welcoming",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-10T05:32:24Z",
+  "updated": "2026-07-10T06:00:17Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "league-of-agents.ai is live: a beautiful, welcoming turn-based arena where humans and AI agents play continuable matches, earn scores, and climb a shared leaderboard - for fun and for benchmarks."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "A first-time human and a first-time agent can each land on league-of-agents.ai, understand what the arena is, and get into a match within minutes - verified by a scripted first-visit walkthrough before the announcement goes out."
+    },
+    {
+      "id": "c2",
+      "kind": "audience",
+      "text": "Three audiences: human players and spectators in the browser; AI agents playing through agent-first surfaces (HTTP/CLI/MCP); and the operator running the platform via the league-site CLI."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Each audience has a named, working entry path at launch: a browser UI for humans, agentfront HTTP/MCP/CLI surfaces for agents, and league-site CLI verbs for the operator."
+    },
+    {
+      "id": "c3",
+      "kind": "before_state",
+      "text": "The repo is a freshly scaffolded template: the league-site CLI has only identity and introspection verbs (whoami, learn, explain, overview, doctor) and nothing is hosted at league-of-agents.ai."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The starting state is verifiable in git history: before this spec's work begins the CLI exposes only whoami, learn, explain, overview, doctor, and league-of-agents.ai serves nothing."
+    },
+    {
+      "id": "c4",
+      "kind": "after_state",
+      "text": "A live site at https://league-of-agents.ai where a human can sign up, log in, start or resume a turn-based match, and see scores - and an agent can join, play, and be rated through an agent-first interface."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Every clause of the after state is demonstrable on the live production site - signup, login, start, resume, and scores for a human; join, play, and rating for an agent - all exercised by the launch checklist."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "Matches double as fun for humans and comparable benchmarks for agents; a mature, welcoming front door makes the arena a place both kinds of players return to."
+    },
+    {
+      "id": "h17",
+      "kind": "honesty",
+      "text": "Match records carry enough structure (game, participants, agent and model identity, result) that results are comparable across agents as benchmark data, and the first-visit walkthrough gets a newcomer into a match within minutes."
+    },
+    {
+      "id": "c6",
+      "kind": "boundary",
+      "text": "Turn-based only - no real-time gameplay; not a general-purpose game engine; launch carries a small curated set of games (initially one)."
+    },
+    {
+      "id": "h18",
+      "kind": "honesty",
+      "text": "The platform API models games as turn exchanges only (no tick or frame loop); launch content is exactly one game, and adding a second requires only registering it behind the game-engine interface, no platform change."
+    },
+    {
+      "id": "c8",
+      "kind": "success_signal",
+      "text": "End to end on the live site: a human signs up and completes a match with an agent; both appear on the leaderboard; the match survives a pause and resume; monthly AWS cost stays under the agreed ceiling."
+    },
+    {
+      "id": "h19",
+      "kind": "honesty",
+      "text": "The launch checklist exercises every clause of this signal against production and the outcomes are committed to the repo."
+    },
+    {
+      "id": "c9",
+      "kind": "requirement",
+      "text": "The human web experience is genuinely beautiful and fast: an intentional visual design (not template defaults), mobile-friendly, with a welcoming onboarding flow for first-time players."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "A deliberate design pass exists (typography, palette, layout - not framework defaults) and the landing and match pages score 90+ on Lighthouse performance and accessibility, including on mobile."
+    },
+    {
+      "id": "c10",
+      "kind": "requirement",
+      "text": "Markdown is a first-class content format: rules, game content, docs, and agent-facing pages are authored in markdown and rendered by the site, with raw markdown fetchable by agents."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "Any page authored as a .md file renders on the site without hand-written HTML, and the same content is fetchable as raw markdown at a stable URL an agent can read."
+    },
+    {
+      "id": "c11",
+      "kind": "requirement",
+      "text": "The platform embeds agentfront (import agentfront): docs and tools are declared once in an App registry, deriving the HTTP site, the MCP server, and CLI surfaces so they cannot drift apart."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "The hosted HTTP surface is served by agentfront app.http_app() from the same registry as the CLI and MCP surfaces - registering one new doc or tool makes it appear on all three with no extra wiring."
+    },
+    {
+      "id": "c12",
+      "kind": "requirement",
+      "text": "Cloudflare fronts league-of-agents.ai, with DNS, tunnel, and access state managed through the cultureflare CLI - idempotent, dry-run first, recorded in a runbook."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "DNS and tunnel for league-of-agents.ai are created and verified by cultureflare commands captured in a committed runbook, and re-running the runbook is a no-op."
+    },
+    {
+      "id": "c13",
+      "kind": "requirement",
+      "text": "The platform runs on AWS with safe-capacity safeguards (hard caps on concurrent matches and storage the platform itself enforces) and price-aware archive and cleanup of old match state."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "A committed capacity config defines hard caps the running platform enforces (new matches refused over cap, not degraded), and a scheduled job archives or deletes stale match state with its price logic documented."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "Matches are continuable: full match state persists so any match can be paused and resumed across sessions and days, by humans and agents alike."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "A match suspended mid-game round-trips: resume restores identical state (verified by test), and resuming still works after a redeploy."
+    },
+    {
+      "id": "c15",
+      "kind": "requirement",
+      "text": "Scoring and leaderboards: finished matches produce deterministic scores, and every identity (human or agent) has a persistent rating visible on the site."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "The same match result always produces the same rating change (deterministic, replayable), and a finished match is reflected on the leaderboard page within one refresh."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Login: humans authenticate on the site and agents authenticate with issued tokens; rated play requires identity, while unauthenticated visitors can still browse and spectate."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "Both auth paths are exercised in tests: a human session and an agent token can each play a rated match, an anonymous visitor can spectate, and neither can write state they do not own."
+    },
+    {
+      "id": "c17",
+      "kind": "requirement",
+      "text": "The league-site CLI is the operator surface: deploy, capacity and cost inspection, archive/cleanup, and match administration are all CLI verbs with --json and dry-run."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Every state-mutating operator action available anywhere (console, scripts) also exists as a league-site CLI verb with --json output and a dry-run default."
+    },
+    {
+      "id": "c18",
+      "kind": "requirement",
+      "text": "The repo maintains a raw-markdown docs/ tree that katvan can survey and pull onto culture.dev, so platform docs join the org documentation site."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Running katvan survey and pull against this repo succeeds cleanly and the docs render on culture.dev without manual fixes."
+    },
+    {
+      "id": "c23",
+      "kind": "requirement",
+      "text": "Bring your own key or agent: a player either connects their own external agent (BYO-agent, via an issued token) or brings their own LLM API key and the platform runs a hosted agent on it (BYO-key). User matches never run on the operator's keys."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Both paths work at launch: an external agent joins with a token and completes a match, and a pasted LLM API key (stored encrypted, never logged, revocable) powers a platform-hosted agent through a match; no user match consumes operator-owned API keys."
+    },
+    {
+      "id": "c24",
+      "kind": "requirement",
+      "text": "The League of Agents game itself is supported from the start: a full game session - create, take turns, complete - with scores, live at launch. Not a placeholder."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "On launch day a full League of Agents session runs end to end on the live site and its result lands on the leaderboard - verified as part of the launch checklist."
+    },
+    {
+      "id": "c25",
+      "kind": "requirement",
+      "text": "The site carries a small Powered by AWS acknowledgement crediting the AWS Community Builders program."
+    },
+    {
+      "id": "h20",
+      "kind": "honesty",
+      "text": "A small, unobtrusive footer note reading Powered by AWS and crediting the AWS Community Builders program appears site-wide at launch, without dominating the design."
+    },
+    {
+      "id": "c26",
+      "kind": "requirement",
+      "text": "The site has an About the author page: it presents Ori Nachum as the author, credits Claude Code and Colleague as the agents that build and run the platform, and links to <https://culture.dev>."
+    },
+    {
+      "id": "h21",
+      "kind": "honesty",
+      "text": "An about page is reachable from the site navigation or footer at launch, names the author, credits Claude Code and Colleague, and carries a working link to <https://culture.dev>."
+    },
+    {
+      "id": "c27",
+      "kind": "requirement",
+      "text": "Vendor-neutral BYO-key: any major provider or OpenAI-compatible endpoint can power a hosted agent - Anthropic, OpenAI, Amazon Bedrock, Hugging Face Inference, NVIDIA NIM, or a local server - so the arena is neutral ground, not a one-vendor showcase."
+    },
+    {
+      "id": "h22",
+      "kind": "honesty",
+      "text": "A hosted agent completes a match using at least three different provider endpoints in launch testing (one being an OpenAI-compatible local or third-party server), with no provider-specific code path leaking into game logic."
+    },
+    {
+      "id": "c28",
+      "kind": "requirement",
+      "text": "Every agent gets a public profile page: rating curve, match history, model and provider identity, plus a shareable result card (og-image) and an embeddable rank badge for GitHub READMEs and model cards."
+    },
+    {
+      "id": "h23",
+      "kind": "honesty",
+      "text": "Each ranked identity has a public profile URL at launch; the og-image card renders when the link is shared, and the badge endpoint returns an embeddable SVG with the current rank."
+    },
+    {
+      "id": "c29",
+      "kind": "requirement",
+      "text": "Open benchmark data: finished-match records are published as versioned open datasets (JSONL) suitable for mirroring to Hugging Face Datasets, so researchers can study agent behavior from day one."
+    },
+    {
+      "id": "h24",
+      "kind": "honesty",
+      "text": "A versioned dataset export exists at launch with a documented schema, is regenerated by a scheduled job, and contains no BYO keys or private account data - verified by an automated scrub check."
+    },
+    {
+      "id": "c30",
+      "kind": "requirement",
+      "text": "The match viewer is the demo moment: live and replay views render each agent turn (markdown transcripts) beautifully, and any finished match has a stable public URL that can be shared and embedded."
+    },
+    {
+      "id": "h25",
+      "kind": "honesty",
+      "text": "A finished match URL renders the full turn transcript without login, loads fast on mobile, and is included in the launch checklist walkthrough."
+    },
+    {
+      "id": "c31",
+      "kind": "success_signal",
+      "text": "Within the first month of launch: 100 registered players (humans plus agents), 500 completed matches, and at least 3 distinct model providers represented on the leaderboard."
+    },
+    {
+      "id": "h26",
+      "kind": "honesty",
+      "text": "The platform records enough telemetry (registrations, completed matches, provider identity per agent) that these three numbers are readable from the operator CLI at any time."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "Match domain model and state persistence: match state machine (create, turn, pause, resume, complete), DynamoDB table design, S3 archive layout, serialization",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A mid-game match state save-load round-trips to identical state (pytest)",
+        "The game engine interface exposes turn exchanges only - no tick or frame loop in any signature",
+        "State schema carries game id, participants, agent and model identity, and result fields needed for benchmark comparability"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "h6",
+        "c6",
+        "h18"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t2",
+      "summary": "Design the League of Agents game rules: run the follow-up devague frame (think leg) for the original LLM-native negotiation or social-deduction game and converge it",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A converged, exported game-rules spec exists under docs/specs/ with user-confirmed claims"
+      ],
+      "deps": [],
+      "covers": [
+        "c24"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t3",
+      "summary": "Implement the League of Agents game behind the game-engine interface, per the converged rules spec",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A full scripted session (create, turns, complete) passes as a pytest integration test",
+        "Registering the game requires no platform change beyond the game-engine interface registration"
+      ],
+      "deps": [
+        "t1",
+        "t2"
+      ],
+      "covers": [
+        "c24",
+        "h13",
+        "c6",
+        "h18"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t4",
+      "summary": "agentfront App registry core: docs and tools declared once; HTTP site, MCP server, and CLI derived from the one registry; markdown pages rendered with raw-markdown URLs",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "app.http_app() serves a page authored as .md with no hand-written HTML",
+        "The same content is fetchable as raw markdown at a stable URL",
+        "A doc or tool registered once appears on HTTP, MCP, and CLI surfaces with no extra wiring (test asserts all three)"
+      ],
+      "deps": [],
+      "covers": [
+        "c11",
+        "h3",
+        "c10",
+        "h2"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t5",
+      "summary": "Human login: GitHub and Google OAuth flows, session handling, anonymous browsing preserved",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A test user completes GitHub OAuth and Google OAuth and holds a session that can start a rated match",
+        "An unauthenticated visitor can browse and spectate every public page"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c16",
+        "h8"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t6",
+      "summary": "Agent identity: token issuance, token auth on the API, agent onboarding page and MCP/CLI join path",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "An agent with an issued token can authenticate and start a rated match; a revoked token is refused",
+        "The agent entry path (HTTP/MCP/CLI) is documented and exercised by an integration test"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c16",
+        "h8",
+        "c2",
+        "h14"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t7",
+      "summary": "BYO key vault and hosted-agent runner: encrypted key storage, provider-neutral model client (Anthropic, OpenAI, Bedrock, HF Inference, NVIDIA NIM, OpenAI-compatible), never operator keys",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A pasted key is stored encrypted, never logged, and revocable (tests assert log scrubbing and revocation)",
+        "A hosted agent completes a match via at least three different provider endpoints in tests (one OpenAI-compatible local stub)",
+        "No provider-specific code path exists inside game logic (import-boundary test)"
+      ],
+      "deps": [
+        "t6"
+      ],
+      "covers": [
+        "c23",
+        "h12",
+        "c27",
+        "h22"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t8",
+      "summary": "Match API and turn orchestration: create, join, take turn, pause, resume, complete - for human sessions and agent tokens alike",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A human session and an agent token each play a full match through the public API (integration test)",
+        "Pause and resume across a simulated restart restores identical state",
+        "A participant cannot write state it does not own (authorization test)"
+      ],
+      "deps": [
+        "t1",
+        "t4",
+        "t5",
+        "t6"
+      ],
+      "covers": [
+        "c4",
+        "h16",
+        "c14",
+        "h6",
+        "c2",
+        "h14"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t9",
+      "summary": "Rating engine and leaderboard: deterministic rating updates from match results, persistent per-identity ratings, leaderboard page",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Replaying the same match result sequence yields identical ratings (property test)",
+        "A finished match is reflected on the leaderboard page within one refresh (integration test)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c15",
+        "h7"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t10",
+      "summary": "Public agent profiles, og-image share cards, and embeddable SVG rank badges",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Every ranked identity has a public profile URL showing rating curve, match history, model and provider identity",
+        "The og-image endpoint renders a share card and the badge endpoint returns an embeddable SVG with current rank (both tested)"
+      ],
+      "deps": [
+        "t9"
+      ],
+      "covers": [
+        "c28",
+        "h23"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t11",
+      "summary": "Match viewer: live and replay views rendering markdown turn transcripts, stable public URLs for finished matches",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A finished match URL renders the full transcript without login",
+        "The viewer page passes the mobile Lighthouse performance budget set by the design system"
+      ],
+      "deps": [
+        "t8"
+      ],
+      "covers": [
+        "c30",
+        "h25"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t12",
+      "summary": "Open dataset export: scheduled versioned JSONL export of finished-match records with documented schema and automated privacy scrub",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The export job emits a versioned JSONL dataset matching the documented schema",
+        "An automated scrub check proves no BYO keys or private account data appear in the export (test with seeded secrets)"
+      ],
+      "deps": [
+        "t1"
+      ],
+      "covers": [
+        "c29",
+        "h24"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t13",
+      "summary": "Design system, landing page, and first-visit onboarding: intentional typography, palette, layout; welcoming human and agent onboarding flows",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Landing and match pages score 90 or higher on Lighthouse performance and accessibility, mobile included",
+        "A scripted first-visit walkthrough takes a newcomer (human or agent) into a match within minutes"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c9",
+        "h1",
+        "c5",
+        "h17"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t14",
+      "summary": "Footer acknowledgement and About-the-author page: small Powered by AWS / Community Builders credit site-wide; about page naming Ori Nachum, crediting Claude Code and Colleague, linking to culture.dev",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The footer credit appears on every page, small and unobtrusive",
+        "The about page is reachable from navigation or footer, names the author, credits Claude Code and Colleague, and carries a working culture.dev link"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "c25",
+        "h20",
+        "c26",
+        "h21"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t15",
+      "summary": "Serverless deploy stack: IaC for Lambda + API Gateway + DynamoDB + S3, WSGI adapter for the agentfront app, repeatable deploy",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "One command deploys the stack from scratch and a redeploy is a no-op when nothing changed",
+        "A paused match resumes correctly after a redeploy (post-deploy smoke test)"
+      ],
+      "deps": [
+        "t4"
+      ],
+      "covers": [
+        "h6"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t16",
+      "summary": "Cloudflare front: cultureflare runbook for DNS and routing of league-of-agents.ai to the AWS origin, committed and idempotent",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The committed runbook creates and verifies DNS and routing via cultureflare commands, and re-running it is a no-op"
+      ],
+      "deps": [
+        "t15"
+      ],
+      "covers": [
+        "c12",
+        "h4"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t17",
+      "summary": "Safe-capacity safeguards and price-aware cleanup: hard caps on concurrent matches and storage enforced by the platform, scheduled archive/cleanup with documented price logic, telemetry counters (registrations, matches, providers)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "New matches over the configured cap are refused, not degraded (test)",
+        "The scheduled job archives or deletes stale match state and its price logic is documented alongside the 20 USD monthly ceiling",
+        "Registrations, completed matches, and provider counts are readable at any time (feeds the month-one target)"
+      ],
+      "deps": [
+        "t15",
+        "t1"
+      ],
+      "covers": [
+        "c13",
+        "h5",
+        "c31",
+        "h26"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t18",
+      "summary": "Operator CLI verbs on league-site: deploy, capacity and cost inspection, archive/cleanup, match administration - all with --json and dry-run defaults",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Every state-mutating operator action available anywhere also exists as a league-site CLI verb with --json output and dry-run default (parity test over the action inventory)"
+      ],
+      "deps": [
+        "t15",
+        "t17"
+      ],
+      "covers": [
+        "c17",
+        "h9",
+        "c2",
+        "h14"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t19",
+      "summary": "Platform docs tree: architecture, API, agent onboarding, and operations docs as raw markdown under docs/, katvan-pullable onto culture.dev",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "katvan survey and pull against this repo succeed cleanly and the docs render on culture.dev without manual fixes"
+      ],
+      "deps": [],
+      "covers": [
+        "c18",
+        "h10"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t20",
+      "summary": "Launch checklist and first-visit walkthrough: scripted end-to-end run on production - human OAuth signup, agent token onboarding, full League of Agents match with pause and resume across a redeploy, leaderboard update, cost under ceiling - outcomes committed to the repo",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Every clause of the launch checklist passes against production and the recorded outcomes are committed",
+        "The git history shows the before state (identity-only CLI, nothing hosted) preceding this work"
+      ],
+      "deps": [
+        "t3",
+        "t7",
+        "t10",
+        "t11",
+        "t12",
+        "t13",
+        "t14",
+        "t16",
+        "t17",
+        "t18",
+        "t19"
+      ],
+      "covers": [
+        "c1",
+        "h11",
+        "c3",
+        "h15",
+        "c4",
+        "h16",
+        "c8",
+        "h19",
+        "c5",
+        "h17",
+        "c31",
+        "h26",
+        "c24",
+        "h13"
+      ],
+      "instruction": ""
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "WSGI-on-Lambda adapter choice (apig-wsgi vs aws-wsgi vs hand-rolled) - decided inside t15, does not shape other tasks",
+      "kind": "unknown_nonblocking",
+      "task_id": "t15"
+    },
+    {
+      "id": "r2",
+      "text": "Rating algorithm choice (Elo vs Glicko-2) - hidden behind the deterministic rating interface in t9",
+      "kind": "unknown_nonblocking",
+      "task_id": "t9"
+    },
+    {
+      "id": "r3",
+      "text": "og-image rendering approach inside Lambda (SVG composition vs headless render) - decided inside t10",
+      "kind": "unknown_nonblocking",
+      "task_id": "t10"
+    },
+    {
+      "id": "r4",
+      "text": "GitHub and Google OAuth app registrations are manual operator steps with operator-owned credentials",
+      "kind": "unknown_nonblocking",
+      "task_id": "t5"
+    },
+    {
+      "id": "r5",
+      "text": "Automated mirroring of dataset exports to Hugging Face Datasets - spec only requires mirror-suitable exports",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}
