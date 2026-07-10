@@ -62,6 +62,26 @@ class TokenStore(ABC):
         Raises :class:`TokenNotFoundError` if no record has that ``token_id``.
         """
 
+    def list_all(self) -> list[TokenRecord]:
+        """Return every stored token record — revoked included — in no particular order.
+
+        This is the surface the self-serve issuance guard
+        (:func:`league_site.auth.tokens.issue_self_serve`) reads: the rolling
+        hourly cap counts records by ``created_at`` (revoked records still
+        count — revoking must not refund abuse budget inside the window), and
+        the per-name uniqueness rule looks for a *live* (non-revoked) record
+        with the same ``agent_name``. The guard's cap keeps the number of
+        records small by construction, so a full scan is an acceptable
+        implementation (:meth:`revoke` in the DynamoDB adapter already scans).
+
+        Deliberately *not* ``@abstractmethod`` (yet): the DynamoDB adapter in
+        :mod:`league_site.auth.aws_tokens` predates this method and must stay
+        instantiable until it grows its own implementation — until then this
+        default raises :class:`NotImplementedError`. Every concrete store
+        should override it; see :meth:`InMemoryTokenStore.list_all`.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not implement TokenStore.list_all()")
+
 
 class InMemoryTokenStore(TokenStore):
     """Reference ``TokenStore`` backed by a process-local dict, keyed by ``token_hash``.
@@ -86,3 +106,6 @@ class InMemoryTokenStore(TokenStore):
                 self._records[token_hash] = dataclasses.replace(record, revoked=True)
                 return
         raise TokenNotFoundError(token_id)
+
+    def list_all(self) -> list[TokenRecord]:
+        return list(self._records.values())
