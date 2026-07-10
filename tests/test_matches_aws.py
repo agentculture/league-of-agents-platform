@@ -307,3 +307,45 @@ def test_require_boto3_raises_runtime_error_when_boto3_is_unavailable(monkeypatc
 
     with pytest.raises(RuntimeError, match="aws"):
         S3MatchArchive("league-archives", client=FakeS3Client())
+
+
+def test_load_coerces_dynamodb_decimals_back_to_plain_numbers() -> None:
+    """Real DynamoDB returns every number as decimal.Decimal — the store must
+
+    hand back a Match whose state json.dumps cleanly (live-prod finding:
+    GET /api/v1/matches/<id> 500'd with 'Object of type Decimal is not JSON
+    serializable' on the first persisted match).
+    """
+    import json as _json
+    from decimal import Decimal
+
+    resource = FakeDynamoDBResource()
+    store = DynamoDBMatchStore("matches", resource=resource)
+    match = _mid_game_match()
+    match.game_state = {"snapshot": {"turn": 3, "speed": 1.5, "units": [1, 2]}}
+    store.save(match)
+
+    # Mimic boto3's read-side representation: numbers come back as Decimal.
+    def deep_decimal(obj):
+        if isinstance(obj, bool):
+            return obj
+        if isinstance(obj, int):
+            return Decimal(obj)
+        if isinstance(obj, float):
+            return Decimal(str(obj))
+        if isinstance(obj, list):
+            return [deep_decimal(v) for v in obj]
+        if isinstance(obj, dict):
+            return {k: deep_decimal(v) for k, v in obj.items()}
+        return obj
+
+    table = resource.Table("matches")
+    for key, item in list(table.items.items()):
+        table.items[key] = deep_decimal(item)
+
+    loaded = store.load(match.match_id)
+
+    _json.dumps(loaded.game_state)  # must not raise
+    assert loaded.game_state["snapshot"]["turn"] == 3
+    assert isinstance(loaded.game_state["snapshot"]["turn"], int)
+    assert loaded.game_state["snapshot"]["speed"] == 1.5

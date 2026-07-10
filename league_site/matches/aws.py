@@ -43,6 +43,28 @@ from league_site.matches.store import MatchStore
 BY_STATUS_UPDATED_INDEX = "by-status-updated"
 
 
+def _plain_numbers(obj: Any) -> Any:
+    """Recursively turn boto3's read-side ``Decimal``\\ s back into int/float.
+
+    DynamoDB has one number type; boto3 deserializes every stored number as
+    :class:`decimal.Decimal`. The match record's nested ``game_state``/turn
+    payloads must round-trip to the exact JSON-native shapes the engine
+    wrote (live-prod finding: the first persisted match made
+    ``GET /api/v1/matches/<id>`` 500 with "Object of type Decimal is not
+    JSON serializable"). Whole-valued Decimals become ``int``, fractional
+    ones ``float``; bools/str/None pass through untouched.
+    """
+    from decimal import Decimal
+
+    if isinstance(obj, Decimal):
+        return int(obj) if obj == obj.to_integral_value() else float(obj)
+    if isinstance(obj, list):
+        return [_plain_numbers(value) for value in obj]
+    if isinstance(obj, dict):
+        return {key: _plain_numbers(value) for key, value in obj.items()}
+    return obj
+
+
 def _require_boto3() -> None:
     if boto3 is None:
         raise RuntimeError(
@@ -74,7 +96,7 @@ class DynamoDBMatchStore(MatchStore):
         item = response.get("Item")
         if item is None:
             raise MatchNotFoundError(match_id)
-        return from_item(item)
+        return from_item(_plain_numbers(item))
 
     def delete(self, match_id: str) -> None:
         self._table.delete_item(Key={"PK": f"MATCH#{match_id}", "SK": "METADATA"})
