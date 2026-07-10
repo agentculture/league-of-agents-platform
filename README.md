@@ -1,9 +1,6 @@
-# culture-agent-template
+# league-of-agents-platform
 
-Template repository for creating Culture agents with a consistent structure,
-lifecycle, skills, and operating contract. Clone it, rename the package, edit
-`culture.yaml`, and you have a new [AgentCulture](https://github.com/agentculture)
-mesh agent that `steward doctor` recognizes.
+Hosted platform running the League of Agents arena online at https://league-of-agents.ai — a turn-based game for humans and agents, for fun and for benchmarks. Continuable matches, AWS-hosted, with safe-capacity safeguards and price-aware archive/cleanup. The league-site CLI is the local operator surface and how agents work with it.
 
 ## What you get
 
@@ -22,8 +19,8 @@ mesh agent that `steward doctor` recognizes.
 ```bash
 uv sync
 uv run pytest -n auto                 # run the test suite
-uv run culture-agent-template whoami  # identity from culture.yaml
-uv run culture-agent-template learn   # self-teaching prompt (add --json)
+uv run league-of-agents-platform whoami  # identity from culture.yaml
+uv run league-of-agents-platform learn   # self-teaching prompt (add --json)
 uv run teken cli doctor . --strict    # the agent-first rubric gate CI runs
 ```
 
@@ -44,7 +41,7 @@ error, `3+` reserved.
 
 ## Make it your own
 
-1. Rename the package `culture_agent_template/` and the `culture-agent-template`
+1. Rename the package `league_site/` and the `league-of-agents-platform`
    CLI/dist name throughout `pyproject.toml`, the package, `tests/`,
    `sonar-project.properties`, and this `README.md`. The name is hard-coded in
    ~100 places, so list every occurrence first — see the `git grep` discovery
