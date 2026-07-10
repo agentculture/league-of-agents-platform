@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from league_site.matches import Match, MatchNotFoundError
-from league_site.matches.aws import DynamoDBMatchStore, S3MatchArchive
+from league_site.matches import Match, MatchNotFoundError, MatchStatus
+from league_site.matches.aws import BY_STATUS_UPDATED_INDEX, DynamoDBMatchStore, S3MatchArchive
 from league_site.matches.serialization import archive_key, to_archive_dict, to_item
 from tests._matches_support import CounterGameEngine, make_participants
 
@@ -28,25 +28,62 @@ def _mid_game_match(match_id: str = "m-aws") -> Match:
     return match
 
 
+def _match_in_status(match_id: str, status: MatchStatus) -> Match:
+    """A match driven (via real transitions) into *status*."""
+    human, agent = make_participants()
+    engine = CounterGameEngine(target=5, game_id="counter-demo")
+    match = Match.create(game_id=engine.game_id, participants=[human, agent], match_id=match_id)
+    if status is MatchStatus.CREATED:
+        return match
+    match.start(engine)
+    if status is MatchStatus.PAUSED:
+        match.pause()
+    elif status is MatchStatus.COMPLETED:
+        match.take_turn(engine, human.participant_id, {"delta": 5})
+        match.complete(engine)
+    assert match.status is status
+    return match
+
+
+def _queried_statuses(table: "FakeTable") -> set[str]:
+    """The set of ``status`` partition values the store queried the GSI for."""
+    statuses = set()
+    for kwargs in table.query_calls:
+        condition: Any = kwargs["KeyConditionExpression"]
+        expression = condition.get_expression()
+        assert expression["operator"] == "="
+        assert expression["values"][0].name == "status"
+        statuses.add(expression["values"][1])
+    return statuses
+
+
 class FakeTable:
     """Stand-in for a boto3 DynamoDB Table resource: an in-process dict.
 
-    :meth:`scan` mimics just enough of the real ``Table.scan`` contract to
-    exercise pagination: it hands back at most :attr:`scan_page_size` items
-    per call plus a ``LastEvaluatedKey`` whenever more remain, exactly the
-    shape a real paginated ``DynamoDBMatchStore.list_ids`` scan loop must
+    :meth:`query` mimics just enough of the real ``Table.query`` contract to
+    exercise ``DynamoDBMatchStore.list_ids``'s GSI loop: it resolves a
+    single ``Key(...).eq(...)`` ``KeyConditionExpression`` (via the condition
+    object's own ``get_expression()``), filters the stored items on that
+    attribute (which is exactly what querying a ``status``-partitioned GSI
+    returns), orders by ``updated_at`` (the GSI range key), and hands back at
+    most :attr:`query_page_size` items per call plus a ``LastEvaluatedKey``
+    whenever more remain — the shape a real paginated query loop must
     round-trip back in as ``ExclusiveStartKey`` on the next call. It doesn't
-    actually evaluate ``FilterExpression``/``ProjectionExpression`` (this
-    fake's items are all match-metadata items already, so there is nothing to
-    filter) — the point of this fake is proving the pagination loop, not
-    reimplementing DynamoDB's expression language.
+    evaluate ``ProjectionExpression`` (returning extra attributes is
+    harmless) — the point of this fake is proving the per-status pagination
+    loop, not reimplementing DynamoDB's expression language. Every call is
+    recorded in :attr:`query_calls` (and ``scan`` calls counted in
+    :attr:`scan_calls`) so tests can assert *which* index — and never a
+    scan — served ``list_ids``.
     """
 
     #: Small on purpose so a handful of saved items already forces >1 page.
-    scan_page_size = 2
+    query_page_size = 2
 
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, object]] = {}
+        self.query_calls: list[dict[str, Any]] = []
+        self.scan_calls = 0
 
     def put_item(
         self, *, Item: dict[str, object]
@@ -60,23 +97,32 @@ class FakeTable:
     def delete_item(self, *, Key: dict[str, str]) -> None:  # noqa: N803
         self.items.pop((Key["PK"], Key["SK"]), None)
 
-    def scan(self, **kwargs: object) -> dict[str, object]:
-        ordered = list(self.items.values())
+    def query(self, **kwargs: Any) -> dict[str, object]:
+        self.query_calls.append(kwargs)
+        expression = kwargs["KeyConditionExpression"].get_expression()
+        assert expression["operator"] == "="
+        key_name = expression["values"][0].name
+        key_value = expression["values"][1]
+        matching = [item for item in self.items.values() if item.get(key_name) == key_value]
+        matching.sort(key=lambda item: str(item.get("updated_at", "")))
         start_key: Any = kwargs.get("ExclusiveStartKey")
         start_index = 0
         if start_key is not None:
             needle = (start_key["PK"], start_key["SK"])
-            for i, item in enumerate(ordered):
+            for i, item in enumerate(matching):
                 if (item["PK"], item["SK"]) == needle:
                     start_index = i + 1
                     break
-        page = ordered[start_index : start_index + self.scan_page_size]
+        page = matching[start_index : start_index + self.query_page_size]
         response: dict[str, object] = {"Items": page}
-        next_index = start_index + self.scan_page_size
-        if next_index < len(ordered):
+        if start_index + self.query_page_size < len(matching):
             last = page[-1]
             response["LastEvaluatedKey"] = {"PK": last["PK"], "SK": last["SK"]}
         return response
+
+    def scan(self, **kwargs: object) -> dict[str, object]:
+        self.scan_calls += 1
+        return {"Items": list(self.items.values())}
 
 
 class FakeDynamoDBResource:
@@ -156,41 +202,75 @@ def test_dynamodb_match_store_list_ids_on_an_empty_table_returns_an_empty_list()
     assert store.list_ids() == []
 
 
+def test_dynamodb_match_store_list_ids_queries_the_by_status_updated_gsi_never_a_scan() -> None:
+    """``list_ids`` is served entirely by the ``by-status-updated`` GSI.
+
+    The index name must be exactly ``by-status-updated`` — the CloudFormation
+    template provisions the GSI under that name, so any drift here breaks the
+    deployed store even though every fake-backed test still passes.
+    """
+    resource = FakeDynamoDBResource()
+    store = DynamoDBMatchStore("league-matches", resource=resource)
+    store.save(_mid_game_match("m-1"))
+
+    assert store.list_ids() == ["m-1"]
+    assert resource.table.scan_calls == 0
+    assert resource.table.query_calls
+    index_names = {kwargs["IndexName"] for kwargs in resource.table.query_calls}
+    assert index_names == {BY_STATUS_UPDATED_INDEX}
+    assert BY_STATUS_UPDATED_INDEX == "by-status-updated"
+
+
+def test_dynamodb_match_store_list_ids_covers_every_status_partition() -> None:
+    """The GSI partitions on ``status``: one query per status covers the table."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBMatchStore("league-matches", resource=resource)
+    saved = {}
+    for status in MatchStatus:
+        match = _match_in_status(f"m-{status.value}", status)
+        store.save(match)
+        saved[match.match_id] = status
+
+    assert sorted(store.list_ids()) == sorted(saved)
+    assert _queried_statuses(resource.table) == {status.value for status in MatchStatus}
+
+
 def test_dynamodb_match_store_list_ids_returns_every_saved_match_id_across_pages() -> None:
     resource = FakeDynamoDBResource()
     store = DynamoDBMatchStore("league-matches", resource=resource)
     match_ids = [f"m-{i}" for i in range(5)]
     for match_id in match_ids:
         store.save(_mid_game_match(match_id))
-    # FakeTable.scan_page_size (2) is smaller than 5 items: this only passes
-    # if list_ids() actually follows LastEvaluatedKey across multiple pages
-    # rather than reading just the first page.
-    assert resource.table.scan_page_size < len(match_ids)
+    # FakeTable.query_page_size (2) is smaller than 5 items in the single
+    # "active" partition: this only passes if list_ids() actually follows
+    # LastEvaluatedKey across multiple pages rather than reading just the
+    # first page.
+    assert resource.table.query_page_size < len(match_ids)
 
     assert sorted(store.list_ids()) == sorted(match_ids)
 
 
-def test_dynamodb_match_store_list_ids_round_trips_last_evaluated_key(monkeypatch) -> None:
+def test_dynamodb_match_store_list_ids_round_trips_last_evaluated_key() -> None:
     resource = FakeDynamoDBResource()
     store = DynamoDBMatchStore("league-matches", resource=resource)
     for match_id in ("m-a", "m-b", "m-c"):
         store.save(_mid_game_match(match_id))
 
-    seen_start_keys: list[object] = []
-    original_scan = resource.table.scan
-
-    def _recording_scan(**kwargs: object) -> dict[str, object]:
-        seen_start_keys.append(kwargs.get("ExclusiveStartKey"))
-        return original_scan(**kwargs)
-
-    monkeypatch.setattr(resource.table, "scan", _recording_scan)
-
     store.list_ids()
 
-    # First call has no start key; every later call is seeded from the prior
-    # response's LastEvaluatedKey (never re-scans from the beginning).
-    assert seen_start_keys[0] is None
-    assert all(key is not None for key in seen_start_keys[1:])
+    # All three saved matches are mid-game ("active"), so that partition
+    # takes two query pages: the first call per partition has no start key;
+    # every follow-up call is seeded from the prior response's
+    # LastEvaluatedKey (never re-queried from the beginning).
+    active_calls = [
+        kwargs
+        for kwargs in resource.table.query_calls
+        if kwargs["KeyConditionExpression"].get_expression()["values"][1]
+        == MatchStatus.ACTIVE.value
+    ]
+    assert len(active_calls) == 2
+    assert "ExclusiveStartKey" not in active_calls[0]
+    assert active_calls[1]["ExclusiveStartKey"] is not None
 
 
 def test_s3_match_archive_writes_the_documented_key_and_body() -> None:
