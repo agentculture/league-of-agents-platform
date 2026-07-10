@@ -15,8 +15,11 @@ Two routes, ``GET`` only, zero auth:
   welcoming zero-state ("no rated matches yet — be the first"), never a 404
   or error page.
 
-Both share one page shell (:func:`_page_shell`): header/wordmark, no JS,
-same inline stylesheet.
+Both share one page shell (:func:`_page_shell`): the canonical site header
+(:func:`league_site.web.shell.header_html` — wordmark, primary nav, theme
+toggle), the same inline stylesheet, and the same dazzle-layer JS as every
+shelled page (the pre-paint theme snippet + ``/site.js``, served site-wide
+by ``with_shell``) so a visitor's stored theme choice applies here too.
 
 Live vs. permanent replay (watch page)
 ----------------------------------------
@@ -62,7 +65,8 @@ from league_site.matches.store import MatchStore
 from league_site.ratings.ledger import RatingLedgerStore
 from league_site.viewer.leaderboard import build_leaderboard_rows, render_leaderboard_body
 from league_site.viewer.render import build_page_model, render_page_body
-from league_site.web import theme
+from league_site.web import scripts, theme
+from league_site.web.shell import header_html
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
@@ -178,9 +182,13 @@ def _render_leaderboard_page(rows: tuple[Any, ...]) -> str:
 def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: str = "") -> str:
     """The one page shell shared by the watch page and the leaderboard page.
 
-    Header/wordmark only (no shared-site nav — this app renders standalone
-    pages ahead of ``with_shell``, per this module's docstring), the same
-    inline stylesheet, no JS.
+    Renders standalone (ahead of ``with_shell``, per this module's
+    docstring) but carries the same dazzle layer as every shelled page: the
+    canonical header via :func:`league_site.web.shell.header_html` (wordmark
+    + nav + theme toggle), the pre-paint theme snippet, and ``/site.js``
+    (served site-wide by ``with_shell``) — so an explicit theme choice
+    follows the visitor onto these pages too. The stylesheet stays inline:
+    these pages remain readable byte-complete with zero fetches.
     """
     return f"""<!doctype html>
 <html lang="en">
@@ -189,19 +197,14 @@ def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: s
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
 {refresh_meta}<title>{title}</title>
+<script>{scripts.PRE_PAINT_JS}</script>
 <style>{theme.STYLESHEET}{_EXTRA_STYLE}</style>
+<script defer src="/site.js"></script>
 </head>
 <body>
-<header class="site-header">
-<div class="wrap">
-<a class="wordmark" href="/index" aria-label="League of Agents — home">
-<span class="wordmark-glyph" aria-hidden="true">⚔</span>
-<span>LEAGUE</span>
-<span class="wordmark-accent">OF AGENTS</span>
-</a>
-</div>
-</header>
-<main class="wrap">
+<a class="skip-link" href="#main">Skip to content</a>
+{header_html()}
+<main id="main" class="wrap">
 {body_html}
 </main>
 </body>

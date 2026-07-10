@@ -131,13 +131,30 @@ _WORDMARK_HTML = (
 #: button is inert but harmless: it has a real accessible name, visible
 #: text, and ``type="button"`` so it can never submit anything — pages
 #: stay fully readable and theming falls back to the OS preference.
-#: Styling hook only (class ``theme-toggle``); polish lands with t4/t5's
-#: theme.css work, not here.
+#: Styled by ``.theme-toggle`` in :mod:`league_site.web.theme`.
 _THEME_TOGGLE_HTML = (
     '<button type="button" id="theme-toggle" class="theme-toggle"'
     ' title="Theme: system"'
     ' aria-label="Theme: system — activate to switch to light">◐</button>'
 )
+
+
+def header_html() -> str:
+    """The canonical site header: wordmark + primary nav + theme toggle.
+
+    Public so standalone page shells that render *ahead of* ``with_shell``
+    (:mod:`league_site.viewer.wsgi` today) carry the same header — same
+    nav, same toggle — instead of a drifting hand copy. One source, every
+    page.
+    """
+    nav_html = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)
+    return f"""<header class="site-header">
+<div class="wrap">
+{_WORDMARK_HTML}
+<nav aria-label="Primary">{nav_html}</nav>
+{_THEME_TOGGLE_HTML}
+</div>
+</header>"""
 
 
 class FooterSlotRegistry:
@@ -301,7 +318,6 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
         # own entrance, so it carries no .reveal class (site.js skips it
         # when stamping the stagger). Its <h1> replaces the markdown's.
         body_html = hero.HERO_HTML + "\n" + _LANDING_H1_RE.sub("", body_html, count=1)
-    nav_html = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)
     footer_html = slots.render()
     return f"""<!doctype html>
 <html lang="en">
@@ -316,13 +332,7 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-<header class="site-header">
-<div class="wrap">
-{_WORDMARK_HTML}
-<nav aria-label="Primary">{nav_html}</nav>
-{_THEME_TOGGLE_HTML}
-</div>
-</header>
+{header_html()}
 <main id="main" class="wrap">
 {body_html}
 </main>

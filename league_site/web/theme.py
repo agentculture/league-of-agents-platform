@@ -464,6 +464,22 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 }}
 .button:hover, .button:focus-visible {{ text-decoration: none; filter: brightness(1.08); }}
 
+.theme-toggle {{
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  line-height: 1;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}}
+.theme-toggle:hover, .theme-toggle:focus-visible {{
+  color: var(--accent);
+  border-color: var(--accent);
+}}
+
 .site-footer {{
   border-top: 1px solid var(--border);
   padding: var(--space-5) 0;
@@ -523,6 +539,12 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
   }}
   .card:hover {{
     transform: translateY(-2px);
+  }}
+  .theme-toggle {{
+    transition: box-shadow 160ms ease;
+  }}
+  .theme-toggle:hover, .theme-toggle:focus-visible {{
+    box-shadow: 0 0 0 4px var(--accent-glow);
   }}
 
   /* --- View transitions: a gentle crossfade, nested so reduced motion

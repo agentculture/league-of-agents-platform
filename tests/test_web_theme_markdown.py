@@ -111,3 +111,17 @@ def test_extract_title_strips_inline_markup() -> None:
 
 def test_extract_title_returns_none_without_a_heading() -> None:
     assert extract_title("just text, no heading\n") is None
+
+
+def test_indented_continuation_lines_stay_inside_their_list_item() -> None:
+    out = render(
+        "- **Play as a human** — sign in. No\n"
+        "  installation required. Start at\n"
+        "  [`start-human`](/start-human).\n"
+        "- Second item.\n"
+    )
+    assert out.count("<li>") == 2
+    assert "sign in. No installation required." in out
+    # The continuation prose renders inside the <li>, never as a stray
+    # paragraph after the list.
+    assert "<p>installation" not in out

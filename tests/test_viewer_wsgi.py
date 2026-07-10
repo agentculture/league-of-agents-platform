@@ -300,3 +300,19 @@ def test_leaderboard_non_get_method_is_405() -> None:
     app = viewer_app(InMemoryMatchStore(), InMemoryRatingLedgerStore())
     status, _, _ = _get(app, "/leaderboard", method="POST")
     assert status == "405 Method Not Allowed"
+
+
+def test_viewer_pages_carry_the_full_dazzle_shell() -> None:
+    """The standalone viewer shell keeps parity with ``with_shell`` pages:
+    canonical header (nav + theme toggle), the pre-paint theme snippet, and
+    ``/site.js`` — so a visitor's explicit theme choice follows them onto
+    the leaderboard and watch pages (spec c6/c12)."""
+    app = viewer_app(InMemoryMatchStore(), InMemoryRatingLedgerStore())
+    _, _, body = _get(app, "/leaderboard")
+    text = body.decode("utf-8")
+    assert 'nav aria-label="Primary"' in text
+    assert 'id="theme-toggle"' in text
+    assert "dataset.js" in text  # the pre-paint snippet, before first paint
+    assert '<script defer src="/site.js"></script>' in text
+    assert '<a class="skip-link" href="#main">' in text
+    assert 'id="main"' in text
