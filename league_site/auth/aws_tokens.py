@@ -110,6 +110,23 @@ class DynamoDBTokenStore(TokenStore):
             return None
         return _from_item(item)
 
+    def list_all(self) -> list[TokenRecord]:
+        """Return every record — revoked included — via a paginated full scan.
+
+        This is the surface the self-serve issuance guard reads (see
+        :meth:`league_site.auth.token_store.TokenStore.list_all`); the same
+        launch-scale O(n) tradeoff as :meth:`revoke` applies.
+        """
+        records: list[TokenRecord] = []
+        scan_kwargs: dict[str, Any] = {}
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            records.extend(_from_item(item) for item in response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                return records
+            scan_kwargs["ExclusiveStartKey"] = last_key
+
     def revoke(self, token_id: str) -> None:
         """Mark the token identified by ``token_id`` as revoked.
 
