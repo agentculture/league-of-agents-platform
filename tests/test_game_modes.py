@@ -62,9 +62,25 @@ def test_solo_vs_bot_has_a_one_action_cap_and_a_bot_house_side() -> None:
     assert SOLO_VS_BOT.team_ids == ("solo", "house")
 
 
+def test_solo_vs_bot_house_side_is_driven_by_the_game_greedy_bot_policy() -> None:
+    """platform#9: the house team declares the game's own bot policy that
+    drives it every turn — and the solo handicap stays on the player side
+    only, exactly like the game's own solo preset (solo capped at 1, house
+    uncapped)."""
+    assert SOLO_VS_BOT.team("house").bot_policy == "bot:greedy"
+    assert SOLO_VS_BOT.team("house").action_cap is None
+    assert SOLO_VS_BOT.team("solo").bot_policy is None
+    assert SOLO_VS_BOT.team("solo").action_cap == 1
+
+
+def test_bot_policy_defaults_to_none_on_a_team_spec() -> None:
+    assert TeamSpec(team_id="t", driver_kind="stateless").bot_policy is None
+
+
 def test_team_vs_team_has_no_bot_side_and_no_action_cap() -> None:
     assert TEAM_VS_TEAM.bot_team_ids == ()
     assert all(t.action_cap is None for t in TEAM_VS_TEAM.teams)
+    assert all(t.bot_policy is None for t in TEAM_VS_TEAM.teams)
 
 
 def test_coop_2_is_exactly_one_team() -> None:

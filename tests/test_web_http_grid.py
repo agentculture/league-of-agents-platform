@@ -70,6 +70,21 @@ class ScriptedRunner:
         if head == ("match", "tick"):
             self._resolve()
             return {"resolution": {"turn": self.turn}}
+        if head == ("harness", "run"):
+            # platform#9: the adapter drives the house side via `league
+            # harness run` resuming the existing match — stage the config's
+            # bot teams and auto-resolve once every team has staged.
+            config = json.loads(Path(args[args.index("--config") + 1]).read_text("utf-8"))
+            self.staged.update(team["id"] for team in config["teams"])
+            if self.staged >= set(self.team_ids):
+                self._resolve()
+            return {
+                "match_id": self.match_id,
+                "status": self.status,
+                "turns_played": self.turn,
+                "winner": None,
+                "score": {},
+            }
         if head == ("match", "show"):
             return self._show()
         raise AssertionError(f"unscripted call: {args}")
@@ -146,9 +161,12 @@ def test_creating_a_solo_vs_bot_match_through_site_app_dispatches_to_grid_lane_e
     )
 
     assert status == "200 OK", after_turn
-    # solo-vs-bot: the house side never stages, so the adapter force-ticks —
-    # proof the *engine*, not just its constructor, was actually exercised.
-    assert len(scripted.tick_calls()) == 1
+    # solo-vs-bot: the adapter drives the house side with the game's own bot
+    # policy via `league harness run` (platform#9) — proof the *engine*, not
+    # just its constructor, was actually exercised.
+    harness_calls = [a for v, a in scripted.calls if v == "run" and a[:2] == ("harness", "run")]
+    assert len(harness_calls) == 1
+    assert scripted.tick_calls() == []
     assert after_turn["state"]["turn"] == 1
 
 
@@ -206,8 +224,9 @@ def test_real_cli_create_and_play_one_solo_vs_bot_turn_through_the_public_api() 
     )
 
     assert status == "200 OK", after_turn
-    # solo-vs-bot's house side never stages orders, so a single apply_turn
-    # call force-resolves one full game turn via `match tick --apply`.
+    # solo-vs-bot: a single apply_turn call plays one full game turn — the
+    # solo orders stage, then the adapter stages the house side through the
+    # game's own bot policy (`league harness run`), which auto-resolves.
     assert after_turn["state"]["turn"] == 1
     assert after_turn["status"] in ("active", "completed")
 

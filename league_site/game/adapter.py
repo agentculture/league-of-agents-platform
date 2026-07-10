@@ -9,17 +9,18 @@ workdir hydrated from — and persisted back to — the opaque ``state`` dict
 for the whole ``league_site`` tree); the game is only ever an external
 process.
 
-``state`` shape (a plain, JSON-safe dict — see the module-level
-``_STATE_KEYS`` set for the exact key list): identifying fields
+``state`` shape (a plain, JSON-safe dict): identifying fields
 (``game_id``, ``mode``, ``match_id``, ``scenario_id``, ``seed``,
 ``game_version``), the ``snapshot`` (the game's own ``.league/`` tree,
 byte-exact), read projections mirrored straight from the last
 ``league match show --json`` (``status``, ``turn``, ``turn_limit``,
 ``winner``, ``legal_actions``, ``last_turn_rejections``, ``staged_teams``),
 this adapter's own mode-fairness refusals for the turn just played
-(``last_turn_platform_rejections`` — see :mod:`league_site.game.modes`), and
-the participant/team bookkeeping needed to score by ``participant_id``
-(``participant_teams``, ``team_participants``).
+(``last_turn_platform_rejections`` — see :mod:`league_site.game.modes`),
+which game bot policy plays each house team (``bot_policies``,
+``team_id -> policy label`` — issue #9's "mode metadata records which bot
+policy the house ran"), and the participant/team bookkeeping needed to
+score by ``participant_id`` (``participant_teams``, ``team_participants``).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from league_site.game import bot as bot_mod
 from league_site.game import modes
 from league_site.game import workdir as workdir_mod
 from league_site.game.modes import LaunchMode, Rejection, TeamSpec
@@ -46,10 +48,12 @@ from league_site.matches.models import AgentIdentity, Participant, ParticipantKi
 #: distinct game).
 GAME_ID = "league-of-agents-grid"
 
-#: House-side team model label — "bot" always means "never stages orders;
-#: the adapter force-resolves with `match tick --apply`" (see
-#: :meth:`GridLaneEngine.apply_turn`), so every bot roster gets this one
-#: descriptive, deterministic label rather than anything participant-derived.
+#: Fallback house-side team model label for a bot team with no
+#: :attr:`~league_site.game.modes.TeamSpec.bot_policy` — "bot:pass" means
+#: "never stages orders; the adapter force-resolves with `match tick
+#: --apply`" (see :meth:`GridLaneEngine.apply_turn`). A policy-driven bot
+#: team's roster is labeled with its policy instead (e.g. ``bot:greedy``),
+#: so the match record says which bot actually played (issue #9).
 _BOT_MODEL_LABEL = "bot:pass"
 
 
@@ -133,6 +137,9 @@ class GridLaneEngine(GameEngine):
                 "game_version": version,
                 "participant_teams": participant_teams,
                 "team_participants": team_participants,
+                "bot_policies": {
+                    team.team_id: team.bot_policy for team in bot_mod.driven_bot_teams(mode)
+                },
             },
             show=show,
             snapshot=snapshot,
@@ -140,7 +147,11 @@ class GridLaneEngine(GameEngine):
         )
 
     def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
-        mode = modes.get_mode(state["mode"])
+        # Prefer this engine's own (possibly custom/unregistered) mode when
+        # it is the one the state was created under; fall back to the
+        # registry so a state rehydrated into a freshly-registered engine
+        # still resolves (the production engine-registry path).
+        mode = self._mode if self._mode.name == state["mode"] else modes.get_mode(state["mode"])
         team_id = state["participant_teams"].get(participant_id)
         if team_id is None:
             raise ValueError(
@@ -169,13 +180,12 @@ class GridLaneEngine(GameEngine):
                 ],
                 cwd=workdir,
             )
-            # Bot/house teams never stage their own orders (driver kinds are
-            # audit labels, not gates — docs/game-integration.md); once the
-            # only non-bot side(s) have staged, force resolution ourselves.
+            # Bot/house teams never stage orders on their own (driver kinds
+            # are audit labels, not gates — docs/game-integration.md); once
+            # the participant side(s) have staged, the platform plays the
+            # bot side before the turn resolves (issue #9).
             if not act_response.get("resolves_turn") and mode.bot_team_ids:
-                self._runner.run(
-                    ["match", "tick", state["match_id"], "--apply", "--json"], cwd=workdir
-                )
+                self._drive_bot_teams(workdir, mode, state)
             show = self._runner.run(["match", "show", state["match_id"], "--json"], cwd=workdir)
             snapshot = workdir_mod.persist(workdir)
 
@@ -230,6 +240,35 @@ class GridLaneEngine(GameEngine):
         return axes
 
     # -- internals -------------------------------------------------------------
+
+    def _drive_bot_teams(self, workdir: Path, mode: LaunchMode, state: Mapping[str, Any]) -> None:
+        """Play the house side of the turn being processed (issue #9).
+
+        Bot teams with a declared :attr:`~league_site.game.modes.TeamSpec.
+        bot_policy` are driven with the *game's own* bot policy via
+        ``league harness run``: the config written here names the existing
+        match, so the harness resumes it and acts exactly the configured
+        bot teams for one round (``max_rounds: 1``) — and staging the last
+        team auto-resolves the turn per the game's own rule. Any bot team
+        *without* a policy is deliberately passive: it stays unstaged, and
+        the turn is force-resolved with ``match tick --apply`` (that team
+        simply holds) — the pre-#9 behavior, kept only for that case. The
+        config file lives at the workdir root, outside ``.league/``, so it
+        never leaks into the persisted snapshot.
+        """
+        driven = bot_mod.driven_bot_teams(mode)
+        if driven:
+            config = bot_mod.harness_config(
+                mode, match_id=state["match_id"], scenario_id=state["scenario_id"]
+            )
+            config_path = workdir / bot_mod.HARNESS_CONFIG_FILENAME
+            config_path.write_text(json.dumps(config, sort_keys=True), encoding="utf-8")
+            self._runner.run(
+                ["harness", "run", "--config", str(config_path), "--apply", "--json"],
+                cwd=workdir,
+            )
+        if len(driven) < len(mode.bot_team_ids):
+            self._runner.run(["match", "tick", state["match_id"], "--apply", "--json"], cwd=workdir)
 
     @contextlib.contextmanager
     def _workdir(self, snapshot: workdir_mod.Snapshot | None = None) -> Iterator[Path]:
@@ -313,13 +352,16 @@ def _team_label(
 
     Purely cosmetic/audit metadata (the game's own ``AgentSlot.model``
     field, echoed straight into ``state.teams[*].agents[*].model`` on every
-    ``match show``) — never consumed by engine logic. Bot teams get the
-    fixed :data:`_BOT_MODEL_LABEL`; a participant-controlled team's label
-    joins its participant(s)' model (agents) or display name (humans),
-    "+"-joined for a shared team (coop-2).
+    ``match show``) — never consumed by engine logic. A bot team is labeled
+    with the game bot policy that plays it (``bot_policy``, e.g.
+    ``bot:greedy`` — the game's ``--agent id:model:role`` spec keeps the
+    model's own colons), or the fixed :data:`_BOT_MODEL_LABEL` when it has
+    none; a participant-controlled team's label joins its participant(s)'
+    model (agents) or display name (humans), "+"-joined for a shared team
+    (coop-2).
     """
     if team.is_bot:
-        return _BOT_MODEL_LABEL
+        return team.bot_policy or _BOT_MODEL_LABEL
     labels = [
         _participant_label(p)
         for p in participants
