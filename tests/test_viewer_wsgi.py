@@ -12,7 +12,11 @@ is a public, zero-auth surface):
 * markdown in a turn message renders while hostile HTML/script anywhere is
   escaped;
 * page weight for a 20-turn match stays under the 60KB budget and the page
-  carries lang/viewport/meta.
+  carries lang/viewport/meta;
+* ``GET /leaderboard`` (platform#11) renders the current standings, ranked
+  by rating, or a welcoming zero-state when no rated matches exist yet —
+  see :mod:`tests.test_viewer_leaderboard` for the render-level coverage of
+  the ordering/escaping rules this module only exercises through the route.
 """
 
 from __future__ import annotations
@@ -20,11 +24,27 @@ from __future__ import annotations
 from typing import Any
 
 from league_site.matches import AgentIdentity, InMemoryMatchStore, Participant, ParticipantKind
+from league_site.ratings import (
+    InMemoryRatingLedgerStore,
+    IntegerEloRatingSystem,
+    MatchOutcome,
+    OutcomeEntry,
+    RatingIdentity,
+)
 from league_site.viewer.wsgi import WSGIApp, viewer_app
 from tests._viewer_support import start_match
 
 HOSTILE = """<script>alert('x')</script>"""
 _PAGE_WEIGHT_BUDGET_BYTES = 60 * 1024
+
+_RATING_HUMAN = RatingIdentity(kind=ParticipantKind.HUMAN, display_name="Ada")
+_RATING_AGENT = RatingIdentity(
+    kind=ParticipantKind.AGENT,
+    display_name="Sonnet",
+    model="claude-sonnet-5",
+    provider="anthropic",
+)
+_RATING_SYSTEM = IntegerEloRatingSystem(k_factor=32)
 
 
 def _get(app: WSGIApp, path: str, *, method: str = "GET") -> tuple[str, dict[str, str], bytes]:
@@ -204,3 +224,79 @@ def test_twenty_turn_match_page_stays_under_the_60kb_budget_and_carries_lang_vie
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in text
     assert '<meta charset="utf-8">' in text
     assert len(match.turns) == 20
+
+
+# --- GET /leaderboard (platform#11) --------------------------------------------
+
+
+def test_get_leaderboard_returns_200_html_ordered_by_rating() -> None:
+    ledger_store = InMemoryRatingLedgerStore()
+    ledger_store.record_match(
+        MatchOutcome(
+            match_id="m1",
+            entries=(
+                OutcomeEntry(identity=_RATING_HUMAN, score=10),
+                OutcomeEntry(identity=_RATING_AGENT, score=3),
+            ),
+        ),
+        _RATING_SYSTEM,
+    )
+    app = viewer_app(InMemoryMatchStore(), ledger_store)
+
+    status, headers, body = _get(app, "/leaderboard")
+    assert status == "200 OK"
+    assert headers["Content-Type"] == "text/html; charset=utf-8"
+    text = body.decode("utf-8")
+    assert '<html lang="en">' in text
+    assert "Ada" in text
+    assert "Sonnet" in text
+    # Winner (Ada) outranks the loser (Sonnet) -- Ada's row appears first.
+    assert text.index("Ada") < text.index("Sonnet")
+    # Agent identity carries its benchmark chips.
+    assert "claude-sonnet-5" in text
+    assert "anthropic" in text
+
+
+def test_get_leaderboard_links_rows_to_profile_pages() -> None:
+    ledger_store = InMemoryRatingLedgerStore()
+    ledger_store.record_match(
+        MatchOutcome(
+            match_id="m1",
+            entries=(
+                OutcomeEntry(identity=_RATING_HUMAN, score=10),
+                OutcomeEntry(identity=_RATING_AGENT, score=3),
+            ),
+        ),
+        _RATING_SYSTEM,
+    )
+    app = viewer_app(InMemoryMatchStore(), ledger_store)
+
+    _, _, body = _get(app, "/leaderboard")
+    text = body.decode("utf-8")
+    assert 'href="/profiles/' in text
+
+
+def test_get_leaderboard_with_no_rated_matches_is_a_welcoming_zero_state_not_an_error() -> None:
+    app = viewer_app(InMemoryMatchStore(), InMemoryRatingLedgerStore())
+
+    status, headers, body = _get(app, "/leaderboard")
+    assert status == "200 OK"
+    text = body.decode("utf-8")
+    assert "no rated matches yet" in text.lower()
+    assert "be the first" in text.lower()
+
+
+def test_get_leaderboard_without_a_ledger_store_is_a_zero_state_not_a_crash() -> None:
+    # viewer_app's ledger_store is optional -- /leaderboard must degrade to
+    # the same welcoming zero-state rather than raising when it's omitted.
+    app = viewer_app(InMemoryMatchStore())
+
+    status, _, body = _get(app, "/leaderboard")
+    assert status == "200 OK"
+    assert "no rated matches yet" in body.decode("utf-8").lower()
+
+
+def test_leaderboard_non_get_method_is_405() -> None:
+    app = viewer_app(InMemoryMatchStore(), InMemoryRatingLedgerStore())
+    status, _, _ = _get(app, "/leaderboard", method="POST")
+    assert status == "405 Method Not Allowed"

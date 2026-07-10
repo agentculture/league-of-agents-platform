@@ -1,14 +1,25 @@
-"""``viewer_app`` — the pure WSGI sub-app serving public match-watch pages.
+"""``viewer_app`` — the pure WSGI sub-app serving public viewer pages.
 
-One route, ``GET`` only, zero auth: ``/matches/<id>/watch``. Renders a
-self-contained HTML page (inline ``<style>{theme.STYLESHEET}</style>``, same
-convention as :mod:`league_site.profiles.wsgi`) showing a match's header
-(game, participants with model/provider chips, status, scores once
-completed) and its full turn-by-turn transcript
-(:mod:`league_site.viewer.render`).
+Two routes, ``GET`` only, zero auth:
 
-Live vs. permanent replay
---------------------------
+* ``/matches/<id>/watch`` — a self-contained HTML page (inline
+  ``<style>{theme.STYLESHEET}</style>``, same convention as
+  :mod:`league_site.profiles.wsgi`) showing a match's header (game,
+  participants with model/provider chips, status, scores once completed)
+  and its full turn-by-turn transcript (:mod:`league_site.viewer.render`).
+* ``/leaderboard`` — the public standings page (platform#11): rank,
+  identity (linked to ``/profiles/<slug>``, with model/provider chips for
+  agents), rating, and matches played, ordered exactly like
+  :func:`league_site.ratings.leaderboard.leaderboard` (see
+  :mod:`league_site.viewer.leaderboard`). An empty ledger renders a
+  welcoming zero-state ("no rated matches yet — be the first"), never a 404
+  or error page.
+
+Both share one page shell (:func:`_page_shell`): header/wordmark, no JS,
+same inline stylesheet.
+
+Live vs. permanent replay (watch page)
+----------------------------------------
 A match that hasn't reached
 :attr:`~league_site.matches.match.MatchStatus.COMPLETED` gets a
 ``<meta http-equiv="refresh" content="5">`` tag and a "LIVE" indicator — no
@@ -28,12 +39,16 @@ Wiring contract
 Mirrors :mod:`league_site.profiles.wsgi`: :func:`viewer_app` takes its
 stores as plain constructor arguments — it does not construct or import
 them itself, and it does not touch :mod:`league_site.web` routing. A caller
-dispatches any ``PATH_INFO`` matching ``/matches/<id>/watch`` to
-``viewer_app(match_store, ledger_store)`` ahead of the shell/auth/API
-stack — see :func:`league_site.web.http.site_app`, which shares the exact
-same ``match_store``/``ledger_store`` instances the match API reads/writes,
-so a turn recorded a moment ago through ``POST /api/v1/matches/*/turns`` is
-visible on the very next ``GET`` of this page.
+dispatches any ``PATH_INFO`` matching ``/matches/<id>/watch`` or equal to
+``/leaderboard`` to ``viewer_app(match_store, ledger_store)`` ahead of the
+shell/auth/API stack — see :func:`league_site.web.http.site_app`, which
+shares the exact same ``match_store``/``ledger_store`` instances the match
+API reads/writes, so a turn recorded a moment ago through ``POST
+/api/v1/matches/*/turns`` is visible on the very next ``GET`` of the watch
+page, and a match rated a moment ago is visible on the very next ``GET`` of
+``/leaderboard``. ``ledger_store`` is optional — omitted, the watch page
+simply renders without ratings (see :func:`~league_site.viewer.render.
+build_page_model`) and ``/leaderboard`` renders its zero-state.
 """
 
 from __future__ import annotations
@@ -45,13 +60,17 @@ from typing import Any, Callable
 from league_site.matches.errors import MatchNotFoundError
 from league_site.matches.store import MatchStore
 from league_site.ratings.ledger import RatingLedgerStore
+from league_site.viewer.leaderboard import build_leaderboard_rows, render_leaderboard_body
 from league_site.viewer.render import build_page_model, render_page_body
 from league_site.web import theme
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
-#: The one route this app serves: ``GET /matches/<id>/watch``.
+#: The watch-page route: ``GET /matches/<id>/watch``.
 WATCH_PATH_RE = re.compile(r"^/matches/(?P<match_id>[^/]+)/watch$")
+
+#: The leaderboard-page route: ``GET /leaderboard`` (platform#11).
+_LEADERBOARD_PATH = "/leaderboard"
 
 _PAGE_TITLE_SITE = "League of Agents"
 _REFRESH_SECONDS = 5
@@ -98,6 +117,18 @@ def viewer_app(match_store: MatchStore, ledger_store: RatingLedgerStore | None =
         method = environ.get("REQUEST_METHOD", "GET")
         path = environ.get("PATH_INFO", "/")
 
+        if path == _LEADERBOARD_PATH:
+            if method != "GET":
+                return _respond(
+                    start_response,
+                    "405 Method Not Allowed",
+                    "text/plain; charset=utf-8",
+                    b"GET only",
+                )
+            rows = build_leaderboard_rows(ledger_store)
+            body = _render_leaderboard_page(rows).encode("utf-8")
+            return _respond(start_response, "200 OK", "text/html; charset=utf-8", body)
+
         route_match = WATCH_PATH_RE.match(path)
         if route_match is None:
             return _not_found(start_response, "no such page")
@@ -132,6 +163,25 @@ def _render_page(model: Any) -> str:
         else f"Finished match {match_id_html} on League of Agents — full transcript."
     )
     body_html = render_page_body(model)
+    return _page_shell(
+        title=title, description=description, body_html=body_html, refresh_meta=refresh_meta
+    )
+
+
+def _render_leaderboard_page(rows: tuple[Any, ...]) -> str:
+    title = f"Leaderboard — {_PAGE_TITLE_SITE}"
+    description = "Current standings on League of Agents, ranked by rating."
+    body_html = render_leaderboard_body(rows)
+    return _page_shell(title=title, description=description, body_html=body_html)
+
+
+def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: str = "") -> str:
+    """The one page shell shared by the watch page and the leaderboard page.
+
+    Header/wordmark only (no shared-site nav — this app renders standalone
+    pages ahead of ``with_shell``, per this module's docstring), the same
+    inline stylesheet, no JS.
+    """
     return f"""<!doctype html>
 <html lang="en">
 <head>
