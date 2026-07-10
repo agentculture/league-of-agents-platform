@@ -92,6 +92,13 @@ def test_explain_self(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out.startswith("#")
 
 
+def test_explain_self_by_console_script_name(capsys: pytest.CaptureFixture[str]) -> None:
+    """The rubric's `explain_self` check probes the console script, not the dist."""
+    rc = main(["explain", "league-site"])
+    assert rc == 0
+    assert capsys.readouterr().out.startswith("#")
+
+
 def test_explain_json(capsys: pytest.CaptureFixture[str]) -> None:
     rc = main(["explain", "whoami", "--json"])
     assert rc == 0

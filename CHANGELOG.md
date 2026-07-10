@@ -30,6 +30,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   injects `--desc` verbatim into the `README.md` intro and the `CLAUDE.md` seed,
   and this repo's description contains `https://league-of-agents.ai`. Both are
   now angle-bracketed (`<https://league-of-agents.ai>`).
+- Genesis-commit rubric-gate failure. `teken cli doctor --strict`'s
+  `explain_self` check runs `<console-script> explain <console-script>`, i.e.
+  `league-site explain league-site`, but the catalog only keyed its root entry by
+  the dist name (`league-of-agents-platform`) — the template rename tracks the
+  repo token, while `--command` retargets only the `[project.scripts]` key. The
+  catalog now resolves the root under **both** names, so the tool answers to
+  whichever name an agent knows it by. Covered by
+  `test_explain_self_by_console_script_name`.
 
 ## [0.4.0] - 2026-06-23
 
