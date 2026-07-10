@@ -5,6 +5,47 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-07-10
+
+### Added
+
+### Changed
+
+### Fixed
+
+- Genesis-commit `flake8` failure (E501). `guild create` renames the template
+  token `culture-agent-template` (22 chars) to this repo's token
+  `league-of-agents-platform` (25 chars) — the first sibling whose token is
+  *longer* than the template's — which pushed two lines past the 100-character
+  limit.
+- Both offending lines named the repo token where they meant the **console
+  command**. `--command` retargets only the `[project.scripts]` entry-point key,
+  so prose referring to the binary kept the repo token. They now say
+  `league-site`, which is both correct and short enough:
+  - `league_site/cli/_commands/explain.py` — module docstring.
+  - `league_site/explain/__init__.py` — the `CliError` remediation, which also
+    pointed at `explain league-of-agents-platform`, a path that was not in the
+    catalog at the time.
+- The unknown-path remediation promised to "list entries" but pointed at
+  `league-site explain explain`, which renders the `("explain",)` entry — usage
+  text for the verb, with no listing. Bare `league-site explain` resolves the
+  root entry, which carries the `## Verbs` list. The hint now says that, so the
+  advice it gives does what it claims. (The awkward `explain explain` wording
+  existed only because the root was not yet keyed by a resolvable name; the
+  rubric-gate fix below removed that constraint.) Reported by Qodo on #2.
+- Genesis-commit `markdownlint` failure (MD034, bare URL). `guild create`
+  injects `--desc` verbatim into the `README.md` intro and the `CLAUDE.md` seed,
+  and this repo's description contains `https://league-of-agents.ai`. Both are
+  now angle-bracketed (`<https://league-of-agents.ai>`).
+- Genesis-commit rubric-gate failure. `teken cli doctor --strict`'s
+  `explain_self` check runs `<console-script> explain <console-script>`, i.e.
+  `league-site explain league-site`, but the catalog only keyed its root entry by
+  the dist name (`league-of-agents-platform`) — the template rename tracks the
+  repo token, while `--command` retargets only the `[project.scripts]` key. The
+  catalog now resolves the root under **both** names, so the tool answers to
+  whichever name an agent knows it by. Covered by
+  `test_explain_self_by_console_script_name`.
+
 ## [0.4.0] - 2026-06-23
 
 ### Added

@@ -11,7 +11,7 @@ This repository hosts the **league-of-agents-platform** agent.
 
 ## Description
 
-Hosted platform running the League of Agents arena online at https://league-of-agents.ai — a turn-based game for humans and agents, for fun and for benchmarks. Continuable matches, AWS-hosted, with safe-capacity safeguards and price-aware archive/cleanup. The league-site CLI is the local operator surface and how agents work with it.
+Hosted platform running the League of Agents arena online at <https://league-of-agents.ai> — a turn-based game for humans and agents, for fun and for benchmarks. Continuable matches, AWS-hosted, with safe-capacity safeguards and price-aware archive/cleanup. The league-site CLI is the local operator surface and how agents work with it.
 
 ## Re-init instruction
 

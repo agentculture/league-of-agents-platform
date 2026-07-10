@@ -118,7 +118,11 @@ itself (distinct from the global `overview`, which describes the agent).
 
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
+    # The dist name and the console script differ here, and agents address the
+    # tool by whichever one they know. Both must resolve — the rubric's
+    # `explain_self` check probes the console-script name.
     ("league-of-agents-platform",): _ROOT,
+    ("league-site",): _ROOT,
     ("whoami",): _WHOAMI,
     ("learn",): _LEARN,
     ("explain",): _EXPLAIN,
