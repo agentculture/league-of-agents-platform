@@ -4,6 +4,13 @@ with the League of Agents game.
 :class:`LeagueRunner` builds argv from a base command (``["league"]`` by
 default), runs it with a caller-supplied ``cwd`` (the per-match isolated
 workdir — see :mod:`league_site.game.workdir`), and parses stdout as JSON.
+The base command resolves, in order: a constructor ``base_command=``
+override; the ``LEAGUE_CLI`` env var (shell-quoted, split with ``shlex`` —
+so e.g. ``LEAGUE_CLI="python -m league"`` works); the ``LEAGUE_CLI_MODULE``
+env var (just a module name, e.g. ``"league"``, run as
+``sys.executable -m <module>`` — the Lambda-safe mode, since a
+``pip install --target`` artifact's console-script is not guaranteed to be
+on ``PATH``); the ``["league"]`` default.
 A non-zero exit is translated into :class:`LeagueCliError`, carrying the
 game's own structured ``{code, message, remediation}`` shape verbatim
 (``league.cli._errors.CliError.to_dict()``) whenever the CLI emitted one; an
@@ -23,15 +30,28 @@ import json
 import os
 import shlex
 import subprocess  # nosec B404 - the whole point of this module is to run the league CLI
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 #: Env var overriding the base command used to invoke the league CLI, e.g.
 #: ``LEAGUE_CLI="python -m league"`` (shell-quoted, split with ``shlex``).
+#: Checked before :data:`LEAGUE_CLI_MODULE_ENV_VAR`; wins if both are set.
 LEAGUE_CLI_ENV_VAR = "LEAGUE_CLI"
 
-#: Fallback base command when neither a constructor arg nor the env var is set.
+#: Env var selecting "run the league CLI as a module of the current
+#: interpreter" (``sys.executable -m <value>``) instead of a literal command
+#: string, e.g. ``LEAGUE_CLI_MODULE="league"``. This is the Lambda-safe
+#: mode: a ``pip install --target "$(ARTIFACTS_DIR)" league-of-agents``
+#: install (see the repo-root ``Makefile``) does not guarantee the
+#: ``league`` console-script lands on ``PATH`` inside the deployment
+#: package, but the installed ``league`` package is always importable via
+#: ``-m`` once its directory is on ``sys.path`` (e.g. via ``PYTHONPATH``).
+#: Only consulted when :data:`LEAGUE_CLI_ENV_VAR` is unset.
+LEAGUE_CLI_MODULE_ENV_VAR = "LEAGUE_CLI_MODULE"
+
+#: Fallback base command when neither a constructor arg nor either env var is set.
 DEFAULT_BASE_COMMAND: tuple[str, ...] = ("league",)
 
 #: Default per-invocation timeout, in seconds. Generous: `match new`/`act`
@@ -162,6 +182,9 @@ def _default_base_command() -> tuple[str, ...]:
     override = os.environ.get(LEAGUE_CLI_ENV_VAR)
     if override:
         return tuple(shlex.split(override))
+    module = os.environ.get(LEAGUE_CLI_MODULE_ENV_VAR)
+    if module:
+        return (sys.executable, "-m", module)
     return DEFAULT_BASE_COMMAND
 
 
