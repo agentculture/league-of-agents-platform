@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -20,6 +21,7 @@ import pytest
 from league_site.game.runner import (
     DEFAULT_BASE_COMMAND,
     LEAGUE_CLI_ENV_VAR,
+    LEAGUE_CLI_MODULE_ENV_VAR,
     LeagueCliError,
     LeagueRunner,
     LeagueRunnerError,
@@ -53,6 +55,45 @@ def test_constructor_override_wins_over_env_var(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv(LEAGUE_CLI_ENV_VAR, "should-not-be-used")
     runner = LeagueRunner(base_command=["league"])
     assert runner.command == ("league",)
+
+
+def test_league_cli_module_env_var_runs_it_as_a_module_via_sys_executable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Lambda-safe mode: the ``league`` console-script is not guaranteed
+    to land on ``PATH`` inside a ``pip install --target`` artifact, but the
+    installed package is always importable once its directory is on
+    ``sys.path`` — so resolve to ``<this interpreter> -m <module>`` instead
+    of a bare command name."""
+    monkeypatch.delenv(LEAGUE_CLI_ENV_VAR, raising=False)
+    monkeypatch.setenv(LEAGUE_CLI_MODULE_ENV_VAR, "league")
+    runner = LeagueRunner()
+    assert runner.command == (sys.executable, "-m", "league")
+
+
+def test_league_cli_env_var_wins_over_league_cli_module_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(LEAGUE_CLI_ENV_VAR, "league")
+    monkeypatch.setenv(LEAGUE_CLI_MODULE_ENV_VAR, "should-not-be-used")
+    runner = LeagueRunner()
+    assert runner.command == ("league",)
+
+
+def test_constructor_override_wins_over_league_cli_module_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(LEAGUE_CLI_ENV_VAR, raising=False)
+    monkeypatch.setenv(LEAGUE_CLI_MODULE_ENV_VAR, "should-not-be-used")
+    runner = LeagueRunner(base_command=["league"])
+    assert runner.command == ("league",)
+
+
+def test_league_cli_module_env_var_is_ignored_when_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(LEAGUE_CLI_ENV_VAR, raising=False)
+    monkeypatch.setenv(LEAGUE_CLI_MODULE_ENV_VAR, "")
+    runner = LeagueRunner()
+    assert runner.command == DEFAULT_BASE_COMMAND
 
 
 def test_run_builds_argv_from_base_command_and_parses_json_stdout(tmp_path: Path) -> None:
