@@ -127,6 +127,22 @@ class ScriptedRunner:
         if head == ("match", "tick"):
             self._resolve()
             return {"resolution": {"turn": self.turn}}
+        if head == ("harness", "run"):
+            # platform#9: the adapter drives bot-policy teams via `league
+            # harness run` resuming the existing match — stage the config's
+            # bot teams and auto-resolve once every team has staged (same
+            # scripted branch as tests/test_web_http_grid.py's fake).
+            config = json.loads(Path(args[args.index("--config") + 1]).read_text("utf-8"))
+            self.staged.update(team["id"] for team in config["teams"])
+            if self.staged >= set(self.team_ids):
+                self._resolve()
+            return {
+                "match_id": self.match_id,
+                "status": self.status,
+                "turns_played": self.turn,
+                "winner": None,
+                "score": {},
+            }
         if head == ("match", "show"):
             return self._show()
         if head == ("match", "score"):
