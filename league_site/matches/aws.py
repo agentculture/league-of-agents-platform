@@ -65,6 +65,29 @@ def _plain_numbers(obj: Any) -> Any:
     return obj
 
 
+def _dynamo_numbers(obj: Any) -> Any:
+    """Recursively turn Python floats into ``Decimal`` for DynamoDB writes.
+
+    The write-side mirror of :func:`_plain_numbers`: boto3 refuses Python
+    floats outright ("Float types are not supported. Use Decimal types
+    instead.") and the game state legitimately carries fractional numbers
+    (live-prod finding: the first finished match's save crashed). Going
+    through ``str`` keeps the decimal representation exact rather than
+    inheriting binary-float noise.
+    """
+    from decimal import Decimal
+
+    if isinstance(obj, bool):
+        return obj
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, list):
+        return [_dynamo_numbers(value) for value in obj]
+    if isinstance(obj, dict):
+        return {key: _dynamo_numbers(value) for key, value in obj.items()}
+    return obj
+
+
 def _require_boto3() -> None:
     if boto3 is None:
         raise RuntimeError(
@@ -89,7 +112,7 @@ class DynamoDBMatchStore(MatchStore):
         self._table = self._resource.Table(table_name)
 
     def save(self, match: Match) -> None:
-        self._table.put_item(Item=to_item(match))
+        self._table.put_item(Item=_dynamo_numbers(to_item(match)))
 
     def load(self, match_id: str) -> Match:
         response = self._table.get_item(Key={"PK": f"MATCH#{match_id}", "SK": "METADATA"})

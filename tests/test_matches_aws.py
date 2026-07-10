@@ -349,3 +349,48 @@ def test_load_coerces_dynamodb_decimals_back_to_plain_numbers() -> None:
     assert loaded.game_state["snapshot"]["turn"] == 3
     assert isinstance(loaded.game_state["snapshot"]["turn"], int)
     assert loaded.game_state["snapshot"]["speed"] == 1.5
+
+
+def test_save_converts_floats_to_decimals_for_dynamodb() -> None:
+    """boto3 refuses Python floats on write ("Float types are not supported.
+
+    Use Decimal types instead.") — live-prod finding when a finished match's
+    state carried fractional numbers. save() must deep-convert.
+    """
+    from decimal import Decimal
+
+    resource = FakeDynamoDBResource()
+    store = DynamoDBMatchStore("matches", resource=resource)
+    match = _mid_game_match()
+    match.game_state = {"snapshot": {"turn": 3, "speed": 1.5, "axes": [0.25, 2]}}
+    store.save(match)
+
+    def no_floats(obj) -> bool:
+        if isinstance(obj, float):
+            return False
+        if isinstance(obj, list):
+            return all(no_floats(v) for v in obj)
+        if isinstance(obj, dict):
+            return all(no_floats(v) for v in obj.values())
+        return True
+
+    table = resource.Table("matches")
+    (item,) = [i for i in table.items.values() if i.get("SK") == "METADATA"]
+    assert no_floats(item), "floats must be stored as Decimal"
+    assert Decimal("1.5") == _find(item, "speed")
+
+
+def _find(obj, needle):
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == needle:
+                return value
+            found = _find(value, needle)
+            if found is not None:
+                return found
+    if isinstance(obj, list):
+        for value in obj:
+            found = _find(value, needle)
+            if found is not None:
+                return found
+    return None
