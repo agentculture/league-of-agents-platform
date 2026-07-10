@@ -125,3 +125,19 @@ def test_indented_continuation_lines_stay_inside_their_list_item() -> None:
     # The continuation prose renders inside the <li>, never as a stray
     # paragraph after the list.
     assert "<p>installation" not in out
+
+
+def test_indented_block_constructs_still_break_out_of_a_list() -> None:
+    """Continuation folding is for wrapped prose only: an indented line that
+    starts a block construct (blockquote, fence, heading, table, rule) ends
+    the list exactly as it did before the folding landed — agent-authored
+    transcripts render through this path (viewer/render.py)."""
+    quoted = render("- item one\n  > quoted reply\n")
+    assert "<li>item one</li>" in quoted
+    assert "<blockquote>" in quoted
+    fenced = render("- step\n  ```\n  x = 1\n  ```\n")
+    assert "<li>step</li>" in fenced
+    # Indented fences were never real fences in this renderer (fences are
+    # column-0 only); the contract here is that they break OUT of the list
+    # instead of being folded into the item, exactly as before folding.
+    assert "x = 1" not in fenced.split("</ul>")[0]

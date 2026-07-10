@@ -197,6 +197,26 @@ JS_BUDGET_BYTES = 8 * 1024
 #: sync with them.
 TOTAL_ASSET_BUDGET_BYTES = CSS_BUDGET_BYTES + JS_BUDGET_BYTES
 
+#: The dark palette, written ONCE and interpolated into both selectors that
+#: need it (:root[data-theme="dark"] and the prefers-color-scheme media
+#: block). Plain CSS cannot reuse a custom-property block across selectors,
+#: but this file is Python — generating both blocks from one constant makes
+#: drift between explicit-choice dark and OS-default dark structurally
+#: impossible instead of comment-policed.
+_DARK_TOKENS = """\
+  color-scheme: dark;
+
+  --bg: #12151a;
+  --surface: #1b1f27;
+  --surface-2: #232833;
+  --text: #e6e9ef;
+  --text-muted: #a3adc2;
+  --border: #2b313d;
+  --border-strong: #5b6478;
+  --accent: #ff8a3d;
+  --accent-ink: #14171c;
+  --accent-glow: rgba(255, 138, 61, .22);"""
+
 STYLESHEET = f"""\
 /* League of Agents — design tokens + stylesheet. See league_site/web/theme.py
    for the palette rationale and the WCAG contrast ratios these tokens hold. */
@@ -245,18 +265,7 @@ STYLESHEET = f"""\
    the @media (prefers-color-scheme: dark) block below, which is the only
    place the OS decides. */
 :root[data-theme="dark"] {{
-  color-scheme: dark;
-
-  --bg: #12151a;
-  --surface: #1b1f27;
-  --surface-2: #232833;
-  --text: #e6e9ef;
-  --text-muted: #a3adc2;
-  --border: #2b313d;
-  --border-strong: #5b6478;
-  --accent: #ff8a3d;
-  --accent-ink: #14171c;
-  --accent-glow: rgba(255, 138, 61, .22);
+{_DARK_TOKENS}
 }}
 
 :root[data-theme="light"] {{
@@ -265,25 +274,12 @@ STYLESHEET = f"""\
 
 /* OS default: only applies when the visitor has not explicitly picked
    light (:not([data-theme="light"]) also matches data-theme="dark" and no
-   attribute at all — harmless in the first case since the values agree with
-   :root[data-theme="dark"] above, and exactly the desired first-visit
-   behavior in the second). Keep this token block's values in sync with
-   :root[data-theme="dark"] above — same values, two places, by necessity of
-   plain CSS (no custom-property block reuse across selectors). */
+   attribute at all — harmless in the first case since the values are the
+   SAME interpolated _DARK_TOKENS constant as :root[data-theme="dark"]
+   above, and exactly the desired first-visit behavior in the second). */
 @media (prefers-color-scheme: dark) {{
   :root:not([data-theme="light"]) {{
-    color-scheme: dark;
-
-    --bg: #12151a;
-    --surface: #1b1f27;
-    --surface-2: #232833;
-    --text: #e6e9ef;
-    --text-muted: #a3adc2;
-    --border: #2b313d;
-    --border-strong: #5b6478;
-    --accent: #ff8a3d;
-    --accent-ink: #14171c;
-    --accent-glow: rgba(255, 138, 61, .22);
+{_DARK_TOKENS}
   }}
 }}
 

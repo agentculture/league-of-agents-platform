@@ -241,10 +241,11 @@ global.document = {
   documentElement: root,
   readyState: "complete",
   getElementById: (id) => (id === "theme-toggle" ? button : null),
+  querySelector: () => null,
   querySelectorAll: () => [],
   addEventListener: () => {},
 };
-global.window = {};
+global.window = { innerHeight: 900 };
 
 const states = [];
 const snapshot = () => states.push({
@@ -329,35 +330,53 @@ _STAGGER_HARNESS = """
 "use strict";
 const siteJs = process.argv[1];
 global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
-function makeEl(cls) {
+// Elements are given a vertical position: the first 8 non-hero children sit
+// on-screen (top < innerHeight), the rest below the fold — the stagger delay
+// belongs only to the on-screen ones (a delayed scroll-time reveal would
+// hold content invisible AFTER it entered the viewport).
+function makeEl(cls, top) {
   const classes = new Set(cls ? [cls] : []);
   return {
     classes,
     style: { props: {}, setProperty(k, v) { this.props[k] = v; } },
     classList: { contains: (c) => classes.has(c), add: (c) => classes.add(c) },
+    getBoundingClientRect: () => ({ top }),
   };
 }
-const heroEl = makeEl("hero");
+const heroEl = makeEl("hero", 0);
 const kids = [heroEl];
-for (let i = 0; i < 15; i++) { kids.push(makeEl("")); }
+for (let i = 0; i < 15; i++) { kids.push(makeEl("", 100 + i * 120)); }
 const main = { children: kids };
+let refreshMeta = null; // flipped by the second run below
 global.document = {
   documentElement: { dataset: {} },
   readyState: "complete",
   getElementById: (id) => (id === "main" ? main : null),
+  querySelector: (sel) => (sel.indexOf("refresh") !== -1 ? refreshMeta : null),
   querySelectorAll: (sel) =>
     (sel === ".reveal" ? kids.filter((k) => k.classes.has("reveal")) : []),
   addEventListener: () => {},
 };
-global.window = {}; // no IntersectionObserver -> the fallback reveals immediately
+global.window = { innerHeight: 900 }; // no IntersectionObserver -> fallback reveals immediately
 eval(siteJs);
-process.stdout.write(JSON.stringify({
+const firstRun = {
   heroStamped: heroEl.classes.has("reveal"),
   heroRevealed: heroEl.classes.has("revealed"),
   stamped: kids.slice(1).map((k) => k.classes.has("reveal")),
   delays: kids.slice(1).map((k) => k.style.props["--reveal-delay"] || null),
   revealedCount: kids.filter((k) => k.classes.has("revealed")).length,
-}));
+};
+// An auto-refreshing page (live watch page) must get NO stagger at all.
+const freshKids = [makeEl("hero", 0)];
+for (let i = 0; i < 5; i++) { freshKids.push(makeEl("", 100 + i * 120)); }
+main.children = freshKids;
+kids.length = 0; Array.prototype.push.apply(kids, freshKids);
+refreshMeta = { httpEquiv: "refresh" };
+eval(siteJs);
+const refreshRun = {
+  stampedCount: freshKids.filter((k) => k.classes.has("reveal")).length,
+};
+process.stdout.write(JSON.stringify({ firstRun, refreshRun }));
 """
 
 
@@ -370,15 +389,35 @@ def test_stagger_stamps_up_to_twelve_children_and_never_the_hero() -> None:
         timeout=30,
         check=True,
     )
-    out = json.loads(result.stdout)
+    out = json.loads(result.stdout)["firstRun"]
     assert out["heroStamped"] is False
     assert out["heroRevealed"] is False
     # 15 non-hero children: the first 12 are stamped, the rest left alone
     # (they simply render, never hidden).
     assert out["stamped"] == [True] * 12 + [False] * 3
     assert out["delays"][:3] == ["0ms", "60ms", "120ms"]
-    assert out["delays"][11] == "660ms"
+    # Children 0..6 sit on-screen (top 100..820 < 900) and carry the
+    # cascade delay; below-fold children are stamped but get NO delay —
+    # their scroll-time reveal must start the instant they intersect.
+    assert out["delays"][6] == "360ms"
+    assert out["delays"][7:12] == [None] * 5
     assert out["delays"][12:] == [None, None, None]
     # Without IntersectionObserver the fallback reveals every stamped
     # element immediately — motion is decoration, never a gate on content.
     assert out["revealedCount"] == 12
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available for the JS behavioral harness")
+def test_auto_refreshing_pages_get_no_stagger_at_all() -> None:
+    """The live watch page reloads every 5s via meta refresh — replaying the
+    entrance cascade each reload would blink the transcript a visitor is
+    reading. With a refresh meta present, initStagger refuses entirely."""
+    result = subprocess.run(
+        [_NODE or "node", "-e", _STAGGER_HARNESS, "--", scripts.SITE_JS],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    out = json.loads(result.stdout)["refreshRun"]
+    assert out["stampedCount"] == 0

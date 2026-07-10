@@ -123,19 +123,21 @@ _WORDMARK_HTML = (
     "</a>"
 )
 
-#: The header theme-toggle button, rendered in its "system" state — the
-#: truthful default for markup that ships before any script runs (no
-#: ``data-theme`` attribute means the OS decides). ``/site.js`` repaints
-#: the glyph/title/aria-label to the *current* state at load and on every
-#: click (cycling light → dark → system). With JavaScript disabled the
-#: button is inert but harmless: it has a real accessible name, visible
-#: text, and ``type="button"`` so it can never submit anything — pages
-#: stay fully readable and theming falls back to the OS preference.
+#: The header theme-toggle button. The server-rendered accessible name is
+#: deliberately STATE-NEUTRAL ("Switch theme"): markup ships before any
+#: script runs, and a visitor with a stored explicit choice would be lied
+#: to by a hardcoded "Theme: system …" label until (or unless — JS may be
+#: disabled) ``/site.js`` repaints it. A neutral name is always true;
+#: ``/site.js`` upgrades it to the specific current/next state at load and
+#: on every click (cycling light → dark → system). With JavaScript
+#: disabled the button is inert but harmless: real accessible name,
+#: visible text, ``type="button"`` so it can never submit — pages stay
+#: fully readable and theming falls back to the OS preference.
 #: Styled by ``.theme-toggle`` in :mod:`league_site.web.theme`.
 _THEME_TOGGLE_HTML = (
     '<button type="button" id="theme-toggle" class="theme-toggle"'
-    ' title="Theme: system"'
-    ' aria-label="Theme: system — activate to switch to light">◐</button>'
+    ' title="Theme"'
+    ' aria-label="Switch theme">◐</button>'
 )
 
 
@@ -147,11 +149,17 @@ def header_html() -> str:
     nav, same toggle — instead of a drifting hand copy. One source, every
     page.
     """
-    nav_html = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)
-    return f"""<header class="site-header">
+    return _HEADER_HTML
+
+
+_NAV_HTML = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)
+
+#: Built once at import — every piece is a fixed module constant, so the
+#: per-request work is a plain attribute read.
+_HEADER_HTML = f"""<header class="site-header">
 <div class="wrap">
 {_WORDMARK_HTML}
-<nav aria-label="Primary">{nav_html}</nav>
+<nav aria-label="Primary">{_NAV_HTML}</nav>
 {_THEME_TOGGLE_HTML}
 </div>
 </header>"""
@@ -217,11 +225,14 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
     def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "/")
 
-        if path == _THEME_PATH:
-            return _serve_theme_css(start_response)
-
-        if path == _SITE_JS_PATH:
-            return _serve_site_js(start_response)
+        # Static assets answer GET/HEAD only; any other method falls
+        # through to the wrapped app so the surface's method handling
+        # (405s) stays uniform instead of these two paths accepting POST.
+        if environ.get("REQUEST_METHOD", "GET") in ("GET", "HEAD"):
+            if path == _THEME_PATH:
+                return _serve_static(start_response, _STYLESHEET_BYTES, "text/css")
+            if path == _SITE_JS_PATH:
+                return _serve_static(start_response, _SITE_JS_BYTES, "application/javascript")
 
         captured: dict[str, Any] = {}
 
@@ -276,43 +287,40 @@ def _header(headers: list[tuple[str, str]], name: str) -> str:
     return ""
 
 
-def _serve_theme_css(start_response: Any) -> list[bytes]:
-    body = theme.STYLESHEET.encode("utf-8")
+#: Both static assets are immutable module constants — encode once at
+#: import, not per request.
+_STYLESHEET_BYTES = theme.STYLESHEET.encode("utf-8")
+_SITE_JS_BYTES = scripts.SITE_JS.encode("utf-8")
+
+
+def _serve_static(start_response: Any, body: bytes, mime: str) -> list[bytes]:
     start_response(
         "200 OK",
         [
-            ("Content-Type", "text/css; charset=utf-8"),
+            ("Content-Type", f"{mime}; charset=utf-8"),
             ("Content-Length", str(len(body))),
         ],
     )
     return [body]
 
 
-def _serve_site_js(start_response: Any) -> list[bytes]:
-    body = scripts.SITE_JS.encode("utf-8")
-    start_response(
-        "200 OK",
-        [
-            ("Content-Type", "application/javascript; charset=utf-8"),
-            ("Content-Length", str(len(body))),
-        ],
-    )
-    return [body]
-
-
-#: The first rendered ``<h1>`` block of a landing page's markdown body —
+#: The LEADING rendered ``<h1>`` block of a landing page's markdown body —
 #: stripped (rendered HTML only; the raw ``.md`` passthrough never comes
 #: through :func:`_render_page` at all) because the hero's headline is the
-#: landing page's one semantic ``<h1>``. See :mod:`league_site.web.hero`'s
-#: docstring for the full rationale behind this choice.
-_LANDING_H1_RE = re.compile(r"<h1>.*?</h1>\n?", re.S)
+#: landing page's one semantic ``<h1>``. Anchored to the very start of the
+#: body so a mid-page ``<h1>`` (or one nested inside an earlier block) can
+#: never be deleted by mistake: if the authored content stops opening with
+#: an ``# `` title, nothing is stripped at all. See
+#: :mod:`league_site.web.hero`'s docstring for the full rationale.
+_LANDING_H1_RE = re.compile(r"\A<h1>.*?</h1>\n?", re.S)
 
 
 def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) -> str:
-    title = _SITE_TITLE if path in _LANDING_PATHS else extract_title(markdown_text) or _SITE_TITLE
+    is_landing = path in _LANDING_PATHS
+    title = _SITE_TITLE if is_landing else extract_title(markdown_text) or _SITE_TITLE
     page_title = title if title == _SITE_TITLE else f"{title} — {_SITE_TITLE}"
     body_html = render(markdown_text)
-    if path in _LANDING_PATHS:
+    if is_landing:
         # The hero (league_site.web.hero) leads the landing page — first
         # child of <main>, before the markdown body. It orchestrates its
         # own entrance, so it carries no .reveal class (site.js skips it

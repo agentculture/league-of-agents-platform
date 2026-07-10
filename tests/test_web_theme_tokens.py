@@ -105,7 +105,9 @@ def test_explicit_light_theme_attribute_pins_light_color_scheme() -> None:
     assert "color-scheme: light" in block
 
 
-def test_prefers_color_scheme_dark_block_is_scoped_to_not_override_an_explicit_light_choice() -> None:
+def test_prefers_color_scheme_dark_block_is_scoped_to_not_override_an_explicit_light_choice() -> (
+    None
+):
     """The OS-driven dark override must not win once a visitor has explicitly
     picked light — it should only apply when there is no explicit light
     choice, i.e. :root:not([data-theme="light"])."""

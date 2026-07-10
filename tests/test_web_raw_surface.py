@@ -101,9 +101,10 @@ def test_raw_surface_paths_are_actually_nonempty_markdown() -> None:
 # 2. No externally fetched resource, anywhere on a rendered page
 # ---------------------------------------------------------------------------
 
-_SRC_RE = re.compile(r'\bsrc="([^"]*)"')
+_SRC_RE = re.compile(r"""\bsrc=["']([^"']*)["']""")
 _HEAD_RE = re.compile(r"<head\b[^>]*>(.*?)</head>", re.S | re.I)
-_HEAD_LINK_HREF_RE = re.compile(r'<link\b[^>]*\bhref="([^"]*)"', re.I)
+_HEAD_LINK_HREF_RE = re.compile(r"""<link\b[^>]*\bhref=["']([^"']*)["']""", re.I)
+_SCRIPT_TAG_RE = re.compile(r"<script\b[^>]*>", re.I)
 _STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(.*?)</style>", re.S | re.I)
 _URL_FN_RE = re.compile(r'url\(\s*[\'"]?([^\'")]+)[\'"]?\s*\)')
 
@@ -193,3 +194,27 @@ def test_unshelled_paths_and_md_suffix_constants_are_unchanged() -> None:
     contract."""
     assert shell._UNSHELLED_PATHS == frozenset({"/llms.txt", "/front"})
     assert shell._MD_SUFFIX == ".md"
+
+
+# ---------------------------------------------------------------------------
+# 3. The exact script inventory — quote-style-proof
+# ---------------------------------------------------------------------------
+
+
+def test_every_page_carries_exactly_the_two_known_scripts() -> None:
+    """Pin the complete <script> inventory on every page family: ONE inline
+    pre-paint snippet (no src) and ONE deferred first-party /site.js. A
+    single-quoted src, a protocol-relative //host, or a smuggled inline
+    beacon script all fail here — the earlier src-attribute scans only saw
+    double-quoted attributes (review finding B2)."""
+    for path, text in (
+        ("/", _get(_shelled(), "/")[2].decode("utf-8")),
+        ("/docs", _get(site_app(), "/docs")[2].decode("utf-8")),
+        ("/leaderboard", _get(site_app(), "/leaderboard")[2].decode("utf-8")),
+    ):
+        tags = _SCRIPT_TAG_RE.findall(text)
+        srcs = [m for tag in tags for m in _SRC_RE.findall(tag)]
+        assert srcs == ["/site.js"], f"{path}: unexpected script srcs {srcs!r}"
+        inline = [tag for tag in tags if "src" not in tag]
+        assert len(inline) == 1, f"{path}: expected exactly one inline script"
+        assert "dataset.js" in text, f"{path}: pre-paint snippet missing"

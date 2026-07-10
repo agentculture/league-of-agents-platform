@@ -77,3 +77,26 @@ def test_stylesheet_still_makes_no_external_requests() -> None:
     assert "url(http" not in theme.STYLESHEET
     assert "@import" not in theme.STYLESHEET
     assert "<script" not in theme.STYLESHEET
+
+
+def test_real_combined_payload_fits_the_total_asset_budget() -> None:
+    """The combined budget is measured against REAL bytes, not restated as
+    arithmetic: stylesheet + /site.js + the inline pre-paint snippet must
+    fit TOTAL_ASSET_BUDGET_BYTES together (review finding: the constant
+    alone was a tautology no test tied to actual payloads)."""
+    from league_site.web import scripts
+
+    combined = (
+        len(theme.STYLESHEET.encode("utf-8"))
+        + len(scripts.SITE_JS.encode("utf-8"))
+        + len(scripts.PRE_PAINT_JS.encode("utf-8"))
+    )
+    assert combined <= theme.TOTAL_ASSET_BUDGET_BYTES
+
+
+def test_both_dark_paths_interpolate_the_same_token_block() -> None:
+    """The dark palette is one Python constant interpolated into both dark
+    selectors — this drift alarm pins that both interpolations landed (the
+    glow value is unique to the dark palette, so exactly two occurrences
+    means explicit-choice dark and OS-default dark can never disagree)."""
+    assert theme.STYLESHEET.count("--accent-glow: rgba(255, 138, 61, .22);") == 2

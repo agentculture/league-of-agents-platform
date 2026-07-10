@@ -187,8 +187,12 @@ def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: s
     canonical header via :func:`league_site.web.shell.header_html` (wordmark
     + nav + theme toggle), the pre-paint theme snippet, and ``/site.js``
     (served site-wide by ``with_shell``) — so an explicit theme choice
-    follows the visitor onto these pages too. The stylesheet stays inline:
-    these pages remain readable byte-complete with zero fetches.
+    follows the visitor onto these pages too. The stylesheet stays inline,
+    so the page reads perfectly even when no fetch succeeds; ``/site.js``
+    is progressive enhancement only (mounted standalone, without the
+    composed site serving it, the reference 404s harmlessly: the toggle
+    stays inert with its truthful state-neutral label, and theming falls
+    back to the pre-paint snippet + OS preference).
     """
     return f"""<!doctype html>
 <html lang="en">

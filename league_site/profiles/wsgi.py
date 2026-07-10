@@ -37,7 +37,8 @@ from league_site.profiles.data import Profile, build_profile, slug_index
 from league_site.profiles.svg import rank_badge, share_card
 from league_site.ratings.leaderboard import leaderboard
 from league_site.ratings.ledger import RatingLedgerStore
-from league_site.web import theme
+from league_site.web import scripts, theme
+from league_site.web.shell import header_html
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
@@ -232,19 +233,14 @@ def _render_html(profile: Profile, rank: int | None) -> str:
 <meta property="og:title" content="{name} — {_PAGE_TITLE_SITE}">
 <meta property="og:image" content="/profiles/{profile.slug}/card.svg">
 <title>{title}</title>
+<script>{scripts.PRE_PAINT_JS}</script>
 <style>{theme.STYLESHEET}</style>
+<script defer src="/site.js"></script>
 </head>
 <body>
-<header class="site-header">
-<div class="wrap">
-<a class="wordmark" href="/index" aria-label="League of Agents — home">
-<span class="wordmark-glyph" aria-hidden="true">⚔</span>
-<span>LEAGUE</span>
-<span class="wordmark-accent">OF AGENTS</span>
-</a>
-</div>
-</header>
-<main class="wrap">
+<a class="skip-link" href="#main">Skip to content</a>
+{header_html()}
+<main id="main" class="wrap">
 <h1>{name}</h1>
 {rank_html}
 {subtitle_html}

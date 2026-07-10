@@ -119,9 +119,7 @@ def test_reduced_motion_guard_exists_at_least_once() -> None:
 def test_reveal_hidden_state_is_scoped_under_both_data_js_and_reduced_motion() -> None:
     spans = _reduced_motion_guard_spans(theme.STYLESHEET)
     # The rule that sets the hidden initial state must exist...
-    match = re.search(
-        r"html\[data-js\]\s+\.reveal\s*\{[^}]*opacity:\s*0", theme.STYLESHEET
-    )
+    match = re.search(r"html\[data-js\]\s+\.reveal\s*\{[^}]*opacity:\s*0", theme.STYLESHEET)
     assert match is not None, "expected html[data-js] .reveal { opacity: 0; ... }"
     # ...and it must live inside a reduced-motion no-preference guard.
     assert _inside_any_span(match.start(), spans), (
@@ -148,8 +146,7 @@ def test_reveal_is_never_hidden_outside_the_data_js_and_motion_guard() -> None:
         rule_text = match.group(0)
         if "opacity: 0" in rule_text:
             assert "data-js" in match.group(0) or "data-js" in selector_line, (
-                "a .reveal rule hides content (opacity: 0) without requiring "
-                "html[data-js]"
+                "a .reveal rule hides content (opacity: 0) without requiring " "html[data-js]"
             )
             assert _inside_any_span(match.start(), spans)
 
@@ -229,9 +226,7 @@ def test_wordmark_glyph_pulse_keyframes_animate_only_opacity() -> None:
     # There is a pre-existing, unrelated `.wordmark-glyph { color: ...; }`
     # static rule earlier in the stylesheet (outside the guard) -- find the
     # one that actually carries the animation, not just the first match.
-    anim_match = re.search(
-        r"\.wordmark-glyph\s*\{[^}]*animation:[^}]*\}", theme.STYLESHEET
-    )
+    anim_match = re.search(r"\.wordmark-glyph\s*\{[^}]*animation:[^}]*\}", theme.STYLESHEET)
     assert anim_match is not None, "expected a .wordmark-glyph rule with an animation"
     wg_block = anim_match.group(0)
     assert "4s" in wg_block
@@ -256,7 +251,9 @@ def test_view_transition_rule_and_crossfade_are_inside_the_guard() -> None:
     assert "180ms" in theme.STYLESHEET
 
 
-def test_every_transition_animation_keyframes_and_view_transition_token_is_inside_the_guard() -> None:
+def test_every_transition_animation_keyframes_and_view_transition_token_is_inside_the_guard() -> (
+    None
+):
     """Blanket sweep: every occurrence of these motion tokens anywhere in
     the stylesheet must fall inside a @media (prefers-reduced-motion:
     no-preference) block body."""

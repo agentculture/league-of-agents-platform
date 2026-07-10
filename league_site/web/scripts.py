@@ -127,15 +127,36 @@ SITE_JS = """\
     // Stamp the quiet staggered reveal onto <main>'s direct children —
     // except the hero, which orchestrates its own entrance (t5). Capped
     // at 12 elements; anything past the cap simply renders, unstamped.
+    //
+    // Two deliberate refusals:
+    // * Auto-refreshing pages (the live match watch page reloads every
+    //   5s via <meta http-equiv="refresh">) get NO entrance animation —
+    //   replaying the cascade on every refresh would make the transcript
+    //   a visitor is reading blink out and fade back in, forever.
+    // * A page restored mid-scroll (back/forward navigation) starts its
+    //   cascade only for what is actually on screen; and the stagger
+    //   delay is only ever given to elements visible at load — a delay
+    //   on scroll-time reveals would keep below-fold content invisible
+    //   for the delay AFTER it entered the viewport.
+    if (document.querySelector('meta[http-equiv="refresh" i]')) { return; }
     var main = document.getElementById("main");
     if (!main) { return; }
+    var fold = window.innerHeight || 0;
     var kids = main.children;
-    var stamped = 0;
-    for (var i = 0; i < kids.length && stamped < 12; i++) {
+    var picked = [];
+    var i;
+    for (i = 0; i < kids.length && picked.length < 12; i++) {
       if (kids[i].classList.contains("hero")) { continue; }
-      kids[i].classList.add("reveal");
-      kids[i].style.setProperty("--reveal-delay", (stamped * 60) + "ms");
-      stamped++;
+      picked.push({
+        el: kids[i],
+        onScreen: kids[i].getBoundingClientRect().top < fold
+      });
+    }
+    for (i = 0; i < picked.length; i++) {
+      picked[i].el.classList.add("reveal");
+      if (picked[i].onScreen) {
+        picked[i].el.style.setProperty("--reveal-delay", (i * 60) + "ms");
+      }
     }
   }
 

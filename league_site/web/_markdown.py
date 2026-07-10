@@ -209,11 +209,19 @@ def _consume_list(lines: list[str], i: int) -> tuple[int, str]:
         elif ol_match:
             items.append((len(ol_match.group(1)), True, ol_match.group(2)))
             i += 1
-        elif items and line[:1] in (" ", "\t"):
-            # A continuation line: indented prose under the previous item
+        elif (
+            items
+            and line[:1] in (" ", "\t")
+            and not line.lstrip().startswith((">", "```", "#", "|", "---"))
+        ):
+            # A continuation line: indented PROSE under the previous item
             # (CommonMark folds it into that item's paragraph). Without
             # this, wrapped list-item text fell out of the list and
-            # rendered as a stray paragraph after it.
+            # rendered as a stray paragraph after it. Indented lines that
+            # open a block construct (blockquote, fence, heading, table,
+            # rule) are NOT folded — they end the list and render as their
+            # own block, as they always did; agent-authored transcripts
+            # (viewer/render.py) depend on that.
             indent, ordered, text = items[-1]
             items[-1] = (indent, ordered, f"{text} {line.strip()}")
             i += 1
