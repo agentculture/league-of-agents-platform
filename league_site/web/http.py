@@ -102,7 +102,7 @@ def _with_viewer(inner: WSGIApp, viewer: WSGIApp) -> WSGIApp:
 
     def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "/")
-        if _WATCH_PATH_RE.match(path):
+        if _WATCH_PATH_RE.match(path) or path == "/leaderboard":
             return viewer(environ, start_response)
         return inner(environ, start_response)
 
