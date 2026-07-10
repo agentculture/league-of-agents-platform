@@ -46,12 +46,16 @@ def _apigw_event(path: str, *, method: str = "GET") -> dict:
 
 
 def test_handler_serves_the_landing_page_for_root() -> None:
-    """``GET /`` returns the platform's landing content (200, markdown body).
+    """``GET /`` returns the platform's landing page through the composed shell.
 
-    The platform serves markdown everywhere by design (agentfront's HTTP
-    surface never emits raw HTML — see ``tests/test_web_http.py``), so "the
-    landing page" here means the markdown index page linking to ``/index``,
-    not literal ``<html>`` markup.
+    The Lambda entrypoint now serves ``league_site.web.http.site_app()``
+    (agentfront's markdown HTTP surface wrapped in the shared HTML shell,
+    with the footer acknowledgement registered — see
+    ``league_site.web.shell`` and ``league_site.web.branding``), so "the
+    landing page" is a real HTML page (nav linking to ``/index``, a footer)
+    rather than raw markdown. Raw markdown is still available byte-identical
+    at ``/index.md`` — see ``test_handler_serves_raw_markdown_for_index_md``
+    below.
     """
     from league_site.aws_lambda.handler import handler
 
@@ -59,6 +63,20 @@ def test_handler_serves_the_landing_page_for_root() -> None:
     assert response["statusCode"] == 200
     assert "/index" in response["body"]
     assert response["isBase64Encoded"] is False
+    assert response["headers"]["Content-Type"] == "text/html; charset=utf-8"
+    assert "<!doctype html>" in response["body"].lower()
+    assert '<a href="/about">About</a>' in response["body"]
+
+
+def test_handler_serves_the_about_page_through_the_shell() -> None:
+    """``GET /about`` reaches the About page via the composed Lambda app."""
+    from league_site.aws_lambda.handler import handler
+
+    response = handler(_apigw_event("/about"), context=None)
+    assert response["statusCode"] == 200
+    assert response["headers"]["Content-Type"] == "text/html; charset=utf-8"
+    assert "Ori Nachum" in response["body"]
+    assert "Claude Code" in response["body"]
 
 
 def test_handler_serves_raw_markdown_for_index_md() -> None:
