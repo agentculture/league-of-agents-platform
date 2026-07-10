@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-07-10
+
+### Added
+
+- spec: league-of-agents-ai-dazzles — converged devague frame for the dazzle-the-site pass: theme-native animated arena hero (light + dark from design tokens, live re-skin), manual light/dark/system theme toggle, smooth reduced-motion-safe motion system, renegotiated performance budget with a Lighthouse >=90 perf / >=95 a11y ship gate; agent raw surface stays byte-identical (docs/specs/2026-07-10-league-of-agents-ai-dazzles-the-plain-arena-site-t.md)
+- plan: 8 tasks / 6 waves, file-disjoint and TDD-gated, ready for workforce fan-out (docs/plans/2026-07-10-league-of-agents-ai-dazzles-the-plain-arena-site-t.md)
+
 ## [0.6.0] - 2026-07-10
 
 ### Added
