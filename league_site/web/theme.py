@@ -63,6 +63,24 @@ Palette: light AND dark via ``prefers-color-scheme``
     token used wherever a border *is* the only cue (focus rings, table
     rules) and it clears 3:1 in both schemes as shown above.
 
+    Manual theme toggle: an explicit choice beats the OS
+        A later task (the header toggle) sets ``data-theme="dark"`` or
+        ``data-theme="light"`` on ``<html>``; no attribute at all means "no
+        explicit choice yet", which keeps first-visit behavior exactly as
+        before (the OS decides via ``prefers-color-scheme``). The dark
+        token *values* are unchanged from the table above — this only adds
+        a second way to reach them. ``:root[data-theme="dark"]`` carries
+        the dark tokens unconditionally, so it wins even when the OS is
+        light. The ``@media (prefers-color-scheme: dark)`` block is scoped
+        to ``:root:not([data-theme="light"])`` so an explicit light choice
+        keeps the OS's dark preference from clobbering it; that scoped
+        selector still matches ``data-theme="dark"`` and the no-attribute
+        case, which is exactly the desired fallthrough. ``color-scheme`` is
+        set to match on every path (``dark`` under both the media-query
+        block and ``[data-theme="dark"]``; ``light`` under
+        ``[data-theme="light"]``) so native form controls and scrollbars
+        follow the same decision as the rest of the palette.
+
 Spacing and type scale
     An 8px-based spacing scale (``--space-1`` .. ``--space-8``) and a type
     scale from 0.875rem to 2.75rem keep rhythm consistent without a CSS
@@ -178,8 +196,40 @@ STYLESHEET = f"""\
   --max-width: 46rem;
 }}
 
+/* Explicit visitor choice: data-theme="dark"/"light" on <html>, set by the
+   header toggle (league_site/web/shell.py + scripts.py). An explicit choice
+   always beats the OS. No attribute at all (first visit) falls through to
+   the @media (prefers-color-scheme: dark) block below, which is the only
+   place the OS decides. */
+:root[data-theme="dark"] {{
+  color-scheme: dark;
+
+  --bg: #12151a;
+  --surface: #1b1f27;
+  --surface-2: #232833;
+  --text: #e6e9ef;
+  --text-muted: #a3adc2;
+  --border: #2b313d;
+  --border-strong: #5b6478;
+  --accent: #ff8a3d;
+  --accent-ink: #14171c;
+}}
+
+:root[data-theme="light"] {{
+  color-scheme: light;
+}}
+
+/* OS default: only applies when the visitor has not explicitly picked
+   light (:not([data-theme="light"]) also matches data-theme="dark" and no
+   attribute at all — harmless in the first case since the values agree with
+   :root[data-theme="dark"] above, and exactly the desired first-visit
+   behavior in the second). Keep this token block's values in sync with
+   :root[data-theme="dark"] above — same values, two places, by necessity of
+   plain CSS (no custom-property block reuse across selectors). */
 @media (prefers-color-scheme: dark) {{
-  :root {{
+  :root:not([data-theme="light"]) {{
+    color-scheme: dark;
+
     --bg: #12151a;
     --surface: #1b1f27;
     --surface-2: #232833;
