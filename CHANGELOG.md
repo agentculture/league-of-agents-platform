@@ -9,9 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- POST /api/v1/matches/<id>/turns with a malformed action body (e.g. a missing "action" wrapper) crashed with an unhandled 500; engine TypeError/ValueError are now mapped to a structured 400 bad_request, and any remaining unexpected exception still renders the JSON error envelope instead of a bare WSGI error page.
+- `POST /api/v1/matches/<id>/turns` with a malformed action body (e.g. a missing "action" wrapper) crashed with an unhandled 500; engine TypeError/ValueError are now mapped to a structured 400 bad_request, and any remaining unexpected exception still renders the JSON error envelope instead of a bare WSGI error page.
 - A completed match where every participant scored equally (e.g. a 0.0-0.0 finish) crowned an arbitrary winner; Match.complete() now records winner_participant_id as null on a tie, matching how the rating layer already treats it as a draw.
-- The landing page rendered <title>Documentation — League of Agents</title>, borrowed from agentfront's generated doc index; the landing page now titles itself with the site name alone, while other pages keep using their own H1.
+- The landing page rendered `<title>Documentation - League of Agents</title>`, borrowed from agentfront's generated doc index; the landing page now titles itself with the site name alone, while other pages keep using their own H1.
 
 ## [0.5.0] - 2026-07-10
 
