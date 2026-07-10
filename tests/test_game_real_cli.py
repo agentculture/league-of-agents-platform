@@ -81,7 +81,9 @@ def test_solo_vs_bot_completes_end_to_end(tmp_path: Path) -> None:
 
     assert state["status"] == "finished"
     scores = engine.score(state)
-    assert set(scores) == {"p-solo"}
+    # The house team scores alongside the participant — leaving it out let a
+    # losing solo player be crowned sole leader (live-prod finding).
+    assert set(scores) == {"p-solo", "house"}
     axes = engine.quality_axes(state)
     assert set(axes) == {"p-solo"}
     assert {"cooperation_score", "mvp", "lvp", "span_of_control_score"} <= set(axes["p-solo"])

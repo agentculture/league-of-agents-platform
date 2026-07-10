@@ -201,12 +201,29 @@ class GridLaneEngine(GameEngine):
 
     def score(self, state: dict[str, Any]) -> dict[str, float]:
         """``participant_id -> outcome.total`` for their team — the hard score
-        :meth:`~league_site.matches.match.Match.complete` ranks on."""
+        :meth:`~league_site.matches.match.Match.complete` ranks on.
+
+        Teams with no registered participant (the solo-vs-bot house) are
+        included under their bare team id: leaving them out let a solo
+        player who lost 0-21 be crowned sole leader of a one-entry score
+        map (live-prod finding). Participant ids are namespaced
+        (``agent:...``/``human:...``), so a bare team id can never collide
+        with one; consumers treat a non-participant winner as "no
+        participant gets the winner chip" (see
+        :mod:`league_site.viewer.render`) and rated flows never involve
+        house teams.
+        """
         report = self._match_score(state)
-        return {
+        participant_teams: dict[str, str] = dict(state["participant_teams"])
+        scores = {
             participant_id: float(report["outcome"][team_id]["total"])
-            for participant_id, team_id in state["participant_teams"].items()
+            for participant_id, team_id in participant_teams.items()
         }
+        covered_teams = set(participant_teams.values())
+        for team_id, outcome in report["outcome"].items():
+            if team_id not in covered_teams:
+                scores[team_id] = float(outcome["total"])
+        return scores
 
     # -- graded quality axes (out-of-band; see league_site.datasets.export) --
 

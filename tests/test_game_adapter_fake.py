@@ -450,8 +450,29 @@ def test_score_is_a_plain_dict_of_floats_matching_the_game_engine_contract(tmp_p
     engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
     state = {"match_id": "m-x", "snapshot": {}, "participant_teams": {"p-1": "solo"}}
     scores = engine.score(state)
-    assert scores == {"p-1": 12.0}
+    assert scores == {"p-1": 12.0, "house": 0.0}
     assert all(isinstance(v, float) for v in scores.values())
+
+
+def test_score_includes_house_teams_so_a_winning_house_wins(tmp_path: Path) -> None:
+    """Live-prod finding: with only participant teams in the score map, a
+
+    solo player who lost 0-21 to the house was crowned
+    winner_participant_id (sole leader of a one-entry dict). Non-participant
+    teams are keyed by their bare team id — participant ids are namespaced
+    ("agent:...", "human:..."), so team ids cannot collide.
+    """
+    scripted = ScriptedRunner(team_ids=["solo", "house"], outcome_totals={"solo": 0, "house": 21})
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    state = {"match_id": "m-x", "snapshot": {}, "participant_teams": {"p-1": "solo"}}
+
+    scores = engine.score(state)
+
+    assert scores == {"p-1": 0.0, "house": 21.0}
+
+    from league_site.matches.match import _sole_leader
+
+    assert _sole_leader(scores) == "house"
 
 
 def test_quality_axes_maps_cooperation_mvp_lvp_and_span_of_control(tmp_path: Path) -> None:
