@@ -1,0 +1,184 @@
+{
+  "cooperation": {
+    "blue": {
+      "score": 80,
+      "signals": {
+        "communication": 0.0,
+        "delegation_spread": 1.0,
+        "discipline": 0.9889,
+        "plan_coherence": 1.0
+      }
+    },
+    "red": {
+      "score": 80,
+      "signals": {
+        "communication": 0.0,
+        "delegation_spread": 1.0,
+        "discipline": 0.9889,
+        "plan_coherence": 1.0
+      }
+    }
+  },
+  "match_id": "m-preset-team-vs-team",
+  "mode": "competitive",
+  "outcome": {
+    "blue": {
+      "control": 0,
+      "missions": 0,
+      "resources": 0,
+      "total": 0
+    },
+    "red": {
+      "control": 0,
+      "missions": 0,
+      "resources": 0,
+      "total": 0
+    }
+  },
+  "scenario_id": "skirmish-1",
+  "tempo": {
+    "blue": {
+      "converted": {
+        "baseline_ms": 4,
+        "caveat": "no substrate declared for this team; identity conversion applied \u2014 the tempo score is NOT substrate-normalized (raw latency is shown beside it). Declare a substrate to normalize.",
+        "ratio": 1.0,
+        "substrate": null,
+        "substrate_known": false,
+        "tempo_score": 100
+      },
+      "raw": {
+        "mean_ms": 4,
+        "median_ms": 4,
+        "p95_ms": 4,
+        "seats_measured": 1,
+        "turns_measured": 30
+      },
+      "version": "t0"
+    },
+    "red": {
+      "converted": {
+        "baseline_ms": 4,
+        "caveat": "no substrate declared for this team; identity conversion applied \u2014 the tempo score is NOT substrate-normalized (raw latency is shown beside it). Declare a substrate to normalize.",
+        "ratio": 1.0,
+        "substrate": null,
+        "substrate_known": false,
+        "tempo_score": 100
+      },
+      "raw": {
+        "mean_ms": 4,
+        "median_ms": 4,
+        "p95_ms": 4,
+        "seats_measured": 1,
+        "turns_measured": 30
+      },
+      "version": "t0"
+    }
+  },
+  "turns_played": 30,
+  "units": {
+    "lvp": {
+      "grade": 5,
+      "team_id": "blue",
+      "unit_id": "blue-u2"
+    },
+    "match_id": "m-preset-team-vs-team",
+    "mvp": {
+      "grade": 8,
+      "team_id": "blue",
+      "unit_id": "blue-u1"
+    },
+    "purposes": [
+      "economy",
+      "control",
+      "recon",
+      "coordination"
+    ],
+    "units": {
+      "blue-u1": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 8
+        },
+        "grade": 8,
+        "home_purpose": "recon",
+        "lvp": false,
+        "mvp": true,
+        "role": "scout",
+        "team_id": "blue"
+      },
+      "blue-u2": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 5
+        },
+        "grade": 5,
+        "home_purpose": "economy",
+        "lvp": true,
+        "mvp": false,
+        "role": "harvester",
+        "team_id": "blue"
+      },
+      "blue-u3": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 5
+        },
+        "grade": 5,
+        "home_purpose": "control",
+        "lvp": false,
+        "mvp": false,
+        "role": "defender",
+        "team_id": "blue"
+      },
+      "red-u1": {
+        "breakdown": {
+          "control": 1,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 6
+        },
+        "grade": 7,
+        "home_purpose": "recon",
+        "lvp": false,
+        "mvp": false,
+        "role": "scout",
+        "team_id": "red"
+      },
+      "red-u2": {
+        "breakdown": {
+          "control": 1,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 4
+        },
+        "grade": 5,
+        "home_purpose": "economy",
+        "lvp": false,
+        "mvp": false,
+        "role": "harvester",
+        "team_id": "red"
+      },
+      "red-u3": {
+        "breakdown": {
+          "control": 2,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 4
+        },
+        "grade": 6,
+        "home_purpose": "control",
+        "lvp": false,
+        "mvp": false,
+        "role": "defender",
+        "team_id": "red"
+      }
+    }
+  },
+  "winner": "draw"
+}

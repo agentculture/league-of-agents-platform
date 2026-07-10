@@ -43,16 +43,65 @@ game's own ``orders-json`` ``"actions"`` list (``{"unit_id", "action",
 :class:`~league_site.game.adapter.GridLaneEngine` state dict, so a caller
 driving a hosted agent's turn only ever touches this one function plus
 :func:`~league_site.byok.runner.run_turn`.
+
+Score-endpoint bridge (platform issue #10)
+-------------------------------------------
+The second half of this module bridges ``GridLaneEngine`` state the other
+direction: toward the score API (:mod:`league_site.api.wsgi`'s
+``_handle_score``), rather than toward BYOK. ``GridLaneEngine.score()``
+(:mod:`league_site.game.adapter`) only ever returns
+``participant_id -> outcome.total`` — the one number
+:class:`~league_site.matches.match.Match` needs to rank a winner — and
+never persists the game's own richer ``league match score --json`` report
+anywhere, so recomputing it later (e.g. for a completed match's ``GET
+.../score`` response) means re-running the CLI fresh against that match's
+persisted snapshot. :func:`fetch_score_report` does exactly that, using the
+same public :class:`~league_site.game.runner.LeagueRunner` and
+:mod:`league_site.game.workdir` building blocks
+:class:`~league_site.game.adapter.GridLaneEngine` itself uses internally —
+this module never reaches into that class's private methods.
+:func:`normalize_outcome` and :func:`normalize_quality_axes` turn that raw
+report (plus ``GridLaneEngine.quality_axes()``'s own already-public return
+value) into the score API's stable, additive response keys — sorted keys,
+explicit ``int``/``float`` coercion, so two calls against the same
+finished match always render byte-identical JSON. :func:`score_breakdown`
+is the one entry point the score handler calls: it duck-types *any*
+:class:`~league_site.matches.engine.GameEngine` (only a
+``GridLaneEngine``-shaped engine exposes ``quality_axes`` at all — the
+built-in stub engine does not), and degrades to ``None`` — never raising —
+for a non-grid engine, a non-grid-shaped state, or a ``league`` CLI that
+can't be reached right now, so the score endpoint's pre-existing fields
+stay available even when this additive data can't be computed.
 """
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from league_site.byok.runner import MatchView
+from league_site.game.runner import LeagueCliError, LeagueRunner, LeagueRunnerError
+from league_site.game.workdir import hydrate as hydrate_workdir
 
-__all__ = ["legal_actions_to_pairs", "build_match_view"]
+__all__ = [
+    "legal_actions_to_pairs",
+    "build_match_view",
+    "fetch_score_report",
+    "normalize_outcome",
+    "normalize_quality_axes",
+    "score_breakdown",
+]
+
+#: Fields :func:`normalize_outcome` extracts from each team's
+#: ``report["outcome"][team_id]`` entry — the game's own per-team hard-score
+#: breakdown (``docs/game-integration.md``: "outcome (per-team integer
+#: points: missions + control + resources)"). Fixed, sorted order so the
+#: response is deterministic regardless of what the CLI's own dict ordering
+#: happens to be.
+_OUTCOME_FIELDS: tuple[str, ...] = ("total", "missions", "control", "resources")
 
 
 def legal_actions_to_pairs(
@@ -125,3 +174,120 @@ def build_match_view(state: Mapping[str, Any], *, team: str | None = None) -> Ma
         last_turn_rejections=last_turn_rejections,
         team=team,
     )
+
+
+# --- score-endpoint bridge (platform issue #10) ------------------------------
+
+
+def fetch_score_report(
+    state: Mapping[str, Any],
+    *,
+    runner: Any | None = None,
+    workdir_root: str | None = None,
+) -> dict[str, Any] | None:
+    """Run ``league match score <id> --json`` fresh against ``state``'s snapshot.
+
+    Returns ``None`` without touching a subprocess if ``state`` doesn't
+    carry the ``GridLaneEngine`` state shape this needs (a ``"snapshot"``
+    and a truthy ``"match_id"`` — see :mod:`league_site.game.adapter`'s
+    module docstring for that state contract), e.g. a non-grid engine's
+    opaque state. An empty-but-present ``snapshot`` (``{}``, a legal
+    starting point per :func:`~league_site.game.workdir.hydrate`'s own
+    docstring) is not treated as missing — only an absent key is.
+
+    Otherwise, hydrates a fresh, isolated scratch workdir from
+    ``state["snapshot"]`` (:func:`~league_site.game.workdir.hydrate`), runs
+    ``match score --json`` there via ``runner`` (a real
+    :class:`~league_site.game.runner.LeagueRunner` by default; tests inject
+    a scripted fake — see ``tests/test_game_adapter_fake.py``'s
+    ``ScriptedRunner``), and always tears the scratch dir down again before
+    returning, mirroring ``GridLaneEngine``'s own hydrate/run/teardown cycle
+    (:mod:`league_site.game.adapter`) without reaching into that class's
+    private methods.
+    """
+    if not isinstance(state, Mapping) or "snapshot" not in state:
+        return None
+    snapshot = state["snapshot"]
+    match_id = state.get("match_id")
+    if not match_id:
+        return None
+
+    active_runner = runner if runner is not None else LeagueRunner()
+    scratch = tempfile.mkdtemp(prefix="league-site-score-", dir=workdir_root)
+    try:
+        workdir = Path(scratch)
+        hydrate_workdir(workdir, snapshot)
+        return active_runner.run(["match", "score", str(match_id), "--json"], cwd=workdir)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def normalize_outcome(report: Mapping[str, Any]) -> dict[str, dict[str, int]]:
+    """``team_id -> {"total", "missions", "control", "resources"}`` (all
+    ``int``), from a raw ``league match score --json`` report's
+    ``"outcome"`` section (see :data:`_OUTCOME_FIELDS`). Team ids are sorted
+    for determinism; a team missing one of the four fields defaults it to
+    ``0`` rather than dropping the key, so every team entry always has the
+    same fixed shape.
+    """
+    outcome = report.get("outcome") or {}
+    return {
+        team_id: {field: int((breakdown or {}).get(field, 0) or 0) for field in _OUTCOME_FIELDS}
+        for team_id, breakdown in sorted(outcome.items())
+    }
+
+
+def normalize_quality_axes(
+    axes: Mapping[str, Mapping[str, float]],
+) -> dict[str, dict[str, float]]:
+    """``participant_id -> {axis_name: float grade}``, sorted and float-coerced.
+
+    ``axes`` is :meth:`~league_site.game.adapter.GridLaneEngine.quality_axes`'s
+    own return value, passed through unchanged except for stable key
+    ordering (sorted participant ids, sorted axis names) and an explicit
+    ``float()`` on every grade — defensive against a caller handing this
+    JSON-decoded numbers (``int`` where a whole grade happens to land, e.g.
+    ``"mvp": 1``) rather than already-``float`` values.
+    """
+    return {
+        participant_id: {axis: float(value) for axis, value in sorted(grades.items())}
+        for participant_id, grades in sorted(axes.items())
+    }
+
+
+def score_breakdown(
+    engine: Any,
+    state: Any,
+    *,
+    runner: Any | None = None,
+    workdir_root: str | None = None,
+) -> dict[str, Any] | None:
+    """``{"outcome": ..., "quality_axes": ...}`` for a grid-lane-backed match.
+
+    Duck-types ``engine`` for a ``quality_axes`` method (only
+    :class:`~league_site.game.adapter.GridLaneEngine` has one; the built-in
+    stub engine and any other plain :class:`~league_site.matches.engine.
+    GameEngine` do not) — returns ``None`` immediately if it's absent, the
+    score endpoint's "stub-engine matches simply omit the extra keys"
+    contract (platform issue #10). Also returns ``None`` (rather than
+    raising) if ``state`` isn't grid-shaped (see :func:`fetch_score_report`)
+    or if the ``league`` CLI can't be reached right now
+    (:class:`~league_site.game.runner.LeagueRunnerError` /
+    :class:`~league_site.game.runner.LeagueCliError`) — either way, the
+    score endpoint's pre-existing fields stay available even when this
+    additive data can't be computed.
+    """
+    quality_axes_fn = getattr(engine, "quality_axes", None)
+    if quality_axes_fn is None or not isinstance(state, Mapping):
+        return None
+    try:
+        report = fetch_score_report(state, runner=runner, workdir_root=workdir_root)
+        if report is None:
+            return None
+        axes = quality_axes_fn(state)
+    except (LeagueRunnerError, LeagueCliError):
+        return None
+    return {
+        "outcome": normalize_outcome(report),
+        "quality_axes": normalize_quality_axes(axes),
+    }

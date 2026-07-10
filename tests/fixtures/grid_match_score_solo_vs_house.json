@@ -1,0 +1,156 @@
+{
+  "cooperation": {
+    "house": {
+      "score": 0,
+      "signals": {
+        "communication": 0.0,
+        "delegation_spread": 0.0,
+        "discipline": 0.0,
+        "plan_coherence": 0.0
+      }
+    },
+    "solo": {
+      "score": 60,
+      "signals": {
+        "communication": 0.0,
+        "delegation_spread": 1.0,
+        "discipline": 1.0,
+        "plan_coherence": 0.0
+      }
+    }
+  },
+  "match_id": "m-rich-1",
+  "mode": "competitive",
+  "outcome": {
+    "house": {
+      "control": 0,
+      "missions": 0,
+      "resources": 0,
+      "total": 0
+    },
+    "solo": {
+      "control": 0,
+      "missions": 0,
+      "resources": 0,
+      "total": 0
+    }
+  },
+  "scenario_id": "skirmish-1",
+  "tempo": {
+    "house": {
+      "raw": null,
+      "version": "t0"
+    },
+    "solo": {
+      "raw": null,
+      "version": "t0"
+    }
+  },
+  "turns_played": 30,
+  "units": {
+    "lvp": {
+      "grade": 0,
+      "team_id": "house",
+      "unit_id": "house-u1"
+    },
+    "match_id": "m-rich-1",
+    "mvp": {
+      "grade": 60,
+      "team_id": "solo",
+      "unit_id": "solo-u1"
+    },
+    "purposes": [
+      "economy",
+      "control",
+      "recon",
+      "coordination"
+    ],
+    "units": {
+      "house-u1": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 0
+        },
+        "grade": 0,
+        "home_purpose": "recon",
+        "lvp": true,
+        "mvp": false,
+        "role": "scout",
+        "team_id": "house"
+      },
+      "house-u2": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 0
+        },
+        "grade": 0,
+        "home_purpose": "economy",
+        "lvp": false,
+        "mvp": false,
+        "role": "harvester",
+        "team_id": "house"
+      },
+      "house-u3": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 0
+        },
+        "grade": 0,
+        "home_purpose": "control",
+        "lvp": false,
+        "mvp": false,
+        "role": "defender",
+        "team_id": "house"
+      },
+      "solo-u1": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 60
+        },
+        "grade": 60,
+        "home_purpose": "recon",
+        "lvp": false,
+        "mvp": true,
+        "role": "scout",
+        "team_id": "solo"
+      },
+      "solo-u2": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 0,
+          "recon": 30
+        },
+        "grade": 30,
+        "home_purpose": "economy",
+        "lvp": false,
+        "mvp": false,
+        "role": "harvester",
+        "team_id": "solo"
+      },
+      "solo-u3": {
+        "breakdown": {
+          "control": 0,
+          "coordination": 0,
+          "economy": 1,
+          "recon": 29
+        },
+        "grade": 30,
+        "home_purpose": "control",
+        "lvp": false,
+        "mvp": false,
+        "role": "defender",
+        "team_id": "solo"
+      }
+    }
+  },
+  "winner": "draw"
+}

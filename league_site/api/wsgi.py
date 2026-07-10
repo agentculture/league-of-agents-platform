@@ -52,7 +52,17 @@ Routes
   reports ``is_over`` — there is no separate "complete" endpoint.
 * ``POST /api/v1/matches/<id>/pause`` / ``.../resume`` — participant-only.
 * ``GET /api/v1/matches/<id>/score`` — public once the match is
-  ``completed``; ``409`` before that.
+  ``completed``; ``409`` before that. Additive on top of the pre-existing
+  ``match_id``/``status``/``result``: a ``GridLaneEngine``-backed match
+  (platform issue #10) also carries ``outcome`` (``team_id ->
+  {"total", "missions", "control", "resources"}``, all ``int`` — the game's
+  own per-team hard-score breakdown) and ``quality_axes`` (``participant_id
+  -> {axis_name: float grade}`` — cooperation, MVP/LVP, span-of-control;
+  see :func:`~league_site.game.normalize.score_breakdown`). A match played
+  on the built-in stub engine (or any engine with no ``quality_axes``)
+  simply omits both keys — see :mod:`league_site.game.normalize`'s
+  docstring for the full contract, including graceful degradation if the
+  ``league`` CLI can't be reached when this is computed.
 * ``GET /api/v1/leaderboard?limit=N`` — public. Reads the injected
   :class:`~league_site.ratings.ledger.RatingLedgerStore` via
   :func:`league_site.ratings.leaderboard.leaderboard`.
@@ -260,7 +270,7 @@ def _dispatch(
     score_match = _MATCH_SCORE_PATH.match(path)
     if score_match:
         _require_method(method, "GET")
-        return _handle_score(score_match.group("match_id"), matches)
+        return _handle_score(score_match.group("match_id"), matches, registry)
 
     item_match = _MATCH_ITEM_PATH.match(path)
     if item_match:
@@ -391,15 +401,37 @@ def _handle_resume(
     return "200 OK", _match_view(match)
 
 
-def _handle_score(match_id: str, matches: MatchStore) -> tuple[str, Any]:
+def _handle_score(match_id: str, matches: MatchStore, registry: EngineRegistry) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
     if match.status is not MatchStatus.COMPLETED:
         raise errors.conflict("match is not completed yet", code="not_completed")
-    return "200 OK", {
+    payload: dict[str, Any] = {
         "match_id": match.match_id,
         "status": match.status.value,
         "result": _result_view(match.result),
     }
+    payload.update(_score_extras_view(match, registry))
+    return "200 OK", payload
+
+
+def _score_extras_view(match: Match, registry: EngineRegistry) -> dict[str, Any]:
+    """``{"outcome": ..., "quality_axes": ...}`` for *match*, or ``{}``.
+
+    Imports :mod:`league_site.game.normalize` lazily (inside this function,
+    not at module scope) for the same cold-start reason
+    :mod:`league_site.api.registry`'s grid-lane factories import
+    :class:`~league_site.game.adapter.GridLaneEngine` lazily: importing any
+    submodule of :mod:`league_site.game` eagerly imports the whole package,
+    including its subprocess-driving machinery, which should never be paid
+    merely by importing :mod:`league_site.api.wsgi` — only by actually
+    calling this function, which happens at most once per ``GET
+    .../score`` request on an already-``completed`` match.
+    """
+    from league_site.game import normalize
+
+    engine = _engine_for(registry, match.game_id)
+    extras = normalize.score_breakdown(engine, match.game_state)
+    return dict(extras) if extras is not None else {}
 
 
 def _handle_leaderboard(environ: dict[str, Any], ledger: RatingLedgerStore) -> tuple[str, Any]:
