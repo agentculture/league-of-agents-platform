@@ -13,7 +13,14 @@ classifiers = [
     "Topic :: Software Development",
     "Intended Audience :: Developers",
 ]
-dependencies = []
+dependencies = [
+    "agentfront[mcp]",
+]
+
+[project.optional-dependencies]
+aws = [
+    "boto3>=1.34",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/league-of-agents-platform"
