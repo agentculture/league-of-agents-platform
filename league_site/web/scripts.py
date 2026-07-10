@@ -7,7 +7,7 @@ plain strings, and :mod:`league_site.web.shell` is the only consumer:
 
 :data:`SITE_JS`
     Served at ``/site.js`` (``<script defer src="/site.js">`` in the
-    shell's ``<head>``). Two behaviors, both progressive enhancements:
+    shell's ``<head>``). Three behaviors, all progressive enhancements:
 
     * **Theme toggle** — the header's ``#theme-toggle`` button cycles
       light → dark → system. An explicit choice is stored in
@@ -19,6 +19,13 @@ plain strings, and :mod:`league_site.web.shell` is the only consumer:
       The button's glyph, ``title`` and ``aria-label`` are repainted to
       reflect the **current** state on every change (and once at load, to
       correct the static markup when a stored choice exists).
+    * **Reveal stagger** — the direct element children of ``main#main``
+      are stamped with class ``reveal`` plus an incremental
+      ``--reveal-delay`` (60ms per element, at most 12 elements), so page
+      content enters with the quiet staggered cascade the design direction
+      asks for. The landing hero (class ``hero``) is skipped — it
+      orchestrates its own entrance (see :mod:`league_site.web.hero`) and
+      must not be double-animated.
     * **Reveal-on-scroll** — elements carrying class ``reveal`` gain class
       ``revealed`` when they enter the viewport (``IntersectionObserver``,
       threshold 0.1, unobserved after revealing). Where
@@ -116,6 +123,22 @@ SITE_JS = """\
     });
   }
 
+  function initStagger() {
+    // Stamp the quiet staggered reveal onto <main>'s direct children —
+    // except the hero, which orchestrates its own entrance (t5). Capped
+    // at 12 elements; anything past the cap simply renders, unstamped.
+    var main = document.getElementById("main");
+    if (!main) { return; }
+    var kids = main.children;
+    var stamped = 0;
+    for (var i = 0; i < kids.length && stamped < 12; i++) {
+      if (kids[i].classList.contains("hero")) { continue; }
+      kids[i].classList.add("reveal");
+      kids[i].style.setProperty("--reveal-delay", (stamped * 60) + "ms");
+      stamped++;
+    }
+  }
+
   function initReveal() {
     var targets = document.querySelectorAll(".reveal");
     var i;
@@ -137,6 +160,7 @@ SITE_JS = """\
 
   function init() {
     initToggle();
+    initStagger();
     initReveal();
   }
 

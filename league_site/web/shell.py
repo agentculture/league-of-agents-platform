@@ -67,9 +67,10 @@ carry none (they are byte-identical to the unwrapped app, as ever):
 from __future__ import annotations
 
 import html
+import re
 from typing import Any, Callable
 
-from league_site.web import scripts, theme
+from league_site.web import hero, scripts, theme
 from league_site.web._markdown import extract_title, render
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
@@ -282,10 +283,24 @@ def _serve_site_js(start_response: Any) -> list[bytes]:
     return [body]
 
 
+#: The first rendered ``<h1>`` block of a landing page's markdown body —
+#: stripped (rendered HTML only; the raw ``.md`` passthrough never comes
+#: through :func:`_render_page` at all) because the hero's headline is the
+#: landing page's one semantic ``<h1>``. See :mod:`league_site.web.hero`'s
+#: docstring for the full rationale behind this choice.
+_LANDING_H1_RE = re.compile(r"<h1>.*?</h1>\n?", re.S)
+
+
 def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) -> str:
     title = _SITE_TITLE if path in _LANDING_PATHS else extract_title(markdown_text) or _SITE_TITLE
     page_title = title if title == _SITE_TITLE else f"{title} — {_SITE_TITLE}"
     body_html = render(markdown_text)
+    if path in _LANDING_PATHS:
+        # The hero (league_site.web.hero) leads the landing page — first
+        # child of <main>, before the markdown body. It orchestrates its
+        # own entrance, so it carries no .reveal class (site.js skips it
+        # when stamping the stagger). Its <h1> replaces the markdown's.
+        body_html = hero.HERO_HTML + "\n" + _LANDING_H1_RE.sub("", body_html, count=1)
     nav_html = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)
     footer_html = slots.render()
     return f"""<!doctype html>

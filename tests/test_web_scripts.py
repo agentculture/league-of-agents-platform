@@ -308,3 +308,77 @@ def test_toggle_cycles_light_dark_system_and_persists() -> None:
 def test_pre_paint_applies_a_stored_choice_before_first_paint() -> None:
     out = _run_harness()
     assert out["rehydrated"] == "dark"
+
+
+# ---------------------------------------------------------------------------
+# Reveal stagger (t5) — main#main children get .reveal + --reveal-delay,
+# the hero excepted (it orchestrates itself)
+# ---------------------------------------------------------------------------
+
+
+def test_site_js_stamps_the_reveal_stagger_and_skips_the_hero() -> None:
+    js = scripts.SITE_JS
+    assert '"main"' in js
+    assert "--reveal-delay" in js
+    assert '"hero"' in js, "the hero must be excluded — it orchestrates itself"
+    assert "60" in js, "stagger increment is 60ms per element"
+    assert "12" in js, "stamping is capped at 12 elements"
+
+
+_STAGGER_HARNESS = """
+"use strict";
+const siteJs = process.argv[1];
+global.localStorage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+function makeEl(cls) {
+  const classes = new Set(cls ? [cls] : []);
+  return {
+    classes,
+    style: { props: {}, setProperty(k, v) { this.props[k] = v; } },
+    classList: { contains: (c) => classes.has(c), add: (c) => classes.add(c) },
+  };
+}
+const heroEl = makeEl("hero");
+const kids = [heroEl];
+for (let i = 0; i < 15; i++) { kids.push(makeEl("")); }
+const main = { children: kids };
+global.document = {
+  documentElement: { dataset: {} },
+  readyState: "complete",
+  getElementById: (id) => (id === "main" ? main : null),
+  querySelectorAll: (sel) =>
+    (sel === ".reveal" ? kids.filter((k) => k.classes.has("reveal")) : []),
+  addEventListener: () => {},
+};
+global.window = {}; // no IntersectionObserver -> the fallback reveals immediately
+eval(siteJs);
+process.stdout.write(JSON.stringify({
+  heroStamped: heroEl.classes.has("reveal"),
+  heroRevealed: heroEl.classes.has("revealed"),
+  stamped: kids.slice(1).map((k) => k.classes.has("reveal")),
+  delays: kids.slice(1).map((k) => k.style.props["--reveal-delay"] || null),
+  revealedCount: kids.filter((k) => k.classes.has("revealed")).length,
+}));
+"""
+
+
+@pytest.mark.skipif(_NODE is None, reason="node not available for the JS behavioral harness")
+def test_stagger_stamps_up_to_twelve_children_and_never_the_hero() -> None:
+    result = subprocess.run(
+        [_NODE or "node", "-e", _STAGGER_HARNESS, "--", scripts.SITE_JS],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    out = json.loads(result.stdout)
+    assert out["heroStamped"] is False
+    assert out["heroRevealed"] is False
+    # 15 non-hero children: the first 12 are stamped, the rest left alone
+    # (they simply render, never hidden).
+    assert out["stamped"] == [True] * 12 + [False] * 3
+    assert out["delays"][:3] == ["0ms", "60ms", "120ms"]
+    assert out["delays"][11] == "660ms"
+    assert out["delays"][12:] == [None, None, None]
+    # Without IntersectionObserver the fallback reveals every stamped
+    # element immediately — motion is decoration, never a gate on content.
+    assert out["revealedCount"] == 12
