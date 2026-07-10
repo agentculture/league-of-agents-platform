@@ -23,7 +23,7 @@ from typing import Any
 import pytest
 
 from league_site.game.adapter import GAME_ID, GridLaneEngine
-from league_site.game.modes import SOLO_VS_BOT
+from league_site.game.modes import SOLO_VS_BOT, LaunchMode, TeamSpec
 from league_site.matches.engine import GameEngine
 from league_site.matches.models import AgentIdentity, Participant, ParticipantKind
 
@@ -60,6 +60,7 @@ class ScriptedRunner:
         units: dict[str, dict[str, Any]] | None = None,
     ) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
+        self.harness_configs: list[dict[str, Any]] = []
         self.team_ids = list(team_ids)
         self.turn_limit = turn_limit
         self.roles = roles
@@ -103,6 +104,26 @@ class ScriptedRunner:
         if head == ("match", "tick"):
             self._resolve()
             return {"resolution": {"turn": self.turn}}
+        if head == ("harness", "run"):
+            # `league harness run` resuming an existing match: stage every
+            # bot team named in the config, auto-resolving once all teams
+            # have staged — mirroring run_match's act-per-team loop. The
+            # config file lives in the adapter's temp workdir (deleted right
+            # after apply_turn), so capture its parsed content now.
+            config_path = Path(args[args.index("--config") + 1])
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            self.harness_configs.append(config)
+            for team in config["teams"]:
+                self.staged.add(team["id"])
+            if self.staged >= set(self.team_ids):
+                self._resolve()
+            return {
+                "match_id": self.match_id,
+                "status": self.status,
+                "turns_played": self.turn,
+                "winner": None,
+                "score": {},
+            }
         if head == ("match", "show"):
             return self._show()
         if head == ("match", "score"):
@@ -117,6 +138,11 @@ class ScriptedRunner:
     def tick_calls(self) -> list[tuple[str, ...]]:
         return [
             args for verb, args in self.calls if verb == "run" and args[:2] == ("match", "tick")
+        ]
+
+    def harness_calls(self) -> list[tuple[str, ...]]:
+        return [
+            args for verb, args in self.calls if verb == "run" and args[:2] == ("harness", "run")
         ]
 
     def _resolve(self) -> None:
@@ -212,10 +238,13 @@ def test_initial_state_rejects_the_wrong_participant_count() -> None:
         engine.initial_state([_agent("p-1"), _agent("p-2")])
 
 
-# -- apply_turn: bot-side tick forcing ----------------------------------------
+# -- apply_turn: the house/bot side is driven, not force-ticked (platform#9) --
 
 
-def test_solo_vs_bot_apply_turn_forces_tick_since_house_never_stages(tmp_path: Path) -> None:
+def test_solo_vs_bot_apply_turn_drives_the_house_via_harness_run(tmp_path: Path) -> None:
+    """After the solo side stages, the adapter stages the house side through
+    ``league harness run`` (the game's own bot policy), which auto-resolves
+    the turn — ``match tick`` (all-holds) is never needed."""
     scripted = ScriptedRunner(team_ids=["solo", "house"], turn_limit=5)
     engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
     participant = _agent("p-1")
@@ -223,9 +252,75 @@ def test_solo_vs_bot_apply_turn_forces_tick_since_house_never_stages(tmp_path: P
 
     state = engine.apply_turn(state, "p-1", {"actions": []})
 
-    assert len(scripted.tick_calls()) == 1
+    (harness_call,) = scripted.harness_calls()
+    assert "--apply" in harness_call and "--json" in harness_call
+    assert scripted.tick_calls() == []
     assert state["turn"] == 1
     assert state["status"] == "active"
+
+
+def test_the_harness_config_resumes_the_match_and_drives_only_the_house(tmp_path: Path) -> None:
+    scripted = ScriptedRunner(team_ids=["solo", "house"], turn_limit=5)
+    engine = GridLaneEngine(
+        "solo-vs-bot", runner=scripted, workdir_root=tmp_path, scenario_id="skirmish-2"
+    )
+    state = engine.initial_state([_agent("p-1")])
+
+    engine.apply_turn(state, "p-1", {"actions": []})
+
+    (config,) = scripted.harness_configs
+    assert config == {
+        "match": {"scenario": "skirmish-2", "id": scripted.match_id},
+        "teams": [{"id": "house", "driver": {"type": "bot"}}],
+        "max_rounds": 1,
+    }
+
+
+def test_a_policy_less_bot_team_still_falls_back_to_match_tick(tmp_path: Path) -> None:
+    """A mode may declare a deliberately passive house (``bot_policy=None``);
+    the pre-#9 behavior — force-resolve with ``match tick``, unstaged team
+    holds — remains for exactly that case."""
+    mode = LaunchMode(
+        name="solo-vs-idle-bot",
+        game_mode="competitive",
+        scenario_id="skirmish-1",
+        seed=1,
+        expected_participants=1,
+        teams=(
+            TeamSpec(team_id="solo", driver_kind="stateless", action_cap=1),
+            TeamSpec(team_id="idle-house", driver_kind="bot", is_bot=True, bot_policy=None),
+        ),
+    )
+    scripted = ScriptedRunner(team_ids=["solo", "idle-house"], turn_limit=5)
+    engine = GridLaneEngine(mode, runner=scripted, workdir_root=tmp_path)
+    state = engine.initial_state([_agent("p-1")])
+
+    state = engine.apply_turn(state, "p-1", {"actions": []})
+
+    assert scripted.harness_calls() == []
+    assert len(scripted.tick_calls()) == 1
+    assert state["turn"] == 1
+
+
+def test_initial_state_records_which_bot_policy_the_house_runs(tmp_path: Path) -> None:
+    """Issue #9 acceptance: mode metadata records which bot policy the house
+    ran — on the match state and on the house roster's model label."""
+    scripted = ScriptedRunner(team_ids=["solo", "house"])
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+
+    state = engine.initial_state([_agent("p-1")])
+
+    assert state["bot_policies"] == {"house": "bot:greedy"}
+    # ...and the policy survives a turn (carried forward through apply_turn).
+    state = engine.apply_turn(state, "p-1", {"actions": []})
+    assert state["bot_policies"] == {"house": "bot:greedy"}
+
+    register_calls = [a for v, a in scripted.calls if v == "run" and a[:2] == ("team", "register")]
+    house_call = next(c for c in register_calls if c[2] == "house")
+    # the game's --agent spec is <id>:<model>:<role>; the model keeps its
+    # own colons (the CLI parses id before the first colon, role after the
+    # last), so the policy label rides along verbatim.
+    assert "house-scout:bot:greedy:scout" in house_call
 
 
 def test_team_vs_team_apply_turn_never_ticks_and_resolves_when_both_stage(tmp_path: Path) -> None:
@@ -238,10 +333,12 @@ def test_team_vs_team_apply_turn_never_ticks_and_resolves_when_both_stage(tmp_pa
     state = engine.apply_turn(state, "p-1", {"actions": []})
     assert state["turn"] == 0  # waiting on p-2
     assert scripted.tick_calls() == []
+    assert scripted.harness_calls() == []
 
     state = engine.apply_turn(state, "p-2", {"actions": []})
     assert state["turn"] == 1  # both staged -> auto-resolved
     assert scripted.tick_calls() == []
+    assert scripted.harness_calls() == []
 
 
 def test_coop_2_apply_turn_resolves_immediately_every_call(tmp_path: Path) -> None:
@@ -256,6 +353,7 @@ def test_coop_2_apply_turn_resolves_immediately_every_call(tmp_path: Path) -> No
     state = engine.apply_turn(state, "p-2", {"actions": []})
     assert state["turn"] == 2
     assert scripted.tick_calls() == []
+    assert scripted.harness_calls() == []
 
 
 def test_apply_turn_rejects_an_unknown_participant(tmp_path: Path) -> None:
