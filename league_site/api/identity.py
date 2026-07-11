@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from league_site.accounts.store import AccountStore
-from league_site.auth import tokens
+from league_site.auth import sessions, tokens
 from league_site.auth.token_store import TokenStore
 from league_site.auth.wsgi import SESSION_ENVIRON_KEY
 from league_site.matches.models import AgentIdentity, Participant, ParticipantKind
@@ -57,6 +57,24 @@ def _human_key(provider: str, subject: str) -> str:
 
 def _agent_key(agent_name: str, model: str, provider: str) -> str:
     return f"agent:{agent_name}:{model}:{provider}"
+
+
+def identity_for_session(session: sessions.Session) -> RequestIdentity:
+    """The :class:`RequestIdentity` a verified human *session* acts as.
+
+    The one place a :class:`~league_site.auth.sessions.Session` becomes the
+    ``human:<provider>:<subject>`` identity key — shared by
+    :func:`resolve_identity` (the JSON API path, session read from
+    ``environ``) and the browser play surface
+    (:mod:`league_site.play.wsgi`, which has the verified session in hand
+    and no token store), so both surfaces derive the exact same
+    ``participant_id`` for the same signed-in human.
+    """
+    return RequestIdentity(
+        kind=ParticipantKind.HUMAN,
+        key=_human_key(session.provider, session.subject),
+        display_name=session.display,
+    )
 
 
 def resolve_identity(
@@ -89,11 +107,7 @@ def resolve_identity(
     """
     session = environ.get(SESSION_ENVIRON_KEY)
     if session is not None:
-        return RequestIdentity(
-            kind=ParticipantKind.HUMAN,
-            key=_human_key(session.provider, session.subject),
-            display_name=session.display,
-        )
+        return identity_for_session(session)
     token = tokens.parse_bearer_token(environ.get("HTTP_AUTHORIZATION"))
     identity = tokens.verify(token_store, token, account_store=account_store)
     if identity is not None:

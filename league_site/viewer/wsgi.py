@@ -15,7 +15,7 @@ Two routes, ``GET`` only, zero auth:
   welcoming zero-state ("no rated matches yet — be the first"), never a 404
   or error page.
 
-Both share one page shell (:func:`_page_shell`): the canonical site header
+Both share one page shell (:func:`page_shell`): the canonical site header
 (:func:`league_site.web.shell.header_html` — wordmark, primary nav, theme
 toggle), the same inline stylesheet, and the same dazzle-layer JS as every
 shelled page (the pre-paint theme snippet + ``/site.js``, served site-wide
@@ -60,6 +60,7 @@ import html
 import re
 from typing import Any, Callable
 
+from league_site.auth import sessions
 from league_site.matches.errors import MatchNotFoundError
 from league_site.matches.store import MatchStore
 from league_site.ratings.ledger import RatingLedgerStore
@@ -167,7 +168,7 @@ def _render_page(model: Any) -> str:
         else f"Finished match {match_id_html} on League of Agents — full transcript."
     )
     body_html = render_page_body(model)
-    return _page_shell(
+    return page_shell(
         title=title, description=description, body_html=body_html, refresh_meta=refresh_meta
     )
 
@@ -176,11 +177,20 @@ def _render_leaderboard_page(rows: tuple[Any, ...]) -> str:
     title = f"Leaderboard — {_PAGE_TITLE_SITE}"
     description = "Current standings on League of Agents, ranked by rating."
     body_html = render_leaderboard_body(rows)
-    return _page_shell(title=title, description=description, body_html=body_html)
+    return page_shell(title=title, description=description, body_html=body_html)
 
 
-def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: str = "") -> str:
-    """The one page shell shared by the watch page and the leaderboard page.
+def page_shell(
+    *,
+    title: str,
+    description: str,
+    body_html: str,
+    refresh_meta: str = "",
+    session: sessions.Session | None = None,
+) -> str:
+    """The one page shell shared by the watch page, the leaderboard page —
+    and the play surface (:mod:`league_site.play.wsgi`), which imports it
+    rather than forking a fourth copy of the layout.
 
     Renders standalone (ahead of ``with_shell``, per this module's
     docstring) but carries the same dazzle layer as every shelled page: the
@@ -193,6 +203,13 @@ def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: s
     composed site serving it, the reference 404s harmlessly: the toggle
     stays inert with its truthful state-neutral label, and theming falls
     back to the pre-paint snippet + OS preference).
+
+    *session* renders the session-aware account entry in the header (see
+    :func:`~league_site.web.shell.header_html`). The viewer's own two pages
+    always pass the default ``None`` — they dispatch ahead of ``with_auth``
+    and never see a session — while the play surface, mounted inside the
+    auth chain, passes the verified session so its pages carry the signed-in
+    chip.
     """
     return f"""<!doctype html>
 <html lang="en">
@@ -207,7 +224,7 @@ def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: s
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-{header_html()}
+{header_html(session)}
 <main id="main" class="wrap">
 {body_html}
 </main>
