@@ -157,22 +157,24 @@ def test_solo_vs_bot_house_side_stages_real_orders_from_the_game_bot_policy(
     assert report["outcome"]["house"]["total"] > report["outcome"]["solo"]["total"]
 
 
-# -- h14 (real CLI confirmation): the excess is refused before match act -----
+# -- the solo side plays its whole roster (real CLI confirmation) ------------
+# (the original action_cap=1 handicap was lifted in the 2026-07-11 feedback
+# round — the cap machinery itself stays covered by the fake-runner tests)
 
 
-def test_solo_mode_action_cap_is_enforced_against_the_real_cli(tmp_path: Path) -> None:
+def test_solo_mode_full_roster_turn_plays_against_the_real_cli(tmp_path: Path) -> None:
     engine = GridLaneEngine("solo-vs-bot", workdir_root=tmp_path, scenario_id=_FAST_SCENARIO)
     state = engine.initial_state([_agent("p-solo")])
     unit_ids = list(state["legal_actions"])
     solo_units = [u for u in unit_ids if u.startswith("solo-")]
     assert len(solo_units) == 3  # scout/harvester/defender, engine-generated ids
 
-    excess = {"actions": [{"unit_id": uid, "action": "hold"} for uid in solo_units]}
-    state = engine.apply_turn(state, "p-solo", excess)
+    full_turn = {"actions": [{"unit_id": uid, "action": "hold"} for uid in solo_units]}
+    state = engine.apply_turn(state, "p-solo", full_turn)
 
-    assert state["turn"] == 1  # the (single, capped) order still played fine
-    assert len(state["last_turn_platform_rejections"]) == 2
-    assert {r["unit_id"] for r in state["last_turn_platform_rejections"]} == set(solo_units[1:])
+    assert state["turn"] == 1
+    assert state["last_turn_platform_rejections"] == []
+    assert state["last_turn_rejections"] == []  # the game accepted all three
 
 
 # -- h9: adapter.score matches `league match score --json` field for field,

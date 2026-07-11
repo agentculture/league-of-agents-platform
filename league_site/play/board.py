@@ -1,137 +1,165 @@
-"""Legal actions → board overlay: the play surface's interaction layer.
+"""Legal orders + the staged plan → board overlay: the play interaction layer.
 
-:func:`build_overlay` bridges the play surface's submittable
-:class:`~league_site.play.actions.ActionChoice` set (already narrowed to the
+:func:`build_overlay` bridges the play surface's per-unit
+:class:`~league_site.play.actions.OrderChoice` set (already narrowed to the
 signed-in participant's own units — see
-:func:`~league_site.play.actions.action_choices`) onto the shared board
+:func:`~league_site.play.actions.unit_orders`) onto the shared board
 renderer's :class:`~league_site.viewer.board.BoardOverlay`, so the board
-itself becomes the move interface:
+itself becomes the move-*planning* interface:
 
-* **Step 1 — pick a unit.** Every unit with at least one legal action gets a
-  selection href (``GET <base_path>?unit=<id>`` — selection is idempotent
-  and changes nothing server-side, so a plain link is the correct control).
-* **Step 2 — pick a target.** With a unit selected, each of its choices
-  becomes one :class:`~league_site.viewer.board.CellControl`: a ``move``
-  lands on its destination cell, verbs without a destination (``gather`` /
-  ``deliver`` / ``hold``) land on the unit's *own* cell — so two verbs can
-  share a cell, which the renderer disambiguates as stacked, verb-labeled
-  buttons. Every control's ``value`` is the choice's canonical JSON
-  (:attr:`~league_site.play.actions.ActionChoice.value`), the exact string
-  the turn handler re-validates against the *current* legal actions before
-  any engine sees it — the overlay is a convenience layer, never an
-  authority.
+* **Pick a unit.** Every un-planned unit with at least one legal order gets
+  a selection href (``GET <base_path>?...&unit=<id>``).
+* **Pick its order.** With a unit selected, each of its orders becomes one
+  :class:`~league_site.viewer.board.CellControl` — a ``move`` lands on its
+  destination cell, verbs without a destination (``gather`` / ``deliver`` /
+  ``hold``) land on the unit's *own* cell (two verbs can share a cell; the
+  renderer disambiguates as stacked verb pills). Each control's ``href``
+  *stages* the order: a GET back to the play view with the order appended
+  to the URL-carried plan — and the next un-planned unit pre-selected, so
+  planning a full turn is one tap per decision.
+* **Change your mind.** A planned unit renders in the staged treatment and
+  links to the same view with its order removed (and itself re-selected);
+  its planned order ghosts onto the target cell as a
+  :class:`~league_site.viewer.board.StagedMark`.
 
-Only grid-shaped choices (the ``{"actions": [<order>]}`` envelope whose
-single order carries a ``unit_id``) can be anchored to cells; any other
-choice shape (e.g. the stub family's whole-action mappings) yields ``None``
-and the play view falls back to the select-based form alone. A selected
-unit that is no longer selectable (the turn moved on under a stale URL)
-degrades to no selection rather than erroring — the fresh board is the
-answer.
+Every control is an idempotent GET — nothing on the board commits anything
+(a double-tap re-stages the same order: harmless). The one commit is the
+End-turn form the play panel renders (:mod:`league_site.play.render`),
+which POSTs the whole plan; the server re-validates every order against
+the *current* legal actions before any engine sees it
+(:func:`league_site.play.actions.match_order`) — the URL plan is a
+convenience layer, never an authority.
+
+Only grid-shaped states produce orders at all
+(:func:`~league_site.play.actions.unit_orders`); with no order naming a
+unit that is actually on the board, :func:`build_overlay` yields ``None``
+and the play view falls back to the select-based form alone. A selected or
+staged unit that is no longer valid (the turn moved on under a stale URL)
+degrades silently — the fresh board is the answer.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any
-from urllib.parse import quote
+from collections.abc import Sequence
+from urllib.parse import urlencode
 
-from league_site.play.actions import ActionChoice
-from league_site.viewer.board import BoardModel, BoardOverlay, CellControl
+from league_site.play.actions import OrderChoice
+from league_site.viewer.board import BoardModel, BoardOverlay, CellControl, StagedMark
 
-__all__ = ["build_overlay"]
+__all__ = ["build_overlay", "play_view_href"]
+
+#: The fragment every board href carries so the reload lands back on the
+#: board instead of the top of the page (the board wrap renders with this
+#: id — see :func:`league_site.viewer.board.render_board`'s caller).
+BOARD_FRAGMENT = "#board"
+
+
+def play_view_href(
+    base_path: str,
+    staged: Sequence[OrderChoice],
+    *,
+    unit: str | None = None,
+    fragment: bool = True,
+) -> str:
+    """The play-view URL carrying *staged* (and optionally a selected *unit*).
+
+    The single builder every staging/selection/re-stage href goes through,
+    so the URL contract (repeated ``staged=`` params, one optional
+    ``unit=``, the ``#board`` fragment) lives in exactly one place.
+    """
+    params = [("staged", choice.value) for choice in staged]
+    if unit is not None:
+        params.append(("unit", unit))
+    query = urlencode(params)
+    suffix = BOARD_FRAGMENT if fragment else ""
+    return f"{base_path}?{query}{suffix}" if query else f"{base_path}{suffix}"
 
 
 def build_overlay(
     model: BoardModel,
-    choices: Sequence[ActionChoice],
+    orders: Sequence[OrderChoice],
     *,
+    staged: Sequence[OrderChoice],
     selected_unit: str | None,
     base_path: str,
-    form_action: str,
 ) -> BoardOverlay | None:
-    """The :class:`BoardOverlay` for *choices* on *model*, or ``None``.
+    """The :class:`BoardOverlay` for *orders* + the *staged* plan, or ``None``.
 
-    ``None`` means the board cannot host the interaction (no choices, a
-    non-grid choice shape, or no choice naming a unit that is actually on
-    the board) — the caller then renders the static board plus the fallback
-    form, exactly like a spectate view with a move list.
+    ``None`` means the board cannot host the interaction (no orders, or no
+    order naming a unit that is actually on the board) — the caller then
+    renders the static board plus the fallback form, exactly like a
+    spectate view with a move list. *staged* must already be validated and
+    deduped (one order per unit — :mod:`league_site.play.wsgi` does this
+    from the raw query string).
     """
-    if not choices:
-        return None
     unit_cells = {unit.unit_id: (unit.x, unit.y) for unit in model.units}
-
-    per_unit: dict[str, list[tuple[str, tuple[int, int], str]]] = {}
-    for choice in choices:
-        order = _grid_order(choice.action)
-        if order is None:
-            return None
-        unit_id, verb, destination = order
-        if unit_id not in unit_cells:
-            continue  # e.g. the unit just died; the fallback form still lists it
-        cell = destination if destination is not None else unit_cells[unit_id]
-        per_unit.setdefault(unit_id, []).append((verb, cell, choice.value))
+    per_unit: dict[str, list[OrderChoice]] = {}
+    for choice in orders:
+        if choice.unit_id in unit_cells:
+            per_unit.setdefault(choice.unit_id, []).append(choice)
     if not per_unit:
         return None
 
-    select_hrefs = {unit_id: f"{base_path}?unit={quote(unit_id, safe='')}" for unit_id in per_unit}
+    staged_by_unit = {choice.unit_id: choice for choice in staged if choice.unit_id in per_unit}
+    plan = [choice for choice in staged if choice.unit_id in staged_by_unit]
+    unstaged = [unit_id for unit_id in per_unit if unit_id not in staged_by_unit]
 
-    selected = selected_unit if selected_unit in per_unit else None
+    select_hrefs = {unit_id: play_view_href(base_path, plan, unit=unit_id) for unit_id in unstaged}
+    staged_units = {
+        unit_id: play_view_href(
+            base_path,
+            [choice for choice in plan if choice.unit_id != unit_id],
+            unit=unit_id,
+        )
+        for unit_id in staged_by_unit
+    }
+    staged_marks = tuple(
+        StagedMark(x=cell[0], y=cell[1], verb=choice.verb, unit_id=choice.unit_id)
+        for choice in plan
+        for cell in (_target_cell(choice, unit_cells),)
+        if cell is not None
+    )
+
+    selected = selected_unit if selected_unit in unstaged else None
     controls: tuple[CellControl, ...] = ()
     if selected is not None:
         controls = tuple(
             CellControl(
                 x=cell[0],
                 y=cell[1],
-                verb=verb,
-                label=_control_label(selected, verb, cell),
-                value=value,
+                verb=choice.verb,
+                label=choice.label,
+                href=play_view_href(
+                    base_path,
+                    plan + [choice],
+                    unit=_next_unstaged(unstaged, selected),
+                ),
             )
-            for verb, cell, value in per_unit[selected]
+            for choice in per_unit[selected]
+            for cell in (_target_cell(choice, unit_cells),)
+            if cell is not None
         )
     return BoardOverlay(
-        form_action=form_action,
         select_hrefs=select_hrefs,
         selected_unit=selected,
         controls=controls,
+        staged_units=staged_units,
+        staged_marks=staged_marks,
     )
 
 
-def _grid_order(action: Any) -> tuple[str, str, tuple[int, int] | None] | None:
-    """``(unit_id, verb, destination)`` for a grid-shaped choice, else ``None``.
-
-    Grid-shaped is exactly what :func:`league_site.play.actions.action_choices`
-    builds from a grid state: an ``{"actions": [<order>]}`` envelope whose
-    single order is a mapping with a string ``unit_id`` and ``action``, plus
-    an optional two-integer ``to`` destination.
-    """
-    if not isinstance(action, Mapping):
-        return None
-    orders = action.get("actions")
-    if not isinstance(orders, Sequence) or isinstance(orders, (str, bytes)) or len(orders) != 1:
-        return None
-    order = orders[0]
-    if not isinstance(order, Mapping):
-        return None
-    unit_id = order.get("unit_id")
-    verb = order.get("action")
-    if not isinstance(unit_id, str) or not unit_id or not isinstance(verb, str) or not verb:
-        return None
-    destination: tuple[int, int] | None = None
-    if "to" in order:
-        to = order["to"]
-        if (
-            not isinstance(to, Sequence)
-            or isinstance(to, (str, bytes))
-            or len(to) != 2
-            or not all(isinstance(coord, int) and not isinstance(coord, bool) for coord in to)
-        ):
-            return None
-        destination = (to[0], to[1])
-    return unit_id, verb, destination
+def _target_cell(
+    choice: OrderChoice, unit_cells: dict[str, tuple[int, int]]
+) -> tuple[int, int] | None:
+    if choice.target is not None:
+        return choice.target
+    return unit_cells.get(choice.unit_id)
 
 
-def _control_label(unit_id: str, verb: str, cell: tuple[int, int]) -> str:
-    if verb == "move":
-        return f"Move {unit_id} to ({cell[0]}, {cell[1]})"
-    return f"{verb.capitalize()} — {unit_id} at ({cell[0]}, {cell[1]})"
+def _next_unstaged(unstaged: Sequence[str], staging_now: str) -> str | None:
+    """The unit to pre-select once *staging_now* is planned — the next one
+    still needing an order, so a full turn is one tap per decision."""
+    for unit_id in unstaged:
+        if unit_id != staging_now:
+            return unit_id
+    return None

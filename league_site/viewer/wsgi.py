@@ -119,14 +119,29 @@ h1 code { overflow-wrap: anywhere; }
 /* --- The match board (league_site.viewer.board) — shared by the spectate
    watch page and the play surface (both render through page_shell). Static
    markup everywhere; only the play surface's overlay adds the interaction
-   classes below (unit-selection links, per-cell target forms), so on a
-   watch page those rules simply never match. Cell size is the one knob:
-   clamped so tap targets stay >= 40px on phones — the wrap scrolls
-   sideways rather than shrinking cells below a finger — and the board
-   never towers on desktop. No motion: every affordance is a static
-   color/border cue, hover included, nothing here needs the reduced-motion
-   guard. */
+   classes below (unit-selection links, per-cell staging links, staged
+   marks), so on a watch page those rules simply never match. No motion:
+   every affordance is a static color/border cue, hover included, nothing
+   here needs the reduced-motion guard.
+
+   The rival tokens are the red answer to the accent (2026-07-11 feedback:
+   "do the red equivalent on the opponent") — defined in all three theme
+   blocks exactly like the shared tokens in league_site/web/theme.py. */
+:root { --rival: #b3364a; --rival-glow: rgba(179, 54, 74, .18); }
+:root[data-theme="dark"] { --rival: #f08a9b; --rival-glow: rgba(240, 138, 155, .24); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --rival: #f08a9b;
+    --rival-glow: rgba(240, 138, 155, .24);
+  }
+}
+/* Cell size: the whole board fits the viewport width — no sideways hunt on
+   a phone (2026-07-11 feedback) — capped so it never towers on desktop,
+   floored so a pathological grid degrades to the wrap's sideways scroll
+   rather than unreadable cells. cqw needs the container; the plain clamp
+   is the pre-container-query fallback. */
 .board-wrap {
+  container-type: inline-size;
   overflow-x: auto;
   max-width: 100%;
   margin: 0 0 var(--space-4);
@@ -146,6 +161,9 @@ h1 code { overflow-wrap: anywhere; }
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
 }
+@supports (width: 1cqw) {
+  .board { --cell: clamp(1.6rem, calc((100cqw - 2px) / var(--bw)), 3.25rem); }
+}
 .board-post, .board-res, .board-mission, .board-unit {
   position: relative;
   display: flex;
@@ -157,30 +175,58 @@ h1 code { overflow-wrap: anywhere; }
 .board-post, .board-res, .board-mission { z-index: 1; }
 .board-mark { width: 78%; height: 78%; display: block; }
 .board-res .board-mark { fill: var(--mesh-halo); stroke: var(--border-strong); stroke-width: 1; }
+/* Mission flags: filled + ink-outlined at near-cell size — they were the
+   hardest marks to spot on the live board (2026-07-11 feedback). */
 .board-mission .board-mark {
+  width: 88%;
+  height: 88%;
   fill: var(--mesh-halo-alt);
-  stroke: var(--border-strong);
-  stroke-width: 1.5;
+  stroke: var(--text);
+  stroke-width: 2;
 }
 .board-post-ring { fill: none; stroke: var(--border-strong); stroke-width: 2; }
 .board-post[data-owner="none"] .board-post-ring { stroke-dasharray: 4 3; }
-.board-post[data-owner="accent"] .board-post-ring { stroke: var(--accent); }
-.board-post[data-owner="ink"] .board-post-ring { stroke: var(--text); }
+.board-post[data-owner="accent"] .board-post-ring { stroke: var(--accent); stroke-width: 3; }
+.board-post[data-owner="rival"] .board-post-ring { stroke: var(--rival); stroke-width: 3; }
 .board-post-base { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1; }
+.board-post[data-owner="accent"] .board-post-base { fill: var(--accent); }
+.board-post[data-owner="rival"] .board-post-base { fill: var(--rival); }
+/* A capture in progress: the streak counter rides the post's corner. */
+.board-post-progress {
+  position: absolute;
+  top: -12%;
+  right: -12%;
+  font: 700 0.55rem var(--font-mono);
+  padding: 0 0.25em;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--accent);
+  color: var(--text);
+  z-index: 2;
+}
+.board-post-progress[data-side="rival"] { border-color: var(--rival); }
 .board-unit { z-index: 2; text-decoration: none; }
 .board-glyph { width: 64%; height: 64%; display: block; position: relative; }
 .board-team-accent .board-glyph { fill: var(--accent); }
-.board-team-ink .board-glyph { fill: var(--surface); stroke: var(--text); stroke-width: 2; }
+.board-team-rival .board-glyph { fill: var(--rival); }
+/* Carried load: a numbered badge, not an anonymous dot. */
 .board-carry {
   position: absolute;
-  top: 10%;
-  right: 10%;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  background: var(--mesh-halo);
-  border: 1px solid var(--border-strong);
+  top: -4%;
+  right: -4%;
+  min-width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--border-strong);
+  font: 700 0.55rem var(--font-mono);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.15em;
 }
+.board-carry::after { content: attr(data-carry); }
 /* Play-only, at rest: a glowing halo + dashed accent ring say "this unit
    is yours to tap" — dashed is this board's whole tappable grammar (the
    reachable-cell targets below speak it too); solid ring = chosen. */
@@ -194,7 +240,7 @@ a.board-unit-live::before {
 }
 a.board-unit-live:hover::before,
 a.board-unit-live:focus-visible::before { border-style: solid; }
-/* …and a solid accent ring marks the unit that is selected. */
+/* …a solid accent ring marks the unit that is selected… */
 .board-unit-selected::before {
   content: "";
   position: absolute;
@@ -203,7 +249,43 @@ a.board-unit-live:focus-visible::before { border-style: solid; }
   background: var(--accent-glow);
   border: 2px solid var(--accent);
 }
-/* Play-only targets: one form per legal action, anchored to its cell. */
+/* …and a quiet solid ring + dimmed glyph mark a unit whose order is
+   planned (tap it to change the order). */
+a.board-unit-staged { opacity: 0.75; }
+a.board-unit-staged::before {
+  content: "";
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  border: 2px solid var(--border-strong);
+}
+/* The planned order, ghosted onto its target cell. */
+.board-staged-mark {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+  pointer-events: none;
+  border: 2px dashed var(--border-strong);
+  border-radius: 22%;
+  margin: 6%;
+}
+.board-staged-chip {
+  font: 700 0.5rem var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--surface);
+  border-radius: 999px;
+  padding: 0 0.3em;
+  margin-bottom: -0.4em;
+  border: 1px solid var(--border-strong);
+}
+/* Play-only targets: one staging link per legal order, anchored to its
+   cell — plain idempotent GETs (double-tap safe by construction). */
 .board-target {
   position: relative;
   z-index: 3;
@@ -212,33 +294,37 @@ a.board-unit-live:focus-visible::before { border-style: solid; }
   min-width: 0;
   min-height: 0;
 }
-.board-target-btn {
+.board-target-link, .board-target-btn {
   flex: 1;
   width: 100%;
   min-width: 0;
   min-height: 0;
   padding: 0;
   cursor: pointer;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--accent-glow);
   border: 2px dashed var(--accent);
   border-radius: 22%;
 }
-.board-target-btn:not(.board-verb-btn)::after {
+.board-target-link::after {
   content: "";
   display: block;
   width: 0.5rem;
   height: 0.5rem;
-  margin: 0 auto;
   border-radius: 50%;
   background: var(--accent);
 }
+.board-target-link:hover, .board-target-link:focus-visible,
 .board-target-btn:hover, .board-target-btn:focus-visible {
   background: var(--accent-glow);
   border-style: solid;
 }
-.board-target-btn:not(.board-verb-btn):hover::after,
-.board-target-btn:not(.board-verb-btn):focus-visible::after { background: var(--accent-strong); }
-/* Two verbs, one cell: stacked buttons, each named — never one ambiguous
+.board-target-link:hover::after,
+.board-target-link:focus-visible::after { background: var(--accent-strong); }
+/* Two verbs, one cell: stacked pills, each named — never one ambiguous
    control. */
 .board-target-stack {
   flex-direction: column;
@@ -246,11 +332,10 @@ a.board-unit-live:focus-visible::before { border-style: solid; }
   padding: 2px;
   z-index: 4;
 }
-.board-target-stack form { display: flex; flex: 1; min-height: 0; margin: 0; }
 /* The selected unit's own cell: verb pills anchor to the cell's foot so
    the unit glyph stays visible above them. */
 .board-target-self { justify-content: flex-end; }
-.board-target-self form { flex: 0 1 34%; }
+.board-target-self .board-verb-btn { flex: 0 1 34%; }
 .board-verb-btn {
   font: 700 0.55rem var(--font-mono);
   text-transform: uppercase;
@@ -268,6 +353,64 @@ a.board-unit-live:focus-visible::before { border-style: solid; }
   color: var(--text-muted);
   margin: 0 0 var(--space-2);
 }
+/* --- Play-surface furniture around the board (league_site.play.render). */
+.play-notice {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-3);
+}
+.play-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+.play-score {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.5em;
+  background: var(--surface);
+}
+.play-score[data-side="rival"] { border-left-color: var(--rival); }
+.play-score-turn { border-left-color: var(--border-strong); color: var(--text-muted); }
+.play-events { margin: 0 0 var(--space-3); }
+.play-events summary, .play-howto summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.play-event-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
+  font-size: var(--text-sm);
+}
+.play-plan { list-style: none; padding: 0; margin: 0 0 var(--space-3); }
+.play-plan li {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  padding: 0.15em 0;
+}
+.play-plan-remove {
+  text-decoration: none;
+  font-weight: 700;
+  padding: 0 0.4em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  margin-left: 0.4em;
+}
+.play-ack { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.play-plan-clear { font-size: var(--text-sm); color: var(--text-muted); }
+.play-howto { margin: var(--space-3) 0 0; }
+.play-howto ol, .play-howto ul { font-size: var(--text-sm); }
 """
 
 

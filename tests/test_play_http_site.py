@@ -163,12 +163,6 @@ def test_non_participant_session_is_redirected_to_spectate_and_cannot_move() -> 
     assert store.load(match_id).turns == []
 
 
-def _board_action_values(body: str) -> list[str]:
-    return [
-        html_mod.unescape(value) for value in re.findall(r'name="action" value="([^"]*)"', body)
-    ]
-
-
 _STYLE_RE = re.compile(r"<style>.*?</style>", re.S)
 
 
@@ -178,8 +172,19 @@ def _markup(body: str) -> str:
     return _STYLE_RE.sub("", body)
 
 
+def _request_target(href: str) -> str:
+    """*href* without its ``#fragment`` — what a browser actually requests."""
+    return html_mod.unescape(href).split("#", 1)[0]
+
+
+def _plan_order_values(body: str) -> list[str]:
+    """The (unescaped) hidden ``order`` payloads in the End-turn form."""
+    return [html_mod.unescape(value) for value in re.findall(r'name="order" value="([^"]*)"', body)]
+
+
 def _play_board_flow(app: object, store: InMemoryMatchStore, cookie: dict[str, str]) -> None:
-    """Create a grid match and play one turn purely through the board controls."""
+    """Create a grid match and play one turn purely through the board:
+    select a unit, follow a staging link, then ack the plan (End turn)."""
     status, headers, _ = call_page(
         app,
         "POST",
@@ -197,29 +202,36 @@ def _play_board_flow(app: object, store: InMemoryMatchStore, cookie: dict[str, s
     assert status == "200 OK"
     markup = _markup(page)
     assert 'class="board"' in markup
-    unit_hrefs = re.findall(rf'href="({re.escape(play_url)}\?unit=[^"]+)"', markup)
+    unit_hrefs = re.findall(rf'href="({re.escape(play_url)}\?unit=[^"#]+)', markup)
     assert unit_hrefs, "expected at least one selectable unit on the board"
     assert "board-target" not in markup
 
-    # Step 2 — selecting a unit turns its legal targets into POST controls.
-    select_href = html_mod.unescape(unit_hrefs[0])
+    # Step 2 — selecting a unit turns its legal targets into staging links.
     status, _, selected_page = call_page(
-        app, "GET", select_href, headers=cookie, session_key_present=False
+        app, "GET", _request_target(unit_hrefs[0]), headers=cookie, session_key_present=False
     )
     assert status == "200 OK"
-    assert "board-unit-selected" in _markup(selected_page)
-    values = _board_action_values(selected_page)
-    assert values, "expected per-cell controls for the selected unit"
-    move_value = next(
-        (v for v in values if json.loads(v)["actions"][0]["action"] == "move"), values[0]
-    )
+    selected_markup = _markup(selected_page)
+    assert "board-unit-selected" in selected_markup
+    staging_hrefs = re.findall(r'href="([^"]*staged=[^"]*)"', selected_markup)
+    assert staging_hrefs, "expected staging links for the selected unit"
 
-    # Step 3 — POSTing one control plays exactly that action.
+    # Step 3 — following one stages the order (a GET: nothing submitted yet)...
+    status, _, planned_page = call_page(
+        app, "GET", _request_target(staging_hrefs[0]), headers=cookie, session_key_present=False
+    )
+    assert status == "200 OK"
+    assert store.load(match_id).turns == []
+    order_values = _plan_order_values(planned_page)
+    assert order_values, "expected the staged order in the End-turn form"
+    turn_value = re.search(r'name="turn" value="([^"]*)"', planned_page).group(1)
+
+    # Step 4 — ...and the End-turn POST plays the whole plan as one turn.
     status, headers, _ = call_page(
         app,
         "POST",
         f"{play_url}/turns",
-        form={"action": move_value},
+        form={"order": order_values, "turn": turn_value},
         headers=cookie,
         session_key_present=False,
     )
@@ -227,7 +239,7 @@ def _play_board_flow(app: object, store: InMemoryMatchStore, cookie: dict[str, s
     assert headers["Location"] == play_url
     reloaded = store.load(match_id)
     assert len(reloaded.turns) == 1
-    assert reloaded.turns[0].action == json.loads(move_value)
+    assert reloaded.turns[0].action == {"actions": [json.loads(v) for v in order_values]}
 
 
 def test_board_controls_drive_a_grid_match_through_the_composed_site() -> None:

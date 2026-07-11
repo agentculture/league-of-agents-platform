@@ -40,6 +40,7 @@ from typing import Any
 from league_site.game import bot as bot_mod
 from league_site.game import modes
 from league_site.game import workdir as workdir_mod
+from league_site.game.events import diff_turn_events
 from league_site.game.modes import LaunchMode, Rejection, TeamSpec
 from league_site.game.runner import LeagueRunner, game_version
 from league_site.matches.engine import GameEngine
@@ -103,7 +104,8 @@ class GridLaneEngine(GameEngine):
         match_id = f"m-{mode.name}-{uuid.uuid4().hex[:12]}"
 
         with self._workdir() as workdir:
-            roles = self._scenario_roles(workdir)
+            scenario = self._scenario_payload(workdir)
+            roles = sorted(scenario.get("roles", {}))
             for team in mode.teams:
                 self._register_team(workdir, team, roles, participants, participant_teams)
 
@@ -143,6 +145,12 @@ class GridLaneEngine(GameEngine):
                 "bot_policies": {
                     team.team_id: team.bot_policy for team in bot_mod.driven_bot_teams(mode)
                 },
+                # Rules the play surface teaches back to the human (how many
+                # turns a capture takes, which roles can capture/gather) —
+                # scenario data captured once here, since `arena show` is a
+                # subprocess call no render path should ever pay for.
+                "scenario_rules": _scenario_rules(scenario),
+                "last_turn_events": [],
             },
             show=show,
             snapshot=snapshot,
@@ -192,12 +200,17 @@ class GridLaneEngine(GameEngine):
             show = self._runner.run(["match", "show", state["match_id"], "--json"], cwd=workdir)
             snapshot = workdir_mod.persist(workdir)
 
-        return self._state_from_show(
+        new_state = self._state_from_show(
             base=state,
             show=show,
             snapshot=snapshot,
             platform_rejections=platform_rejections,
         )
+        # One resolved turn = the participant's orders AND the house bot's;
+        # this diff is the whole of it — the "what happened" feed the play
+        # surface renders (league_site.game.events).
+        new_state["last_turn_events"] = diff_turn_events(state, new_state)
+        return new_state
 
     def is_over(self, state: dict[str, Any]) -> bool:
         return state.get("status") == "finished"
@@ -305,9 +318,8 @@ class GridLaneEngine(GameEngine):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def _scenario_roles(self, workdir: Path) -> list[str]:
-        payload = self._runner.run(["arena", "show", self._mode.scenario_id, "--json"], cwd=workdir)
-        return sorted(payload["roles"])
+    def _scenario_payload(self, workdir: Path) -> dict[str, Any]:
+        return self._runner.run(["arena", "show", self._mode.scenario_id, "--json"], cwd=workdir)
 
     def _register_team(
         self,
@@ -364,9 +376,58 @@ class GridLaneEngine(GameEngine):
                 "last_turn_rejections": list(show.get("last_turn_rejections", [])),
                 "last_turn_platform_rejections": [r.to_dict() for r in platform_rejections],
                 "staged_teams": list(show.get("staged_teams", [])),
+                # Banked stock per team — what `deliver` pays into; the play
+                # surface's score strip reads it (and the events diff derives
+                # `delivered` from its per-turn delta).
+                "team_resources": _team_resources(game_state),
             }
         )
         return state
+
+
+def _team_resources(game_state: Mapping[str, Any]) -> dict[str, int]:
+    teams = game_state.get("teams")
+    if not isinstance(teams, Sequence) or isinstance(teams, (str, bytes)):
+        return {}
+    result: dict[str, int] = {}
+    for team in teams:
+        if not isinstance(team, Mapping):
+            continue
+        team_id, banked = team.get("id"), team.get("resources")
+        if isinstance(team_id, str) and isinstance(banked, int) and not isinstance(banked, bool):
+            result[team_id] = banked
+    return result
+
+
+def _scenario_rules(scenario: Mapping[str, Any]) -> dict[str, Any]:
+    """The JSON-safe slice of an ``arena show`` payload the play UI teaches.
+
+    Only what the browser needs: the capture-streak threshold and each
+    role's movement/carry/capability numbers. Anything missing from the
+    payload is simply absent — renderers must ``.get`` their way in (old
+    persisted matches carry no ``scenario_rules`` at all).
+    """
+    rules: dict[str, Any] = {}
+    hold_turns = scenario.get("capture_hold_turns")
+    if isinstance(hold_turns, int) and not isinstance(hold_turns, bool):
+        rules["capture_hold_turns"] = hold_turns
+    roles = scenario.get("roles")
+    if isinstance(roles, Mapping):
+        kept_roles: dict[str, dict[str, Any]] = {}
+        for role_name, stats in roles.items():
+            if not isinstance(stats, Mapping):
+                continue
+            kept = {
+                key: value
+                for key, value in stats.items()
+                if key in ("move", "carry", "vision", "can_gather", "can_capture")
+                and isinstance(value, (int, bool))
+            }
+            if kept:
+                kept_roles[str(role_name)] = kept
+        if kept_roles:
+            rules["roles"] = kept_roles
+    return rules
 
 
 def _invert_participant_teams(participant_teams: Mapping[str, str]) -> dict[str, list[str]]:

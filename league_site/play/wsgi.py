@@ -58,14 +58,29 @@ from league_site.matches import (
     MatchStatus,
     MatchStore,
 )
-from league_site.play.actions import ActionChoice, action_choices, is_waiting, match_choice
-from league_site.play.board import build_overlay
+from league_site.play.actions import (
+    ActionChoice,
+    OrderChoice,
+    action_choices,
+    compose_turn,
+    is_waiting,
+    match_choice,
+    match_order,
+    unit_orders,
+)
+from league_site.play.board import build_overlay, play_view_href
 from league_site.play.render import (
+    describe_events,
     render_board_lead,
     render_error_body,
+    render_events,
+    render_how_to,
     render_hub_body,
+    render_notice,
+    render_plan_panel,
     render_play_panel,
     render_signed_out_hub_body,
+    render_status_strip,
 )
 from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
 from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem
@@ -299,33 +314,71 @@ def _play_view(
         # same board without the move form (see the module docstring).
         return _redirect(start_response, "302 Found", watch_href)
 
+    state = match.game_state
+    query = parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True)
+    orders: tuple[OrderChoice, ...] = ()
     choices: tuple[ActionChoice, ...] = ()
     waiting = False
     if match.status is MatchStatus.ACTIVE:
-        choices = action_choices(match.game_state, identity.key)
-        waiting = is_waiting(match.game_state, identity.key)
-    show_form = match.status is MatchStatus.ACTIVE and bool(choices) and not waiting
+        orders = unit_orders(state, identity.key)
+        if not orders:
+            choices = action_choices(state, identity.key)
+        waiting = is_waiting(state, identity.key)
+    planning = match.status is MatchStatus.ACTIVE and bool(orders) and not waiting
+    legacy_form = match.status is MatchStatus.ACTIVE and bool(choices) and not waiting
+    staged = _staged_orders(query, orders) if planning else ()
 
     model = build_page_model(match, ledger)
     play_path = f"/play/matches/{match.match_id}"
     board_html, overlay = _board_section(
-        match, identity.key, choices, show_form, environ, play_path
+        match, identity.key, orders, staged, planning, query, play_path
     )
-    panel = render_play_panel(
-        match,
-        choices=choices,
-        show_form=show_form,
-        waiting=waiting,
-        watch_href=watch_href,
-        collapse_form=overlay is not None,
-    )
-    slot = f"{board_html}\n{panel}" if board_html else panel
+    if planning:
+        panel = render_plan_panel(
+            match,
+            orders=orders,
+            staged=staged,
+            turn=state.get("turn") if isinstance(state, Mapping) else None,
+            play_path=play_path,
+        )
+    else:
+        panel = render_play_panel(
+            match,
+            choices=choices,
+            show_form=legacy_form,
+            waiting=waiting,
+            watch_href=watch_href,
+            collapse_form=False,
+        )
+
+    parts = [render_notice(_first(query, "notice"))]
+    if isinstance(state, Mapping):
+        parts.append(
+            render_events(
+                describe_events(
+                    state.get("last_turn_events") or (),
+                    list(state.get("last_turn_rejections") or ())
+                    + list(state.get("last_turn_platform_rejections") or ()),
+                    _team_labels(match, identity.key),
+                )
+            )
+        )
+        parts.append(_status_strip(match, identity.key))
+    if board_html:
+        parts.append(board_html)
+    parts.append(panel)
+    if planning or waiting:
+        rules = state.get("scenario_rules") if isinstance(state, Mapping) else None
+        first_turn = isinstance(state, Mapping) and state.get("turn") == 0
+        parts.append(render_how_to(rules, open_by_default=bool(first_turn)))
+    slot = "\n".join(part for part in parts if part)
     body = render_page_body(model, board_html=slot)
 
     # Refresh exactly when someone else's move could change the page under
-    # us: live match, no form on screen. When it's the human's turn the
-    # page holds still under their hands; a finished match never refreshes.
-    refresh_meta = _REFRESH_META if model.is_live and not show_form else ""
+    # us: live match, no plan/form on screen. When it's the human's turn the
+    # page holds still under their hands (a refresh would drop an in-flight
+    # plan); a finished match never refreshes.
+    refresh_meta = _REFRESH_META if model.is_live and not (planning or legacy_form) else ""
     match_id_html = html.escape(match.match_id)
     page = page_shell(
         title=f"Play match {match_id_html} — {_SITE_TITLE}",
@@ -340,9 +393,10 @@ def _play_view(
 def _board_section(
     match: Match,
     identity_key: str,
-    choices: tuple[ActionChoice, ...],
-    show_form: bool,
-    environ: dict[str, Any],
+    orders: tuple[OrderChoice, ...],
+    staged: tuple[OrderChoice, ...],
+    planning: bool,
+    query: Mapping[str, list[str]],
     play_path: str,
 ) -> tuple[str | None, BoardOverlay | None]:
     """The play view's board fragment (hint + board), and its overlay if any.
@@ -350,24 +404,24 @@ def _board_section(
     The board renders whenever the match's game state is board-shaped
     (:func:`league_site.viewer.board.build_board_model`) — waiting turns and
     final positions included — but the *interaction* overlay only exists
-    while it's the human's move (*show_form*) and the current choices anchor
+    while it's the human's move (*planning*) and the current orders anchor
     to board cells (:func:`league_site.play.board.build_overlay`); otherwise
     the same static board a spectator sees renders here. The signed-in
     human's own team always wears the accent treatment, so "your pieces"
-    reads at a glance. ``?unit=`` selects a unit — a safe, idempotent GET,
-    which is why selection is a link rather than a form.
+    reads at a glance. Selection, staging, and re-staging are all safe,
+    idempotent GETs — which is why they are links rather than forms.
     """
     board_model = build_board_model(match.game_state)
     if board_model is None:
         return None, None
     overlay: BoardOverlay | None = None
-    if show_form:
+    if planning:
         overlay = build_overlay(
             board_model,
-            choices,
-            selected_unit=_selected_unit(environ),
+            orders,
+            staged=staged,
+            selected_unit=_first(query, "unit"),
             base_path=play_path,
-            form_action=f"{play_path}/turns",
         )
     parts = []
     if overlay is not None:
@@ -375,9 +429,14 @@ def _board_section(
             (unit.role for unit in board_model.units if unit.unit_id == overlay.selected_unit),
             None,
         )
+        plannable = len(overlay.select_hrefs) + len(overlay.staged_units)
         parts.append(
             render_board_lead(
-                selected_unit=overlay.selected_unit, selected_role=role, clear_href=play_path
+                selected_unit=overlay.selected_unit,
+                selected_role=role,
+                clear_href=play_view_href(play_path, staged),
+                staged_count=len(overlay.staged_units),
+                plannable_count=plannable,
             )
         )
     parts.append(
@@ -386,8 +445,28 @@ def _board_section(
     return "\n".join(parts), overlay
 
 
-def _selected_unit(environ: dict[str, Any]) -> str | None:
-    values = parse_qs(environ.get("QUERY_STRING", "")).get("unit")
+def _staged_orders(
+    query: Mapping[str, list[str]], orders: tuple[OrderChoice, ...]
+) -> tuple[OrderChoice, ...]:
+    """The validated, deduped plan carried in the URL's ``staged`` params.
+
+    Every value must equal one of the *current* legal orders; anything
+    stale, malformed, or duplicated (a second order for a unit already
+    planned) is silently dropped — the fresh board is the answer, exactly
+    like a stale ``?unit=`` selection.
+    """
+    plan: list[OrderChoice] = []
+    seen: set[str] = set()
+    for value in query.get("staged", []):
+        choice = match_order(orders, value)
+        if choice is not None and choice.unit_id not in seen:
+            plan.append(choice)
+            seen.add(choice.unit_id)
+    return tuple(plan)
+
+
+def _first(query: Mapping[str, list[str]], key: str) -> str | None:
+    values = query.get(key)
     return values[0] if values else None
 
 
@@ -396,6 +475,65 @@ def _team_for(match: Match, identity_key: str) -> str | None:
     teams = state.get("participant_teams") if isinstance(state, Mapping) else None
     team = teams.get(identity_key) if isinstance(teams, Mapping) else None
     return team if isinstance(team, str) and team else None
+
+
+def _team_labels(match: Match, identity_key: str) -> dict[str, str]:
+    """``team id -> human label`` for the events feed and score strip.
+
+    The viewer's own team reads "You"; a team with registered participants
+    reads their display name(s); a bot team with none reads "House bot".
+    """
+    state = match.game_state
+    if not isinstance(state, Mapping):
+        return {}
+    team_participants = state.get("team_participants")
+    if not isinstance(team_participants, Mapping):
+        return {}
+    names = {p.participant_id: p.display_name for p in match.participants}
+    own_team = _team_for(match, identity_key)
+    labels: dict[str, str] = {}
+    for team_id, participant_ids in team_participants.items():
+        if not isinstance(team_id, str):
+            continue
+        if team_id == own_team:
+            labels[team_id] = "You"
+            continue
+        participant_names = [
+            names[pid] for pid in (participant_ids or []) if isinstance(pid, str) and pid in names
+        ]
+        labels[team_id] = ", ".join(participant_names) if participant_names else "House bot"
+    return labels
+
+
+def _status_strip(match: Match, identity_key: str) -> str:
+    """The per-team posts/banked score strip — own team first."""
+    state = match.game_state
+    if not isinstance(state, Mapping):
+        return ""
+    labels = _team_labels(match, identity_key)
+    if not labels:
+        return ""
+    posts_held: dict[str, int] = {}
+    for post in state.get("control_points") or ():
+        if isinstance(post, Mapping) and isinstance(post.get("owner"), str):
+            posts_held[post["owner"]] = posts_held.get(post["owner"], 0) + 1
+    banked = state.get("team_resources")
+    banked = banked if isinstance(banked, Mapping) else {}
+    own_team = _team_for(match, identity_key)
+    ordered = sorted(labels, key=lambda team: (team != own_team, team))
+    rows = []
+    for team in ordered:
+        value = banked.get(team, 0)
+        if not isinstance(value, int) or isinstance(value, bool):
+            value = 0
+        rows.append((labels[team], posts_held.get(team, 0), value, team == own_team))
+    turn = state.get("turn")
+    turn_limit = state.get("turn_limit")
+    return render_status_strip(
+        rows,
+        turn=turn if isinstance(turn, int) else None,
+        turn_limit=turn_limit if isinstance(turn_limit, int) else None,
+    )
 
 
 def _submit_turn(
@@ -409,6 +547,7 @@ def _submit_turn(
     ratings: RatingSystem,
 ) -> list[bytes]:
     match = _load_match(matches, match_id)
+    play_path = f"/play/matches/{match.match_id}"
     if session is None:
         return _error_page(
             start_response,
@@ -427,21 +566,34 @@ def _submit_turn(
             start_response, "403 Forbidden", _error_shell("403 Forbidden", body, session)
         )
     if match.status is not MatchStatus.ACTIVE:
-        raise errors.conflict(
-            f"cannot take_turn a match in status {match.status.value!r}",
-            code="invalid_transition",
+        # Most commonly a double-tap on the final turn: the first submit
+        # finished the match, this one has nothing left to play. The play
+        # view (final score, replay link) is the honest answer — a raw
+        # conflict page would read as "your move broke something".
+        return _redirect(start_response, "303 See Other", play_path)
+
+    form = _read_form_multi(environ)
+    if form.get("order"):
+        return _submit_plan(
+            start_response,
+            match,
+            identity.key,
+            form,
+            play_path,
+            matches=matches,
+            registry=registry,
+            ledger=ledger,
+            ratings=ratings,
         )
 
-    form = _read_form(environ)
     choices = action_choices(match.game_state, identity.key)
-    choice = match_choice(choices, form.get("action"))
+    choice = match_choice(choices, _form_first(form, "action"))
     if choice is None:
         # Never trust the submitted string: whatever arrived is not one of
-        # the current legal actions, so no engine ever sees it.
-        raise errors.bad_request(
-            "the submitted action is not one of the current legal actions",
-            code="illegal_action",
-        )
+        # the current legal actions, so no engine ever sees it. Redirect,
+        # don't error: the usual cause is a double-tap racing the turn it
+        # already played (2026-07-11 feedback round).
+        return _redirect(start_response, "303 See Other", f"{play_path}?notice=illegal")
 
     matchops.take_turn(
         match,
@@ -453,7 +605,60 @@ def _submit_turn(
         ratings=ratings,
     )
     # POST-redirect-GET: a refresh of the landing page can never re-submit.
-    return _redirect(start_response, "303 See Other", f"/play/matches/{match.match_id}")
+    return _redirect(start_response, "303 See Other", play_path)
+
+
+def _submit_plan(
+    start_response: Any,
+    match: Match,
+    identity_key: str,
+    form: dict[str, list[str]],
+    play_path: str,
+    *,
+    matches: MatchStore,
+    registry: EngineRegistry,
+    ledger: RatingLedgerStore,
+    ratings: RatingSystem,
+) -> list[bytes]:
+    """Play a whole staged plan (repeated ``order`` fields) as one turn.
+
+    Every guard redirects back to the play view with an honest ``notice``
+    rather than erroring: by construction the only ways to trip them are a
+    double-submit or a plan gone stale under a board that moved — neither
+    is a mistake worth an error page (2026-07-11 feedback round: a
+    double-press on gather surfaced as a raw 400).
+    """
+    state = match.game_state
+    current_turn = state.get("turn") if isinstance(state, Mapping) else None
+    turn_field = _form_first(form, "turn")
+    if turn_field is None or str(current_turn) != turn_field:
+        # The plan was made against a turn that has already resolved — the
+        # signature of a double-submit (the first press played it).
+        return _redirect(start_response, "303 See Other", f"{play_path}?notice=stale")
+
+    orders = unit_orders(state, identity_key)
+    plan: list[OrderChoice] = []
+    seen: set[str] = set()
+    for value in form.get("order", []):
+        choice = match_order(orders, value)
+        if choice is None or choice.unit_id in seen:
+            return _redirect(start_response, "303 See Other", f"{play_path}?notice=illegal")
+        plan.append(choice)
+        seen.add(choice.unit_id)
+    if not plan:
+        return _redirect(start_response, "303 See Other", f"{play_path}?notice=empty")
+
+    matchops.take_turn(
+        match,
+        identity_key,
+        compose_turn(plan),
+        matches=matches,
+        registry=registry,
+        ledger=ledger,
+        ratings=ratings,
+    )
+    # POST-redirect-GET: a refresh of the landing page can never re-submit.
+    return _redirect(start_response, "303 See Other", play_path)
 
 
 # --- shared handler helpers ------------------------------------------------
@@ -492,6 +697,12 @@ def _live_matches_for(matches: MatchStore, identity_key: str) -> tuple[Match, ..
 
 def _read_form(environ: dict[str, Any]) -> dict[str, str]:
     """The urlencoded form body of *environ*, first value per field."""
+    return {key: values[0] for key, values in _read_form_multi(environ).items()}
+
+
+def _read_form_multi(environ: dict[str, Any]) -> dict[str, list[str]]:
+    """The urlencoded form body of *environ*, every value per field —
+    a staged plan submits one ``order`` field per planned unit."""
     try:
         length = int(environ.get("CONTENT_LENGTH") or 0)
     except (TypeError, ValueError):
@@ -501,7 +712,12 @@ def _read_form(environ: dict[str, Any]) -> dict[str, str]:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise errors.bad_request(f"undecodable form body: {exc}") from exc
-    return {key: values[0] for key, values in parse_qs(text, keep_blank_values=True).items()}
+    return parse_qs(text, keep_blank_values=True)
+
+
+def _form_first(form: dict[str, list[str]], key: str) -> str | None:
+    values = form.get(key)
+    return values[0] if values else None
 
 
 # --- response shaping --------------------------------------------------------

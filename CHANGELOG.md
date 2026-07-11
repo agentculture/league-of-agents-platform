@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-07-11
+
+### Added
+
+- Play the whole roster in one turn: plan an order per unit on the board, then End turn to submit them all at once (plan-then-ack). Staging is done through idempotent GET links, so a double-tap can never double-submit or 4xx.
+- "Last turn" feed on the play + spectate board: plain-language events (captures, gathers, deliveries, missions, fallen units) derived from the board diff, plus any refused orders, so a human can see what changed after the board moved.
+- Per-team score strip above the board (posts held, resources banked, turn counter) and a capture-progress counter on each contested control post.
+- Rival-red treatment for the opponent's pieces and posts (distinct from your accent green), bolder mission flags, and numbered carry badges on units holding resources.
+- Collapsible "How to play" explainer, drawn from the live scenario rules (capture-hold turns, which roles can capture).
+
+### Changed
+
+- Solo-vs-bot is no longer handicapped to one action per turn — you command your full roster each turn, same as the house bot (the old cap read as unfair in live play). The action-cap enforcement point stays for any future capped mode.
+- The match board fits the viewport width on phones (container-query cell sizing) instead of requiring a sideways scroll to see the whole game.
+- A stray resubmit on the play surface (double-tap, stale plan) now redirects to the fresh board with an honest notice, or to the final view on a finished match, instead of returning a bare 400/409.
+
 ## [0.9.0] - 2026-07-11
 
 ### Added

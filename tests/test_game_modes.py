@@ -55,8 +55,12 @@ def test_get_mode_raises_on_an_unknown_name() -> None:
         get_mode("solo-vs-everyone")
 
 
-def test_solo_vs_bot_has_a_one_action_cap_and_a_bot_house_side() -> None:
-    assert SOLO_VS_BOT.team("solo").action_cap == 1
+def test_solo_vs_bot_is_uncapped_and_has_a_bot_house_side() -> None:
+    """The solo side commands its full roster — one order per unit per turn,
+    same as the house (2026-07-11 feedback round: the original
+    ``action_cap=1`` handicap read as unfair in live play — the bot moved
+    three units to the human's one)."""
+    assert SOLO_VS_BOT.team("solo").action_cap is None
     assert SOLO_VS_BOT.team("house").is_bot is True
     assert SOLO_VS_BOT.bot_team_ids == ("house",)
     assert SOLO_VS_BOT.team_ids == ("solo", "house")
@@ -64,13 +68,11 @@ def test_solo_vs_bot_has_a_one_action_cap_and_a_bot_house_side() -> None:
 
 def test_solo_vs_bot_house_side_is_driven_by_the_game_greedy_bot_policy() -> None:
     """platform#9: the house team declares the game's own bot policy that
-    drives it every turn — and the solo handicap stays on the player side
-    only, exactly like the game's own solo preset (solo capped at 1, house
-    uncapped)."""
+    drives it every turn; both sides play uncapped."""
     assert SOLO_VS_BOT.team("house").bot_policy == "bot:greedy"
     assert SOLO_VS_BOT.team("house").action_cap is None
     assert SOLO_VS_BOT.team("solo").bot_policy is None
-    assert SOLO_VS_BOT.team("solo").action_cap == 1
+    assert SOLO_VS_BOT.team("solo").action_cap is None
 
 
 def test_bot_policy_defaults_to_none_on_a_team_spec() -> None:
@@ -170,11 +172,36 @@ def test_assign_participants_rejects_a_mode_with_no_non_bot_team() -> None:
 
 # -- enforce_action_cap -----------------------------------------------------
 
+#: A hand-built capped mode: no bundled mode caps anymore (solo-vs-bot's
+#: original handicap was lifted), but the enforcement machinery must keep
+#: working for any future capped mode.
+_CAPPED_MODE = LaunchMode(
+    name="capped",
+    game_mode="competitive",
+    scenario_id="skirmish-1",
+    seed=1,
+    expected_participants=1,
+    teams=(TeamSpec(team_id="solo", driver_kind="stateless", action_cap=1),),
+)
+
 
 def test_enforce_action_cap_passes_through_under_the_cap() -> None:
     orders = {"actions": [{"unit_id": "solo-u1", "action": "hold"}]}
-    trimmed, rejections = enforce_action_cap(SOLO_VS_BOT, "solo", orders)
+    trimmed, rejections = enforce_action_cap(_CAPPED_MODE, "solo", orders)
     assert trimmed == {"actions": [{"unit_id": "solo-u1", "action": "hold"}]}
+    assert rejections == []
+
+
+def test_enforce_action_cap_never_trims_the_uncapped_solo_vs_bot_side() -> None:
+    orders = {
+        "actions": [
+            {"unit_id": "solo-u1", "action": "hold"},
+            {"unit_id": "solo-u2", "action": "hold"},
+            {"unit_id": "solo-u3", "action": "move", "to": [1, 1]},
+        ]
+    }
+    trimmed, rejections = enforce_action_cap(SOLO_VS_BOT, "solo", orders)
+    assert len(trimmed["actions"]) == 3
     assert rejections == []
 
 
@@ -186,7 +213,7 @@ def test_enforce_action_cap_trims_excess_and_reports_rejections() -> None:
             {"unit_id": "solo-u3", "action": "move", "to": [1, 1]},
         ]
     }
-    trimmed, rejections = enforce_action_cap(SOLO_VS_BOT, "solo", orders)
+    trimmed, rejections = enforce_action_cap(_CAPPED_MODE, "solo", orders)
     assert trimmed["actions"] == [{"unit_id": "solo-u1", "action": "hold"}]
     assert [r.unit_id for r in rejections] == ["solo-u2", "solo-u3"]
     assert all(isinstance(r, Rejection) and r.team_id == "solo" for r in rejections)
@@ -206,12 +233,12 @@ def test_enforce_action_cap_never_trims_an_unlimited_team() -> None:
 
 
 def test_enforce_action_cap_handles_orders_with_no_actions_key() -> None:
-    trimmed, rejections = enforce_action_cap(SOLO_VS_BOT, "solo", {})
+    trimmed, rejections = enforce_action_cap(_CAPPED_MODE, "solo", {})
     assert trimmed == {"actions": []}
     assert rejections == []
 
 
 def test_enforce_action_cap_does_not_mutate_the_input_orders() -> None:
     orders = {"actions": [{"unit_id": "solo-u1"}, {"unit_id": "solo-u2"}]}
-    enforce_action_cap(SOLO_VS_BOT, "solo", orders)
+    enforce_action_cap(_CAPPED_MODE, "solo", orders)
     assert len(orders["actions"]) == 2  # untouched

@@ -19,21 +19,30 @@ The interaction layer is opt-in and play-only
 forms, no buttons**: a purely presentational board (each piece carries its
 identity via ``role="img"``/``aria-label``). The play surface passes a
 :class:`BoardOverlay` (built by :mod:`league_site.play.board` from the
-current legal actions) and only then does the board grow its two-step
-interaction:
+current legal actions plus the human's staged plan) and only then does the
+board grow its interaction — and every control on the board is a **link**
+(an idempotent ``GET``), never a form:
 
 * every unit named in :attr:`BoardOverlay.select_hrefs` renders as a
-  selection **link** (``GET ?unit=<id>`` — selection is idempotent, so a
-  link is the correct control);
-* the selected unit renders distinctly, and every
-  :class:`CellControl` renders as a tiny per-cell **POST form** whose hidden
-  ``action`` field carries the exact submittable payload — one full-cell
-  button when a cell has a single action, a stack of verb-labeled buttons
-  when several actions share one cell (disambiguation, e.g. gather vs hold
-  on the unit's own square). The server re-validates every submission
-  against the *current* legal actions regardless
-  (:func:`league_site.play.actions.match_choice`); the payload in the form
-  is a convenience, never trusted.
+  selection link (``GET ?unit=<id>``);
+* the selected unit renders distinctly, and every :class:`CellControl`
+  renders as a per-cell **staging link** whose href adds that unit order
+  to the URL-carried plan — one full-cell link when a cell has a single
+  action, a stack of verb-labeled pill links when several share one cell
+  (disambiguation, e.g. gather vs hold on the unit's own square). Staging
+  changes nothing server-side, so a double-tap is harmless (2026-07-11
+  feedback round: the old per-cell POST forms turned double-taps into
+  stale-action refusals);
+* every unit named in :attr:`BoardOverlay.staged_units` renders in the
+  staged treatment, linking back to its re-stage href (tap your planned
+  unit to change its order), and each :class:`StagedMark` ghosts the
+  planned order onto its target cell.
+
+The one state-changing control — the End-turn form that submits the whole
+plan — lives in the play panel (:mod:`league_site.play.render`), not on the
+board. The server re-validates every submitted order against the *current*
+legal actions regardless (:func:`league_site.play.actions.match_order`);
+everything carried in hrefs is a convenience, never trusted.
 
 Escaping discipline matches the rest of the viewer: every engine-derived
 string (unit ids, roles, marker ids, hrefs, action payloads, labels) passes
@@ -54,6 +63,7 @@ __all__ = [
     "BoardMission",
     "BoardModel",
     "CellControl",
+    "StagedMark",
     "BoardOverlay",
     "build_board_model",
     "render_board",
@@ -74,12 +84,20 @@ class BoardUnit:
 
 @dataclass(frozen=True)
 class BoardPost:
-    """One capturable control post; ``owner`` is a team id or ``None``."""
+    """One capturable control post; ``owner`` is a team id or ``None``.
+
+    ``hold_team``/``hold_streak`` carry the capture streak in progress (the
+    engine's ``hold`` pairs — the leading team and its consecutive turns on
+    the post), so the board can show a capture *coming* before ownership
+    flips.
+    """
 
     marker_id: str
     x: int
     y: int
     owner: str | None = None
+    hold_team: str | None = None
+    hold_streak: int = 0
 
 
 @dataclass(frozen=True)
@@ -104,7 +122,13 @@ class BoardMission:
 
 @dataclass(frozen=True)
 class BoardModel:
-    """Everything :func:`render_board` needs for one board."""
+    """Everything :func:`render_board` needs for one board.
+
+    ``capture_hold_turns`` is the scenario's capture-streak threshold
+    (``None`` when the state predates the ``scenario_rules`` projection) —
+    it turns a post's raw streak into the honest "holding 1/2" progress
+    the board announces.
+    """
 
     width: int
     height: int
@@ -112,23 +136,34 @@ class BoardModel:
     posts: tuple[BoardPost, ...] = ()
     resources: tuple[BoardResource, ...] = ()
     missions: tuple[BoardMission, ...] = ()
+    capture_hold_turns: int | None = None
 
 
 @dataclass(frozen=True)
 class CellControl:
-    """One submittable action anchored to a target cell (play-only).
+    """One stageable order anchored to a target cell (play-only).
 
-    ``value`` is the exact form payload
-    (:attr:`league_site.play.actions.ActionChoice.value` — canonical JSON);
-    ``label`` is the human-readable accessible name; ``verb`` is the short
-    action word shown on stacked disambiguation buttons.
+    ``href`` is the staging link — a GET back to the play view with this
+    order added to the URL-carried plan; ``label`` is the human-readable
+    accessible name; ``verb`` is the short action word shown on stacked
+    disambiguation pills.
     """
 
     x: int
     y: int
     verb: str
     label: str
-    value: str
+    href: str
+
+
+@dataclass(frozen=True)
+class StagedMark:
+    """One already-planned order, ghosted onto its target cell (play-only)."""
+
+    x: int
+    y: int
+    verb: str
+    unit_id: str
 
 
 @dataclass(frozen=True)
@@ -138,14 +173,16 @@ class BoardOverlay:
     ``select_hrefs`` maps each *selectable* unit id to its ``?unit=`` GET
     href; ``selected_unit`` (already validated by the builder —
     :func:`league_site.play.board.build_overlay`) names the unit whose
-    ``controls`` are on the board; ``form_action`` is the turns endpoint
-    every cell control POSTs to.
+    ``controls`` are on the board; ``staged_units`` maps each planned
+    unit id to the href that re-opens its order (tap to change);
+    ``staged_marks`` ghost the planned orders onto their target cells.
     """
 
-    form_action: str
     select_hrefs: Mapping[str, str] = field(default_factory=dict)
     selected_unit: str | None = None
     controls: tuple[CellControl, ...] = ()
+    staged_units: Mapping[str, str] = field(default_factory=dict)
+    staged_marks: tuple[StagedMark, ...] = ()
 
 
 # --- model building -----------------------------------------------------------
@@ -196,6 +233,8 @@ def build_board_model(state: Any) -> BoardModel | None:
         )
         if mission is not None
     )
+    rules = state.get("scenario_rules")
+    hold_turns = rules.get("capture_hold_turns") if isinstance(rules, Mapping) else None
     return BoardModel(
         width=width,
         height=height,
@@ -203,6 +242,11 @@ def build_board_model(state: Any) -> BoardModel | None:
         posts=posts,
         resources=resources,
         missions=missions,
+        capture_hold_turns=(
+            hold_turns
+            if isinstance(hold_turns, int) and not isinstance(hold_turns, bool) and hold_turns > 0
+            else None
+        ),
     )
 
 
@@ -260,12 +304,35 @@ def _build_post(entry: Any, width: int, height: int) -> BoardPost | None:
     if cell is None:
         return None
     owner = entry.get("owner")
+    hold_team, hold_streak = _leading_hold(entry.get("hold"))
     return BoardPost(
         marker_id=str(entry.get("id") or "post"),
         x=cell[0],
         y=cell[1],
         owner=owner if isinstance(owner, str) and owner else None,
+        hold_team=hold_team,
+        hold_streak=hold_streak,
     )
+
+
+def _leading_hold(value: Any) -> tuple[str | None, int]:
+    """The strongest ``(team, streak)`` pair of a post's ``hold`` list."""
+    if not _is_sequence(value):
+        return None, 0
+    best: tuple[str | None, int] = (None, 0)
+    for entry in value:
+        if not _is_sequence(entry) or len(entry) != 2:
+            continue
+        team, streak = entry
+        if (
+            isinstance(team, str)
+            and team
+            and isinstance(streak, int)
+            and not isinstance(streak, bool)
+            and streak > best[1]
+        ):
+            best = (team, streak)
+    return best
 
 
 def _build_resource(entry: Any, width: int, height: int) -> BoardResource | None:
@@ -338,26 +405,30 @@ def render_board(
     """
     accent = accent_team if accent_team is not None else _default_accent(model)
     parts = [
-        '<div class="board-wrap">',
+        # id="board": the fragment every play-surface staging link targets,
+        # so each reload lands back on the board (one board per page).
+        '<div class="board-wrap" id="board">',
         (
             f'<div class="board" style="--bw:{model.width};--bh:{model.height}" role="group" '
             f'aria-label="Match board, {model.width} by {model.height} cells">'
         ),
     ]
     for post in model.posts:
-        parts.append(_render_post(post, accent))
+        parts.append(_render_post(post, accent, model.capture_hold_turns))
     for resource in model.resources:
         parts.append(_render_resource(resource))
     for mission in model.missions:
         parts.append(_render_mission(mission))
     for unit in model.units:
         parts.append(_render_unit(unit, accent, overlay))
-    if overlay is not None and overlay.selected_unit is not None:
-        selected_cell = next(
-            ((unit.x, unit.y) for unit in model.units if unit.unit_id == overlay.selected_unit),
-            None,
-        )
-        parts.extend(_render_controls(overlay, selected_cell))
+    if overlay is not None:
+        parts.extend(_render_staged_marks(overlay))
+        if overlay.selected_unit is not None:
+            selected_cell = next(
+                ((unit.x, unit.y) for unit in model.units if unit.unit_id == overlay.selected_unit),
+                None,
+            )
+            parts.extend(_render_controls(overlay, selected_cell))
     parts.append("</div>")
     parts.append("</div>")
     return "\n".join(parts)
@@ -371,17 +442,30 @@ def _grid_area(x: int, y: int) -> str:
     return f"grid-area:{y + 1}/{x + 1}"
 
 
-def _render_post(post: BoardPost, accent: str | None) -> str:
+def _render_post(post: BoardPost, accent: str | None, hold_turns: int | None) -> str:
     if post.owner is None:
         owner = "none"
     elif post.owner == accent:
         owner = "accent"
     else:
-        owner = "ink"
-    label = html.escape(f"Control post {post.marker_id}")
+        owner = "rival"
+    label = f"Control post {post.marker_id}"
+    if post.owner is not None:
+        label += f" — held by {post.owner}"
+    progress = ""
+    if post.hold_team is not None and hold_turns is not None and post.hold_streak < hold_turns:
+        # A capture in progress: name it out loud and pin a visible counter
+        # to the post (2026-07-11 feedback round: standing on a post gave no
+        # sign anything was happening until ownership silently flipped).
+        label += f" — {post.hold_team} capturing, {post.hold_streak}/{hold_turns}"
+        side = "accent" if post.hold_team == accent else "rival"
+        progress = (
+            f'<span class="board-post-progress" data-side="{side}" aria-hidden="true">'
+            f"{post.hold_streak}/{hold_turns}</span>"
+        )
     return (
         f'<span class="board-post" data-owner="{owner}" style="{_grid_area(post.x, post.y)}" '
-        f'role="img" aria-label="{label}">{_POST_SVG}</span>'
+        f'role="img" aria-label="{html.escape(label)}">{_POST_SVG}{progress}</span>'
     )
 
 
@@ -402,11 +486,15 @@ def _render_mission(mission: BoardMission) -> str:
 
 
 def _render_unit(unit: BoardUnit, accent: str | None, overlay: BoardOverlay | None) -> str:
-    team_class = "board-team-accent" if unit.team == accent else "board-team-ink"
+    team_class = "board-team-accent" if unit.team == accent else "board-team-rival"
     role_class = f"board-role-{html.escape(unit.role)}"
     shape = _ROLE_SHAPES.get(unit.role, _DEFAULT_SHAPE)
     glyph = f'<svg class="board-glyph" viewBox="0 0 24 24" aria-hidden="true">{shape}</svg>'
-    carry = '<span class="board-carry" aria-hidden="true"></span>' if unit.carrying > 0 else ""
+    carry = (
+        f'<span class="board-carry" data-carry="{unit.carrying}" aria-hidden="true"></span>'
+        if unit.carrying > 0
+        else ""
+    )
     at = f"({unit.x}, {unit.y})"
     area = _grid_area(unit.x, unit.y)
 
@@ -415,6 +503,13 @@ def _render_unit(unit: BoardUnit, accent: str | None, overlay: BoardOverlay | No
         return (
             f'<span class="board-unit {team_class} {role_class} board-unit-selected" '
             f'style="{area}" role="img" aria-label="{label}">{glyph}{carry}</span>'
+        )
+    if overlay is not None and unit.unit_id in overlay.staged_units:
+        href = html.escape(overlay.staged_units[unit.unit_id])
+        label = html.escape(f"{unit.unit_id} ({unit.role}) — order planned; change it")
+        return (
+            f'<a class="board-unit {team_class} {role_class} board-unit-staged" '
+            f'style="{area}" href="{href}" aria-label="{label}">{glyph}{carry}</a>'
         )
     if overlay is not None and unit.unit_id in overlay.select_hrefs:
         href = html.escape(overlay.select_hrefs[unit.unit_id])
@@ -428,6 +523,20 @@ def _render_unit(unit: BoardUnit, accent: str | None, overlay: BoardOverlay | No
         f'<span class="board-unit {team_class} {role_class}" style="{area}" '
         f'role="img" aria-label="{label}">{glyph}{carry}</span>'
     )
+
+
+def _render_staged_marks(overlay: BoardOverlay) -> list[str]:
+    rendered = []
+    for mark in overlay.staged_marks:
+        area = _grid_area(mark.x, mark.y)
+        label = html.escape(f"Planned: {mark.unit_id} {mark.verb} here")
+        verb = html.escape(mark.verb)
+        rendered.append(
+            f'<span class="board-staged-mark" data-verb="{verb}" style="{area}" '
+            f'role="img" aria-label="{label}"><span class="board-staged-chip" '
+            f'aria-hidden="true">{verb}</span></span>'
+        )
+    return rendered
 
 
 def _render_controls(overlay: BoardOverlay, selected_cell: tuple[int, int] | None) -> list[str]:
@@ -445,31 +554,24 @@ def _render_controls(overlay: BoardOverlay, selected_cell: tuple[int, int] | Non
             # never fire an unnamed action — even when there is only one.
             classes = "board-target board-target-stack board-target-self"
         elif len(controls) == 1:
-            rendered.append(_render_single_control(controls[0], overlay.form_action, area))
+            rendered.append(_render_single_control(controls[0], area))
             continue
         else:
             classes = "board-target board-target-stack"
-        stacked = "".join(
-            _render_stacked_control(control, overlay.form_action) for control in controls
-        )
+        stacked = "".join(_render_stacked_control(control) for control in controls)
         rendered.append(f'<div class="{classes}" style="{area}">{stacked}</div>')
     return rendered
 
 
-def _render_single_control(control: CellControl, form_action: str, area: str) -> str:
+def _render_single_control(control: CellControl, area: str) -> str:
     return (
-        f'<form method="post" action="{html.escape(form_action)}" class="board-target" '
-        f'style="{area}">'
-        f'<input type="hidden" name="action" value="{html.escape(control.value)}">'
-        f'<button type="submit" class="board-target-btn" '
-        f'aria-label="{html.escape(control.label)}"></button></form>'
+        f'<a class="board-target board-target-link" style="{area}" '
+        f'href="{html.escape(control.href)}" aria-label="{html.escape(control.label)}"></a>'
     )
 
 
-def _render_stacked_control(control: CellControl, form_action: str) -> str:
+def _render_stacked_control(control: CellControl) -> str:
     return (
-        f'<form method="post" action="{html.escape(form_action)}">'
-        f'<input type="hidden" name="action" value="{html.escape(control.value)}">'
-        f'<button type="submit" class="board-target-btn board-verb-btn" '
-        f'aria-label="{html.escape(control.label)}">{html.escape(control.verb)}</button></form>'
+        f'<a class="board-target-btn board-verb-btn" href="{html.escape(control.href)}" '
+        f'aria-label="{html.escape(control.label)}">{html.escape(control.verb)}</a>'
     )

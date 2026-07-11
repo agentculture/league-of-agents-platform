@@ -251,18 +251,20 @@ def call_page(
     method: str,
     path: str,
     *,
-    form: dict[str, str] | None = None,
+    form: dict[str, str | list[str]] | None = None,
     session: sessions.Session | None = None,
     session_key_present: bool = True,
     headers: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str], str]:
     """Minimal WSGI test client for HTML page surfaces.
 
-    ``form`` is sent urlencoded (the browser's default form encoding);
-    ``session`` (or ``None`` for anonymous) is stored under
-    ``SESSION_ENVIRON_KEY`` the way ``with_auth`` would. A ``?query`` suffix
-    on *path* becomes ``QUERY_STRING``, the way a WSGI server would split a
-    request target. Returns ``(status, headers, body_text)``.
+    ``form`` is sent urlencoded (the browser's default form encoding); a
+    list value becomes a repeated field, the way a staged plan submits one
+    ``order`` input per planned unit. ``session`` (or ``None`` for
+    anonymous) is stored under ``SESSION_ENVIRON_KEY`` the way ``with_auth``
+    would. A ``?query`` suffix on *path* becomes ``QUERY_STRING``, the way a
+    WSGI server would split a request target. Returns
+    ``(status, headers, body_text)``.
     """
     captured: dict[str, Any] = {}
 
@@ -272,7 +274,7 @@ def call_page(
         captured["status"] = status
         captured["headers"] = dict(response_headers)
 
-    raw_body = urlencode(form).encode("utf-8") if form is not None else b""
+    raw_body = urlencode(form, doseq=True).encode("utf-8") if form is not None else b""
     path, _, query_string = path.partition("?")
     environ: dict[str, Any] = {
         "REQUEST_METHOD": method,

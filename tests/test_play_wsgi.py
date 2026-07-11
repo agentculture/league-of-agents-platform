@@ -287,20 +287,25 @@ def test_submit_turn_applies_the_action_and_redirects_back() -> None:
     assert reloaded.game_state["scores"][participant.participant_id] == 3
 
 
-def test_submit_turn_not_in_legal_actions_is_400_with_no_state_change() -> None:
+def test_submit_turn_not_in_legal_actions_redirects_with_a_notice_and_no_state_change() -> None:
+    """The usual cause is a double-tap racing the turn it already played
+    (2026-07-11 feedback round: a raw 400 read as breakage), so the refusal
+    is a redirect back to the fresh board with an honest notice — the
+    engine still never sees the string."""
     app, store = _build()
     session = session_for(subject="42")
     match = _create_match(store, human_participant(session))
 
     for value in ('{"points": 99}', "not json", ""):
-        status, _, _ = call_page(
+        status, headers, _ = call_page(
             app,
             "POST",
             f"/play/matches/{match.match_id}/turns",
             form={"action": value},
             session=session,
         )
-        assert status == "400 Bad Request", value
+        assert status == "303 See Other", value
+        assert headers["Location"] == f"/play/matches/{match.match_id}?notice=illegal", value
 
     assert store.load(match.match_id).turns == []
 
@@ -335,7 +340,10 @@ def test_submit_turn_as_non_participant_is_403_with_no_state_change() -> None:
     assert store.load(match.match_id).turns == []
 
 
-def test_submit_turn_on_a_completed_match_is_409() -> None:
+def test_submit_turn_on_a_completed_match_redirects_to_the_final_view() -> None:
+    """Most commonly a double-tap on the final turn: the first submit
+    finished the match. The play view (final score, replay link) is the
+    honest answer, not a conflict page — and nothing plays twice."""
     app, store = _build()
     session = session_for(subject="42")
     participant = human_participant(session)
@@ -345,14 +353,15 @@ def test_submit_turn_on_a_completed_match_is_409() -> None:
     match.complete(engine)
     store.save(match)
 
-    status, _, _ = call_page(
+    status, headers, _ = call_page(
         app,
         "POST",
         f"/play/matches/{match.match_id}/turns",
         form={"action": '{"points": 1}'},
         session=session,
     )
-    assert status == "409 Conflict"
+    assert status == "303 See Other"
+    assert headers["Location"] == f"/play/matches/{match.match_id}"
     assert len(store.load(match.match_id).turns) == 1
 
 
