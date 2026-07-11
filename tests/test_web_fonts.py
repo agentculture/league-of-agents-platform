@@ -292,18 +292,33 @@ def test_shell_head_preloads_both_fonts_before_the_stylesheet(path: str) -> None
 
 def test_font_preloads_are_same_origin_and_no_external_font_is_fetched() -> None:
     """Every ``<head>`` ``<link href=...>`` (preloads included) is
-    same-origin, and there's no third-party font CDN anywhere in the page."""
+    same-origin, and there's no third-party font CDN anywhere in the page.
+
+    The off-origin scan is scoped to *fetched* references (``src=``,
+    ``<link href>``, ``url(...)``) rather than the whole ``<head>`` string:
+    the Open Graph / Twitter Card ``<meta ... content="https://...">`` tags
+    (platform t11) legitimately carry the site's absolute canonical and
+    ``og:image`` URLs, which are metadata for link-preview scrapers — never a
+    resource the browser fetches on the visitor's behalf. This mirrors
+    ``tests/test_web_raw_surface.py``'s no-external-fetch contract, which
+    checks the same fetchable attributes."""
     import re
 
     text = _get(_shelled(), "/index")[2].decode("utf-8")
     head = _head_html(text)
-    for href in re.findall(r"""<link\b[^>]*\bhref=["']([^"']*)["']""", head):
+    link_hrefs = re.findall(r"""<link\b[^>]*\bhref=["']([^"']*)["']""", head)
+    for href in link_hrefs:
         assert href.startswith("/") and not href.startswith("//"), href
-    for banned in (
-        "fonts.googleapis.com",
-        "fonts.gstatic.com",
-        "use.typekit",
-        "https://",
-        "http://",
-    ):
+    # No font CDN, in any form, anywhere in the head.
+    for banned in ("fonts.googleapis.com", "fonts.gstatic.com", "use.typekit"):
         assert banned not in head, banned
+    # No *fetched* reference (src=, <link href>, url(...)) may be off-origin
+    # (absolute http(s):// or protocol-relative //host). <meta content=> is
+    # deliberately excluded — see the docstring.
+    fetched = (
+        re.findall(r"""\bsrc=["']([^"']*)["']""", head)
+        + link_hrefs
+        + re.findall(r'url\(\s*[\'"]?([^\'")]+)[\'"]?\s*\)', head)
+    )
+    for ref in fetched:
+        assert re.match(r"(?:https?:)?//", ref) is None, f"externally-fetched reference: {ref}"

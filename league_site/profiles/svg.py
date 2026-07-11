@@ -36,13 +36,18 @@ from league_site.profiles.data import Profile
 from league_site.ratings.ledger import RatingEntry
 
 # --- palette (mirrors league_site/web/theme.py's dark-scheme tokens) -------
-_BG = "#12151a"
-_SURFACE = "#1b1f27"
-_TEXT = "#e6e9ef"
-_TEXT_MUTED = "#a3adc2"
-_BORDER = "#2b313d"
-_ACCENT = "#ff8a3d"
-_ACCENT_INK = "#14171c"
+# The "dawn" identity's dark scheme (agentculture.org, adopted in t5). These
+# are literal opaque hex because a standalone card served to third-party
+# fetchers can't resolve CSS custom properties or rely on alpha compositing
+# being predictable across renderers — so ``_BORDER`` is the dark ``--border``
+# token (rgba(233,236,248,.14)) flattened over ``--bg`` (#0b0f20).
+_BG = "#0b0f20"
+_SURFACE = "#161b36"
+_TEXT = "#e9ecf8"
+_TEXT_MUTED = "#a9b0cf"
+_BORDER = "#2a2e3e"
+_ACCENT = "#7fdcc9"
+_ACCENT_INK = "#0b0f20"
 
 # --- fonts (mirror the *stacks*, not the exact CSS var, from theme.py's
 # _FONT_MONO / _FONT_SANS — SVG text needs a font-family attribute, not a
