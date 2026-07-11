@@ -72,6 +72,23 @@ def anonymous_token(message: str) -> ApiError:
     return ApiError("401 Unauthorized", "anonymous_token", message)
 
 
+def blocked_credential(message: str = "this credential is blocked") -> ApiError:
+    """``403 Forbidden`` — the presented bearer credential is blocked (task t4).
+
+    The request-side rendering of
+    :class:`league_site.auth.tokens.BlockedTokenError`: either the token's own
+    record was blocked by an operator, or its owning account was — the two are
+    deliberately indistinguishable here (and the ``message``, passed through
+    from the exception, leaks nothing beyond "this credential is blocked": no
+    agent name, token id, or account id). Distinct ``code`` (``"blocked"``)
+    from :func:`forbidden` so a caller can tell a kill-switched credential from
+    an ordinary non-participant refusal. Raised nowhere directly:
+    :func:`league_site.api.wsgi.with_api` catches the exception and builds this
+    at the dispatch boundary, exactly as it does for :func:`anonymous_token`.
+    """
+    return ApiError("403 Forbidden", "blocked", message)
+
+
 def forbidden(message: str = "not a participant of this match") -> ApiError:
     """``403 Forbidden`` — the request cannot act on this match.
 

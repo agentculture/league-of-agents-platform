@@ -135,3 +135,28 @@ class DynamoDBAccountStore(AccountStore):
             raise AccountNotFoundError(account_id)
         updated = dataclasses.replace(existing, blocked=blocked, updated_at=utcnow())
         self._table.put_item(Item=_to_item(updated))
+
+    def list_all(self) -> list[AccountRecord]:
+        """Return every account record via a paginated, entity-type-filtered scan.
+
+        Accounts share the physical agent-tokens table (see the module
+        docstring), so the scan filters to ``entity_type == "account"`` to
+        return only account rows, never the ``TOKEN#*`` items alongside them.
+        The filter is applied server-side (``FilterExpression``) *and*
+        re-checked client-side so this stays correct against a scan that
+        doesn't filter for real. O(n) in the table's items at launch scale —
+        the same tradeoff :meth:`DynamoDBTokenStore.list_all` documents.
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        records: list[AccountRecord] = []
+        scan_kwargs: dict[str, Any] = {"FilterExpression": Attr("entity_type").eq("account")}
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                if item.get("entity_type") == "account":
+                    records.append(_from_item(item))
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                return records
+            scan_kwargs["ExclusiveStartKey"] = last_key

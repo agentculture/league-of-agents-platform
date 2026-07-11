@@ -34,6 +34,15 @@ resolves to ``None``) whose message names the new onboarding path so the
 agent's operator knows to re-mint under a human account. No migration script,
 no data deletion: the anonymous records stay in the store (audit trail
 intact) but simply stop passing verification.
+
+Operator blocking (task t4). :func:`verify` also enforces a two-level
+operator kill-switch, both surfaced as a *distinguishable*
+:class:`BlockedTokenError` (rendered as a clean ``403`` at the API boundary):
+a token whose own record carries ``blocked=True``, and — when an
+:class:`~league_site.accounts.store.AccountStore` is passed — a token whose
+``owner_account_id`` resolves to a blocked account (so blocking one human
+denies every token they minted). Each denial is a single store write the
+auth path reads on the next request; see :func:`verify`.
 """
 
 from __future__ import annotations
@@ -46,8 +55,12 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 from league_site.auth.token_store import TokenRecord, TokenStore
+
+if TYPE_CHECKING:  # pragma: no cover - typing-only import, no runtime cost/cycle
+    from league_site.accounts.store import AccountStore
 
 TOKEN_PREFIX = "loa_"  # nosec B105 - public token-format prefix, not a credential
 
@@ -165,6 +178,31 @@ class AnonymousTokenError(Exception):
             f"{SITE_ORIGIN} and re-mint it from their account "
             f"(see {ONBOARDING_URL})"
         )
+
+
+class BlockedTokenError(Exception):
+    """A presented bearer credential is blocked (task t4's operator kill-switch).
+
+    Raised by :func:`verify` — like :class:`AnonymousTokenError`, a
+    *distinguishable* non-``None`` failure (unlike the uniform ``None`` for an
+    absent/invalid/revoked token) — for either of two operator-set denials,
+    both read live from the store on the request that hits them:
+
+    * **Token-level** — the token's own record carries ``blocked=True``
+      (:meth:`league_site.auth.token_store.TokenStore.set_blocked`).
+    * **Account-level** — the token's ``owner_account_id`` resolves to an
+      account with ``blocked=True`` in the account store passed to
+      :func:`verify`, so blocking one human denies every token they minted.
+
+    The two are deliberately *not* distinguished in the raised error: the
+    message says only that the credential is blocked, leaking nothing about
+    whether it was the token or its owning account, nor which account.
+    :mod:`league_site.api.wsgi` catches it and renders a clean ``403 blocked``
+    (:func:`league_site.api.errors.blocked_credential`).
+    """
+
+    def __init__(self) -> None:
+        super().__init__("this credential is blocked")
 
 
 class TokenIssuanceRefusedError(Exception):
@@ -346,7 +384,12 @@ def identity_key(identity: AgentTokenIdentity) -> str:
     return f"agent:{identity.agent_name}:{identity.model}:{identity.provider}"
 
 
-def verify(store: TokenStore, token: str | None) -> AgentTokenIdentity | None:
+def verify(
+    store: TokenStore,
+    token: str | None,
+    *,
+    account_store: AccountStore | None = None,
+) -> AgentTokenIdentity | None:
     """Resolve a bearer token to its agent identity.
 
     ``None`` covers every *silent* failure mode uniformly — a falsy ``token``,
@@ -356,15 +399,36 @@ def verify(store: TokenStore, token: str | None) -> AgentTokenIdentity | None:
     candidate's hash with ``hmac.compare_digest`` for constant-time
     comparison.
 
-    The one *non*-``None`` failure is the anonymous-token hard cutoff (task
-    t6): a live, non-revoked record whose ``owner_account_id is None`` — a
-    token minted before agent tokens were anchored to a human account — raises
-    :class:`AnonymousTokenError` instead of resolving. Raising (not returning
-    ``None``) makes the cutoff *distinguishable* so the API can point the
-    agent's operator at the new onboarding path rather than at a generic
-    "unauthorized"; see that exception's docstring. The revoked check runs
-    first, so a revoked anonymous token is still the uniform ``None`` (a
-    revoked token is gone regardless of who owned it).
+    Two *non*-``None`` failures make a refusal distinguishable (each raised so
+    the API can render a specific status/message rather than a generic
+    "unauthorized"), checked in this order after the uniform-``None`` gates:
+
+    1. **Blocked token** (task t4) — the record carries ``blocked=True``, an
+       operator kill-switch flipped via
+       :meth:`league_site.auth.token_store.TokenStore.set_blocked`. Raises
+       :class:`BlockedTokenError`. Checked before the anonymous cutoff so an
+       explicit operator block is reported as such even for a legacy token.
+    2. **Anonymous token** (task t6) — a live, non-revoked record whose
+       ``owner_account_id is None``, minted before agent tokens were anchored
+       to a human account. Raises :class:`AnonymousTokenError`.
+    3. **Blocked account** (task t4) — only when ``account_store`` is passed:
+       the record's ``owner_account_id`` resolves there to an account with
+       ``blocked=True``, so blocking one human denies every token they minted.
+       Raises :class:`BlockedTokenError` (the *same* error as a token-level
+       block — the refusal never reveals whether the token or its owner was
+       the blocked one).
+
+    The revoked check runs first, so a revoked-and-blocked (or revoked
+    anonymous) token is still the uniform ``None`` — a revoked token is gone
+    regardless of any other flag.
+
+    Cost: the account-level check is the *only* extra store read this function
+    performs, at most one ``account_store.get`` per verify and only for a token
+    that already resolved to a live, owned record. The flag is read fresh every
+    call — an operator's single-write block/unblock is honoured on the very
+    next request, with no caching to wait out. (A short-TTL cache is the
+    documented future mitigation if that per-request ``get`` ever bites
+    latency — parked risk r3; it must not delay a flip beyond one request.)
     """
     if not token:
         return None
@@ -376,8 +440,14 @@ def verify(store: TokenStore, token: str | None) -> AgentTokenIdentity | None:
         return None
     if record.revoked:
         return None
+    if record.blocked:
+        raise BlockedTokenError()
     if record.owner_account_id is None:
         raise AnonymousTokenError()
+    if account_store is not None:
+        account = account_store.get(record.owner_account_id)
+        if account is not None and account.blocked:
+            raise BlockedTokenError()
     return _identity_from_record(record)
 
 

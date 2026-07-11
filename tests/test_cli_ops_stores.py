@@ -164,3 +164,82 @@ def test_guard_aws_call_reraises_match_errors_unwrapped() -> None:
 
 def test_ephemeral_note_mentions_the_env_var() -> None:
     assert _stores.MATCHES_TABLE_ENV in _stores.EPHEMERAL_NOTE
+
+
+# --- token / account store resolution (t4) -----------------------------------
+
+
+def test_resolve_token_store_defaults_to_ephemeral_in_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from league_site.auth.token_store import InMemoryTokenStore
+
+    monkeypatch.delenv(_stores.TOKENS_TABLE_ENV, raising=False)
+    store, ephemeral = _stores.resolve_token_store()
+    assert ephemeral is True
+    assert isinstance(store, InMemoryTokenStore)
+
+
+@pytest.mark.usefixtures("_isolated_aws_config")
+def test_resolve_token_store_uses_dynamodb_when_table_env_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from league_site.auth.aws_tokens import DynamoDBTokenStore
+
+    monkeypatch.setenv(_stores.TOKENS_TABLE_ENV, "league-agent-tokens")
+    store, ephemeral = _stores.resolve_token_store()
+    assert ephemeral is False
+    assert isinstance(store, DynamoDBTokenStore)
+
+
+def test_resolve_token_store_translates_missing_boto3_to_env_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import league_site.auth.aws_tokens as aws_tokens
+
+    monkeypatch.setenv(_stores.TOKENS_TABLE_ENV, "league-agent-tokens")
+    monkeypatch.setattr(aws_tokens, "boto3", None)
+    with pytest.raises(CliError) as exc_info:
+        _stores.resolve_token_store()
+    assert exc_info.value.code == EXIT_ENV_ERROR
+    assert "boto3" in exc_info.value.remediation
+
+
+def test_resolve_account_store_defaults_to_ephemeral_in_memory(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from league_site.accounts.store import InMemoryAccountStore
+
+    monkeypatch.delenv(_stores.TOKENS_TABLE_ENV, raising=False)
+    store, ephemeral = _stores.resolve_account_store()
+    assert ephemeral is True
+    assert isinstance(store, InMemoryAccountStore)
+
+
+@pytest.mark.usefixtures("_isolated_aws_config")
+def test_resolve_account_store_uses_dynamodb_when_table_env_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from league_site.accounts.aws import DynamoDBAccountStore
+
+    monkeypatch.setenv(_stores.TOKENS_TABLE_ENV, "league-agent-tokens")
+    store, ephemeral = _stores.resolve_account_store()
+    assert ephemeral is False
+    assert isinstance(store, DynamoDBAccountStore)
+
+
+def test_resolve_account_store_translates_missing_boto3_to_env_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import league_site.accounts.aws as accounts_aws
+
+    monkeypatch.setenv(_stores.TOKENS_TABLE_ENV, "league-agent-tokens")
+    monkeypatch.setattr(accounts_aws, "boto3", None)
+    with pytest.raises(CliError) as exc_info:
+        _stores.resolve_account_store()
+    assert exc_info.value.code == EXIT_ENV_ERROR
+    assert "boto3" in exc_info.value.remediation
+
+
+def test_tokens_ephemeral_note_mentions_the_env_var() -> None:
+    assert _stores.TOKENS_TABLE_ENV in _stores.TOKENS_EPHEMERAL_NOTE

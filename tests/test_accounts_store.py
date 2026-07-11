@@ -191,3 +191,48 @@ def test_account_not_found_error_carries_the_offending_id() -> None:
     error = AccountNotFoundError("github:missing")
     assert error.account_id == "github:missing"
     assert "github:missing" in str(error)
+
+
+# --- list_all (t4 operator listing) ------------------------------------------
+
+
+def test_list_all_returns_every_account() -> None:
+    store = InMemoryAccountStore()
+    store.upsert(_record(provider_user_id="1"))
+    store.upsert(_record(provider_user_id="2"))
+
+    ids = {record.account_id for record in store.list_all()}
+    assert ids == {account_id_for("github", "1"), account_id_for("github", "2")}
+
+
+def test_list_all_reflects_blocked_state() -> None:
+    store = InMemoryAccountStore()
+    store.upsert(_record(provider_user_id="1"))
+    store.upsert(_record(provider_user_id="2"))
+    store.set_blocked(account_id_for("github", "1"), True)
+
+    blocked_by_id = {record.account_id: record.blocked for record in store.list_all()}
+    assert blocked_by_id[account_id_for("github", "1")] is True
+    assert blocked_by_id[account_id_for("github", "2")] is False
+
+
+def test_list_all_on_an_empty_store_is_empty() -> None:
+    assert InMemoryAccountStore().list_all() == []
+
+
+def test_account_store_list_all_default_raises_not_implemented() -> None:
+    """The base-class default documents the contract concrete stores grow
+    (see the DynamoDB adapter) — same pattern as ``TokenStore.list_all``."""
+
+    class _Bare(AccountStore):
+        def get(self, account_id: str) -> AccountRecord | None:  # pragma: no cover - unused
+            raise AssertionError
+
+        def upsert(self, record: AccountRecord) -> AccountRecord:  # pragma: no cover - unused
+            raise AssertionError
+
+        def set_blocked(self, account_id: str, blocked: bool) -> None:  # pragma: no cover
+            raise AssertionError
+
+    with pytest.raises(NotImplementedError):
+        _Bare().list_all()

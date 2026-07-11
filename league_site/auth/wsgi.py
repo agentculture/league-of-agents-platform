@@ -28,7 +28,10 @@ Route behavior:
   refused ``401 authentication_required`` with a message naming the onboarding
   path (a human signs in at the site and mints the token from their account),
   since agent tokens are now anchored to the human account that mints them —
-  the accountability unit the rest of the platform hangs off. With a session,
+  the accountability unit the rest of the platform hangs off. A signed-in but
+  **operator-blocked** account (task t4) is refused ``403 account_blocked`` —
+  the session is valid, the account is kill-switched — checked with one cheap
+  ``account_store.get`` before anything is minted. With a session,
   JSON body ``{"name", "model", "provider"}`` in; ``201 {"token": "loa_...",
   "identity": "agent:..."}`` out — the only moment the plaintext token is
   ever shown (see :mod:`league_site.auth.tokens`) — and the stored
@@ -131,7 +134,9 @@ def with_auth(
         if path == _LOGOUT_PATH:
             return _logout(environ, start_response)
         if path == _AGENTS_PATH:
-            return _issue_agent_token(environ, start_response, token_store, resolved_cap, clock)
+            return _issue_agent_token(
+                environ, start_response, token_store, account_store, resolved_cap, clock
+            )
 
         return app(environ, start_response)
 
@@ -310,6 +315,7 @@ def _issue_agent_token(
     environ: dict[str, Any],
     start_response: Any,
     token_store: TokenStore | None,
+    account_store: AccountStore | None,
     hourly_cap: int,
     clock: Callable[[], datetime] | None,
 ) -> list[bytes]:
@@ -339,6 +345,22 @@ def _issue_agent_token(
             f"{tokens.SITE_ORIGIN} and mint the token from their account "
             f"(see {tokens.ONBOARDING_URL})",
         )
+    # Task t4: a blocked human account cannot mint new tokens. The session is
+    # valid (authenticated) but the account is kill-switched, so this is a 403,
+    # not the 401 above. Cheap: one account-store ``get`` on the already-known
+    # ``session.account_id``, and only when an account store is wired -- the
+    # same single store the OAuth callback writes to and the operator CLI
+    # (``league-site accounts block``) flips, so a block takes effect on the
+    # next mint attempt with no restart. Nothing is minted on refusal.
+    if account_store is not None:
+        account = account_store.get(session.account_id)
+        if account is not None and account.blocked:
+            return _json_error(
+                start_response,
+                "403 Forbidden",
+                "account_blocked",
+                "this account is blocked and cannot mint agent tokens",
+            )
     body, error = _read_json_object(environ)
     if body is None:
         return _json_error(start_response, "400 Bad Request", "bad_request", error or "")

@@ -103,6 +103,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 from urllib.parse import parse_qs
 
+from league_site.accounts.store import AccountStore
 from league_site.api import errors
 from league_site.api.engines import DEFAULT_MODE
 from league_site.api.identity import (
@@ -156,6 +157,7 @@ def with_api(
     match_store: MatchStore | None = None,
     token_store: TokenStore | None = None,
     ledger_store: RatingLedgerStore | None = None,
+    account_store: AccountStore | None = None,
     engine_registry: EngineRegistry | None = None,
     rating_system: RatingSystem | None = None,
     capacity_config: CapacityConfig | None = None,
@@ -169,6 +171,16 @@ def with_api(
     pre-issue agent tokens on the ``token_store``, or to simulate a
     process restart by handing a *new* :class:`~league_site.matches.
     store.InMemoryMatchStore` a copy of a previous one's serialized items.
+
+    ``account_store`` is the one exception to the "default to in-memory" rule:
+    it defaults to ``None``, meaning account-level blocking (task t4) is simply
+    not enforced on this surface (token-level blocking, read straight off the
+    token record, always is). A fresh empty account store would be pointless —
+    it would share nothing with the store the OAuth callback writes accounts
+    to. :func:`league_site.web.http.site_app` passes that *shared* store here,
+    so an operator ``accounts block`` is read live (one extra
+    ``account_store.get`` per authenticated bearer request, only for a token
+    that already resolved) on the very next request — no restart, no cache.
 
     ``capacity_config`` defaults to :meth:`~league_site.capacity.config.
     CapacityConfig.from_env`, read exactly once here (at construction, i.e.
@@ -184,6 +196,14 @@ def with_api(
     matches = match_store if match_store is not None else InMemoryMatchStore()
     agent_tokens = token_store if token_store is not None else InMemoryTokenStore()
     ledger = ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
+    # ``account_store`` is left ``None`` when not injected -- unlike the other
+    # stores it is *not* defaulted to a fresh in-memory instance, because a
+    # fresh empty account store would be pointless here (it would share nothing
+    # with the OAuth callback's store). ``None`` simply means account-level
+    # blocking isn't enforced on this surface (token-level blocking always is);
+    # league_site.web.http.site_app passes the same store the callback writes to
+    # so an operator account-block is read live on the next request. Task t4.
+    accounts = account_store
     registry: EngineRegistry = (
         dict(engine_registry) if engine_registry is not None else default_engine_registry()
     )
@@ -207,7 +227,18 @@ def with_api(
                 registry=registry,
                 ratings=ratings,
                 capacity=capacity,
+                accounts=accounts,
             )
+        except tokens.BlockedTokenError as exc:
+            # Task t4's operator kill-switch surfaces here: bearer resolution
+            # (resolve_identity -> tokens.verify) raises this when the token --
+            # or, with an account store wired, its owning account -- is
+            # blocked. Render it as a clean 403 whose short message leaks
+            # nothing beyond "blocked" -- see league_site.api.errors.
+            # blocked_credential.
+            api_error = errors.blocked_credential(str(exc))
+            body: dict[str, Any] = {"code": api_error.code, "message": str(api_error)}
+            return _json_response(start_response, api_error.status, body)
         except tokens.AnonymousTokenError as exc:
             # Task t6's hard cutoff surfaces here: bearer resolution
             # (resolve_identity -> tokens.verify) raises this for a token
@@ -215,7 +246,7 @@ def with_api(
             # Render it as a distinguishable 401 whose message names the new
             # onboarding path -- see league_site.api.errors.anonymous_token.
             api_error = errors.anonymous_token(str(exc))
-            body: dict[str, Any] = {"code": api_error.code, "message": str(api_error)}
+            body = {"code": api_error.code, "message": str(api_error)}
             return _json_response(start_response, api_error.status, body)
         except errors.ApiError as exc:
             body = {"code": exc.code, "message": str(exc)}
@@ -251,6 +282,7 @@ def _dispatch(
     registry: EngineRegistry,
     ratings: RatingSystem,
     capacity: CapacityConfig,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     if path == _LEADERBOARD_PATH:
         _require_method(method, "GET")
@@ -258,24 +290,35 @@ def _dispatch(
 
     if _MATCHES_PATH.match(path):
         _require_method(method, "POST")
-        return _handle_create_match(environ, matches, agent_tokens, registry, capacity)
+        return _handle_create_match(environ, matches, agent_tokens, registry, capacity, accounts)
 
     turns_match = _MATCH_TURNS_PATH.match(path)
     if turns_match:
         _require_method(method, "POST")
         return _handle_take_turn(
-            turns_match.group("match_id"), environ, matches, agent_tokens, registry, ledger, ratings
+            turns_match.group("match_id"),
+            environ,
+            matches,
+            agent_tokens,
+            registry,
+            ledger,
+            ratings,
+            accounts,
         )
 
     pause_match = _MATCH_PAUSE_PATH.match(path)
     if pause_match:
         _require_method(method, "POST")
-        return _handle_pause(pause_match.group("match_id"), environ, matches, agent_tokens)
+        return _handle_pause(
+            pause_match.group("match_id"), environ, matches, agent_tokens, accounts
+        )
 
     resume_match = _MATCH_RESUME_PATH.match(path)
     if resume_match:
         _require_method(method, "POST")
-        return _handle_resume(resume_match.group("match_id"), environ, matches, agent_tokens)
+        return _handle_resume(
+            resume_match.group("match_id"), environ, matches, agent_tokens, accounts
+        )
 
     score_match = _MATCH_SCORE_PATH.match(path)
     if score_match:
@@ -304,8 +347,9 @@ def _handle_create_match(
     agent_tokens: TokenStore,
     registry: EngineRegistry,
     capacity: CapacityConfig,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
-    identity = _require_identity(environ, agent_tokens)
+    identity = _require_identity(environ, agent_tokens, accounts)
     decision = check_capacity(matches, capacity)
     if isinstance(decision, Refusal):
         raise errors.capacity_exceeded(
@@ -353,9 +397,10 @@ def _handle_take_turn(
     registry: EngineRegistry,
     ledger: RatingLedgerStore,
     ratings: RatingSystem,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
-    identity = _require_participant(environ, agent_tokens, match)
+    identity = _require_participant(environ, agent_tokens, match, accounts)
 
     body = _read_json_body(environ)
     action = body.get("action")
@@ -386,10 +431,14 @@ def _handle_take_turn(
 
 
 def _handle_pause(
-    match_id: str, environ: dict[str, Any], matches: MatchStore, agent_tokens: TokenStore
+    match_id: str,
+    environ: dict[str, Any],
+    matches: MatchStore,
+    agent_tokens: TokenStore,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
-    _require_participant(environ, agent_tokens, match)
+    _require_participant(environ, agent_tokens, match, accounts)
     try:
         match.pause()
     except InvalidTransitionError as exc:
@@ -399,10 +448,14 @@ def _handle_pause(
 
 
 def _handle_resume(
-    match_id: str, environ: dict[str, Any], matches: MatchStore, agent_tokens: TokenStore
+    match_id: str,
+    environ: dict[str, Any],
+    matches: MatchStore,
+    agent_tokens: TokenStore,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
-    _require_participant(environ, agent_tokens, match)
+    _require_participant(environ, agent_tokens, match, accounts)
     try:
         match.resume()
     except InvalidTransitionError as exc:
@@ -460,25 +513,41 @@ def _load_match(matches: MatchStore, match_id: str) -> Match:
         raise errors.not_found(str(exc)) from exc
 
 
-def _require_identity(environ: dict[str, Any], agent_tokens: TokenStore) -> RequestIdentity:
-    """Resolve the request's identity, raising ``401`` if there is none at all."""
-    identity = resolve_identity(environ, agent_tokens)
+def _require_identity(
+    environ: dict[str, Any], agent_tokens: TokenStore, accounts: AccountStore | None
+) -> RequestIdentity:
+    """Resolve the request's identity, raising ``401`` if there is none at all.
+
+    A blocked token (or, with *accounts* wired, a token owned by a blocked
+    account) does not resolve to ``None`` here — it raises
+    :class:`league_site.auth.tokens.BlockedTokenError`, caught upstream in
+    :func:`with_api` and rendered ``403 blocked``; it never falls through to
+    the ``401`` below.
+    """
+    identity = resolve_identity(environ, agent_tokens, accounts)
     if identity is None:
         raise errors.unauthorized()
     return identity
 
 
 def _require_participant(
-    environ: dict[str, Any], agent_tokens: TokenStore, match: Match
+    environ: dict[str, Any],
+    agent_tokens: TokenStore,
+    match: Match,
+    accounts: AccountStore | None,
 ) -> RequestIdentity:
     """Resolve the request's identity and require it own a participant of *match*.
 
     Anonymous requests and requests from a real-but-uninvolved identity
     both raise the same ``403`` (see :func:`league_site.api.errors.forbidden`)
     — a participant-only endpoint never distinguishes "no identity" from
-    "wrong identity".
+    "wrong identity". A blocked credential is a *different* ``403``
+    (``blocked``): :func:`resolve_identity` raises
+    :class:`league_site.auth.tokens.BlockedTokenError` before the
+    participant check is even reached, so a kill-switched token never gets to
+    act on a match it *is* a participant of.
     """
-    identity = resolve_identity(environ, agent_tokens)
+    identity = resolve_identity(environ, agent_tokens, accounts)
     participant_ids = {participant.participant_id for participant in match.participants}
     if identity is None or identity.key not in participant_ids:
         raise errors.forbidden()

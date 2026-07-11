@@ -83,7 +83,8 @@ class TokenStore(ABC):
         hourly cap counts records by ``created_at`` (revoked records still
         count — revoking must not refund abuse budget inside the window), and
         the per-name uniqueness rule looks for a *live* (non-revoked) record
-        with the same ``agent_name``. The guard's cap keeps the number of
+        with the same ``agent_name``. It is also the enumeration the operator
+        ``league-site tokens list`` reads. The guard's cap keeps the number of
         records small by construction, so a full scan is an acceptable
         implementation (:meth:`revoke` in the DynamoDB adapter already scans).
 
@@ -94,6 +95,30 @@ class TokenStore(ABC):
         should override it; see :meth:`InMemoryTokenStore.list_all`.
         """
         raise NotImplementedError(f"{type(self).__name__} does not implement TokenStore.list_all()")
+
+    def set_blocked(self, token_id: str, blocked: bool) -> None:
+        """Flip the operator kill-switch ``blocked`` flag on the token ``token_id``.
+
+        The request-time enforcement counterpart of the stored flag: an
+        operator (via ``league-site tokens block|unblock``) sets it, and the
+        auth path reads it on the *next* :func:`league_site.auth.tokens.verify`
+        — a blocked token is refused with no restart, no redeploy, and no cache
+        to wait out. Addresses the record by ``token_id`` (not
+        ``token_hash``), so — like :meth:`revoke` — a store keyed by hash must
+        find it first; the DynamoDB adapter does that with the same
+        scan-then-flip, a single ``update_item`` write.
+
+        Raises :class:`TokenNotFoundError` if no record has that ``token_id``.
+
+        Deliberately *not* ``@abstractmethod``, matching :meth:`list_all`: a
+        pre-existing :class:`TokenStore` subclass (a test double, a partial
+        adapter) stays instantiable, and this default raises
+        :class:`NotImplementedError` until the store grows its own
+        implementation — see :meth:`InMemoryTokenStore.set_blocked`.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement TokenStore.set_blocked()"
+        )
 
 
 class InMemoryTokenStore(TokenStore):
@@ -117,6 +142,13 @@ class InMemoryTokenStore(TokenStore):
         for token_hash, record in self._records.items():
             if record.token_id == token_id:
                 self._records[token_hash] = dataclasses.replace(record, revoked=True)
+                return
+        raise TokenNotFoundError(token_id)
+
+    def set_blocked(self, token_id: str, blocked: bool) -> None:
+        for token_hash, record in self._records.items():
+            if record.token_id == token_id:
+                self._records[token_hash] = dataclasses.replace(record, blocked=blocked)
                 return
         raise TokenNotFoundError(token_id)
 

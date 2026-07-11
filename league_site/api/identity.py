@@ -33,6 +33,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from league_site.accounts.store import AccountStore
 from league_site.auth import tokens
 from league_site.auth.token_store import TokenStore
 from league_site.auth.wsgi import SESSION_ENVIRON_KEY
@@ -58,19 +59,33 @@ def _agent_key(agent_name: str, model: str, provider: str) -> str:
     return f"agent:{agent_name}:{model}:{provider}"
 
 
-def resolve_identity(environ: dict[str, Any], token_store: TokenStore) -> RequestIdentity | None:
+def resolve_identity(
+    environ: dict[str, Any],
+    token_store: TokenStore,
+    account_store: AccountStore | None = None,
+) -> RequestIdentity | None:
     """Resolve the identity behind *environ*, or ``None`` for an anonymous request.
 
     Checks the human session first (cheap: already resolved by
     ``with_auth``), then the ``Authorization`` bearer token against
     *token_store*.
 
-    Propagates :class:`league_site.auth.tokens.AnonymousTokenError` unchanged
-    if the presented bearer token resolves to a pre-account (anonymous-era)
-    record — task t6's hard cutoff. It is *not* flattened to ``None`` here so
-    the failure stays distinguishable; :func:`league_site.api.wsgi.with_api`
-    catches it at the dispatch boundary and renders a ``401 anonymous_token``
-    naming the onboarding path.
+    Propagates two distinguishable bearer-token failures unchanged (neither is
+    flattened to ``None``, so :func:`league_site.api.wsgi.with_api` can catch
+    them at the dispatch boundary and render a specific status):
+
+    * :class:`league_site.auth.tokens.AnonymousTokenError` — the token is a
+      pre-account (anonymous-era) record, task t6's hard cutoff, rendered
+      ``401 anonymous_token`` naming the onboarding path.
+    * :class:`league_site.auth.tokens.BlockedTokenError` — the token, or (when
+      *account_store* is passed) its owning account, is operator-blocked; task
+      t4, rendered ``403 blocked``.
+
+    *account_store* is the single choke point for account-level blocking:
+    passed straight to :func:`league_site.auth.tokens.verify`, which does at
+    most one extra ``get`` on it per authenticated request (only for a token
+    that already resolved). Left ``None`` (the default), only token-level
+    blocking is enforced — the human-session branch never touches it.
     """
     session = environ.get(SESSION_ENVIRON_KEY)
     if session is not None:
@@ -80,7 +95,7 @@ def resolve_identity(environ: dict[str, Any], token_store: TokenStore) -> Reques
             display_name=session.display,
         )
     token = tokens.parse_bearer_token(environ.get("HTTP_AUTHORIZATION"))
-    identity = tokens.verify(token_store, token)
+    identity = tokens.verify(token_store, token, account_store=account_store)
     if identity is not None:
         return RequestIdentity(
             kind=ParticipantKind.AGENT,
