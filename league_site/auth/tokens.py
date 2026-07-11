@@ -15,13 +15,25 @@ timing side-channel can't be used to fish for a valid hash.
 
 Issuance comes in two shapes: :func:`issue` is the raw, unguarded mint (the
 operator path — whoever calls it has already decided the token should
-exist), and :func:`issue_self_serve` is the guarded mint behind the public
-``POST /auth/agents`` endpoint (:mod:`league_site.auth.wsgi`): it refuses a
-name that already has a live token (:class:`AgentNameTakenError`) and
-enforces a rolling one-hour issuance cap across the whole store
-(:class:`IssueCapExceededError`, default :data:`DEFAULT_ISSUE_HOURLY_CAP`,
-deploy-time override via :data:`ISSUE_HOURLY_CAP_ENV` — see
-:func:`issue_hourly_cap_from_env`).
+exist), and :func:`issue_self_serve` is the guarded mint behind the
+session-gated ``POST /auth/agents`` endpoint (:mod:`league_site.auth.wsgi`):
+it refuses a name that already has a live token
+(:class:`AgentNameTakenError`) and enforces a rolling one-hour issuance cap
+*per owning account* (:class:`IssueCapExceededError`, default
+:data:`DEFAULT_ISSUE_HOURLY_CAP`, deploy-time override via
+:data:`ISSUE_HOURLY_CAP_ENV` — see :func:`issue_hourly_cap_from_env`).
+
+Human-anchored tokens (task t6). Every token now carries an
+``owner_account_id`` — the human account that minted it (see
+:class:`~league_site.auth.token_store.TokenRecord`). :func:`verify` **hard
+cuts off anonymous tokens**: a record whose ``owner_account_id is None`` (a
+token minted before agent tokens were anchored to a human account) no longer
+authenticates — :func:`verify` raises :class:`AnonymousTokenError`, a
+*distinguishable* failure (unlike an absent/invalid/revoked token, which
+resolves to ``None``) whose message names the new onboarding path so the
+agent's operator knows to re-mint under a human account. No migration script,
+no data deletion: the anonymous records stay in the store (audit trail
+intact) but simply stop passing verification.
 """
 
 from __future__ import annotations
@@ -38,6 +50,16 @@ from datetime import datetime, timedelta, timezone
 from league_site.auth.token_store import TokenRecord, TokenStore
 
 TOKEN_PREFIX = "loa_"  # nosec B105 - public token-format prefix, not a credential
+
+#: The human-anchored onboarding path every "you need an account-owned token"
+#: refusal points an operator at — both the unauthenticated-mint refusal
+#: (:mod:`league_site.auth.wsgi`) and the anonymous-token cutoff
+#: (:class:`AnonymousTokenError`) name it, so the URL lives in exactly one
+#: place. It is the site's ``/start-agent`` page (the agent onboarding
+#: walkthrough), served at :data:`SITE_ORIGIN`.
+SITE_ORIGIN = "https://league-of-agents.ai"
+ONBOARDING_PATH = "/start-agent"
+ONBOARDING_URL = f"{SITE_ORIGIN}{ONBOARDING_PATH}"
 
 #: How many tokens :func:`issue_self_serve` will mint, store-wide, per
 #: rolling :data:`ISSUE_CAP_WINDOW`. Sized like the capacity caps in
@@ -74,7 +96,13 @@ class AgentTokenIdentity:
     ``agent_name``/``model``/``provider`` are the fields a rated-match
     authorization hook (and the leaderboard) needs. ``token_id`` and
     ``created_at`` identify *this* token, e.g. for :func:`revoke` or
-    auditing. ``revoked`` is always ``False`` on a value returned by
+    auditing. ``owner_account_id`` is the human account the token is anchored
+    to — always non-``None`` on a value returned by :func:`verify` (an
+    anonymous, owner-less record raises :class:`AnonymousTokenError` there
+    instead), so downstream request-identity code (t4 block enforcement,
+    audit) can read the owner straight off the resolved identity; it may be
+    ``None`` on the identity returned by an operator :func:`issue` that minted
+    an anonymous token. ``revoked`` is always ``False`` on a value returned by
     :func:`verify` — a revoked token verifies as ``None`` instead, so
     callers never see a ``True`` here from that path; it only reflects the
     token's state at :func:`issue` time.
@@ -86,6 +114,7 @@ class AgentTokenIdentity:
     provider: str
     created_at: datetime
     revoked: bool = False
+    owner_account_id: str | None = None
 
 
 def _identity_from_record(record: TokenRecord) -> AgentTokenIdentity:
@@ -96,6 +125,7 @@ def _identity_from_record(record: TokenRecord) -> AgentTokenIdentity:
         provider=record.provider,
         created_at=record.created_at,
         revoked=record.revoked,
+        owner_account_id=record.owner_account_id,
     )
 
 
@@ -111,6 +141,30 @@ class IssuedToken:
 
     token: str
     identity: AgentTokenIdentity
+
+
+class AnonymousTokenError(Exception):
+    """A presented bearer token resolves to a pre-account (anonymous) record.
+
+    The hard cutoff of task t6: agent tokens minted before they were anchored
+    to a human account carry ``owner_account_id is None``, and those records no
+    longer authenticate. Raised by :func:`verify` (rather than the uniform
+    ``None`` it returns for an absent/invalid/revoked token) precisely so the
+    failure is *distinguishable*: :mod:`league_site.api.wsgi` catches it and
+    renders a ``401 anonymous_token`` whose message — this one — names the new
+    onboarding path, telling the agent's operator to have a human sign in and
+    re-mint the token from their account. The anonymous record itself is left
+    untouched in the store (no deletion, audit trail intact); it simply stops
+    passing this check.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "this agent token predates human-anchored accounts and no longer "
+            "authenticates: a human must sign in at "
+            f"{SITE_ORIGIN} and re-mint it from their account "
+            f"(see {ONBOARDING_URL})"
+        )
 
 
 class TokenIssuanceRefusedError(Exception):
@@ -146,6 +200,7 @@ def issue(
     agent_name: str,
     model: str,
     provider: str,
+    owner_account_id: str | None = None,
     now: datetime | None = None,
 ) -> IssuedToken:
     """Mint a new agent token bound to ``(agent_name, model, provider)``.
@@ -158,8 +213,15 @@ def issue(
     :func:`league_site.auth.sessions.issue` uses, so tests and
     :func:`issue_self_serve` stay deterministic.
 
-    This is the raw, *unguarded* mint — the operator path. The public
-    self-serve endpoint goes through :func:`issue_self_serve` instead.
+    ``owner_account_id`` anchors the token to the human account that minted it.
+    :func:`issue_self_serve` always passes it (the ``POST /auth/agents`` route
+    is session-gated). It defaults to ``None`` only for the raw operator path —
+    but note a ``None``-owner token will *not* pass :func:`verify` (it is
+    treated as an anonymous, hard-cut-off token), so an operator minting a
+    usable token must supply the owning account id.
+
+    This is the raw, *unguarded* mint — the operator path. The
+    session-gated endpoint goes through :func:`issue_self_serve` instead.
     """
     token = f"{TOKEN_PREFIX}{secrets.token_urlsafe(32)}"
     record = TokenRecord(
@@ -169,6 +231,7 @@ def issue(
         model=model,
         provider=provider,
         created_at=_utcnow() if now is None else now,
+        owner_account_id=owner_account_id,
     )
     store.save(record)
     return IssuedToken(token=token, identity=_identity_from_record(record))
@@ -180,23 +243,39 @@ def issue_self_serve(
     agent_name: str,
     model: str,
     provider: str,
+    owner_account_id: str,
     hourly_cap: int = DEFAULT_ISSUE_HOURLY_CAP,
     now: datetime | None = None,
 ) -> IssuedToken:
-    """Mint a token for an unauthenticated caller, behind the abuse guard.
+    """Mint a token for the signed-in human ``owner_account_id``, behind the abuse guard.
+
+    The ``POST /auth/agents`` route (:mod:`league_site.auth.wsgi`) is now
+    session-gated, so this always mints on behalf of an authenticated human;
+    ``owner_account_id`` is that human's account id (see
+    :attr:`league_site.auth.sessions.Session.account_id`) and is persisted on
+    the minted :class:`~league_site.auth.token_store.TokenRecord`.
 
     Two checks run against ``store.list_all()`` before anything is minted,
     in this order:
 
     1. **Name uniqueness** — a live (non-revoked) record with the same
-       ``agent_name`` raises :class:`AgentNameTakenError`. This condition is
-       permanent for the caller (retrying never helps for that name), so it
-       is reported ahead of the transient cap. Revoking the existing token
-       frees the name.
-    2. **Rolling issuance cap** — if ``hourly_cap`` or more records were
-       created inside the trailing :data:`ISSUE_CAP_WINDOW`, raises
-       :class:`IssueCapExceededError`. Revoked records still count here:
-       revoking must not refund abuse budget inside the window.
+       ``agent_name`` raises :class:`AgentNameTakenError`. Agent names are a
+       *global* namespace (the leaderboard identity is
+       ``agent:<name>:<model>:<provider>``), so this check spans every
+       account, not just ``owner_account_id``. The condition is permanent for
+       the caller (retrying never helps for that name), so it is reported
+       ahead of the transient cap. Revoking the existing token frees the name.
+    2. **Rolling issuance cap** — counted **per account**: if
+       ``owner_account_id`` already has ``hourly_cap`` or more records created
+       inside the trailing :data:`ISSUE_CAP_WINDOW`, raises
+       :class:`IssueCapExceededError`. Per-account (not store-wide) is the
+       right unit now that minting is human-gated — the OAuth sign-in is the
+       real barrier against a scripted flood, and the cap's remaining job is
+       to bound a single account, so one busy account can no longer starve
+       everyone else's budget. It stays cheap: the same single
+       ``list_all()`` scan the name check already walks, filtered by owner.
+       Revoked records still count here: revoking must not refund abuse budget
+       inside the window.
 
     ``now`` injects the clock (default: current UTC time) — it is both the
     window's right edge and the minted record's ``created_at``, so the guard
@@ -208,10 +287,21 @@ def issue_self_serve(
         if record.agent_name == agent_name and not record.revoked:
             raise AgentNameTakenError(agent_name)
     window_start = current - ISSUE_CAP_WINDOW
-    recently_issued = sum(1 for record in records if record.created_at > window_start)
+    recently_issued = sum(
+        1
+        for record in records
+        if record.owner_account_id == owner_account_id and record.created_at > window_start
+    )
     if recently_issued >= hourly_cap:
         raise IssueCapExceededError(hourly_cap)
-    return issue(store, agent_name=agent_name, model=model, provider=provider, now=current)
+    return issue(
+        store,
+        agent_name=agent_name,
+        model=model,
+        provider=provider,
+        owner_account_id=owner_account_id,
+        now=current,
+    )
 
 
 def issue_hourly_cap_from_env(env: Mapping[str, str] | None = None) -> int:
@@ -257,14 +347,24 @@ def identity_key(identity: AgentTokenIdentity) -> str:
 
 
 def verify(store: TokenStore, token: str | None) -> AgentTokenIdentity | None:
-    """Resolve a bearer token to its agent identity, or ``None`` if invalid.
+    """Resolve a bearer token to its agent identity.
 
-    ``None`` covers every failure mode uniformly — a falsy ``token``, a
-    token nothing was ever issued for, or a revoked token — so callers (a
+    ``None`` covers every *silent* failure mode uniformly — a falsy ``token``,
+    a token nothing was ever issued for, or a revoked token — so callers (a
     rated-match authorization hook) never need to distinguish "absent" from
     "revoked" from "never issued". The stored hash is compared against the
     candidate's hash with ``hmac.compare_digest`` for constant-time
     comparison.
+
+    The one *non*-``None`` failure is the anonymous-token hard cutoff (task
+    t6): a live, non-revoked record whose ``owner_account_id is None`` — a
+    token minted before agent tokens were anchored to a human account — raises
+    :class:`AnonymousTokenError` instead of resolving. Raising (not returning
+    ``None``) makes the cutoff *distinguishable* so the API can point the
+    agent's operator at the new onboarding path rather than at a generic
+    "unauthorized"; see that exception's docstring. The revoked check runs
+    first, so a revoked anonymous token is still the uniform ``None`` (a
+    revoked token is gone regardless of who owned it).
     """
     if not token:
         return None
@@ -276,6 +376,8 @@ def verify(store: TokenStore, token: str | None) -> AgentTokenIdentity | None:
         return None
     if record.revoked:
         return None
+    if record.owner_account_id is None:
+        raise AnonymousTokenError()
     return _identity_from_record(record)
 
 

@@ -212,7 +212,11 @@ def test_without_a_session_secret_the_bearer_token_api_still_works(
     app = wiring.build_site_app(FULL_ENV, dynamodb_resource=resource)
     token_store = DynamoDBTokenStore("league-tokens", resource=resource)
     issued = tokens.issue(
-        token_store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="probe-bot",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:probe-owner",
     )
 
     status, _, created = call(
@@ -249,7 +253,11 @@ def test_anonymous_pages_are_byte_identical_with_and_without_a_secret(
 def _issue_agent(resource: FakeDynamoDBServiceResource, agent_name: str) -> str:
     token_store = DynamoDBTokenStore("league-tokens", resource=resource)
     issued = tokens.issue(
-        token_store, agent_name=agent_name, model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name=agent_name,
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id=f"github:{agent_name.lower()}-owner",
     )
     return issued.token
 

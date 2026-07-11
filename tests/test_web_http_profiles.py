@@ -60,9 +60,19 @@ def test_completed_match_rating_is_visible_on_the_profile_page_and_badge_through
     app = site_app(match_store=match_store, token_store=token_store, ledger_store=ledger_store)
 
     issued_sonnet = tokens.issue(
-        token_store, agent_name="Sonnet", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="Sonnet",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:sonnet-owner",
     )
-    issued_rival = tokens.issue(token_store, agent_name="Rival", model="gpt-4", provider="openai")
+    issued_rival = tokens.issue(
+        token_store,
+        agent_name="Rival",
+        model="gpt-4",
+        provider="openai",
+        owner_account_id="github:rival-owner",
+    )
     auth_sonnet = {"headers": bearer(issued_sonnet.token)}
     auth_rival = {"headers": bearer(issued_rival.token)}
 
@@ -135,9 +145,19 @@ def test_site_app_shares_one_match_store_and_ledger_store_between_api_and_profil
     app = site_app(token_store=token_store)
 
     issued_sonnet = tokens.issue(
-        token_store, agent_name="Sonnet", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="Sonnet",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:sonnet-owner",
     )
-    issued_rival = tokens.issue(token_store, agent_name="Rival", model="gpt-4", provider="openai")
+    issued_rival = tokens.issue(
+        token_store,
+        agent_name="Rival",
+        model="gpt-4",
+        provider="openai",
+        owner_account_id="github:rival-owner",
+    )
     auth_sonnet = {"headers": bearer(issued_sonnet.token)}
     auth_rival = {"headers": bearer(issued_rival.token)}
 

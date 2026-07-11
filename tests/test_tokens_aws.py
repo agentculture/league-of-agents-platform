@@ -237,29 +237,54 @@ def test_dynamodb_token_store_stores_none_owner_account_id_for_an_anonymous_reco
     assert loaded.blocked is False
 
 
-def test_dynamodb_token_store_loads_and_verifies_a_legacy_item_missing_the_new_attributes() -> None:
+def test_dynamodb_token_store_loads_a_legacy_item_but_hard_cuts_it_off_at_verify() -> None:
     """A record written before t3 has no ``owner_account_id``/``blocked`` keys.
 
-    It must still deserialize (defaulting to anonymous/unblocked) and still
-    verify end-to-end — the migration must not strand any existing prod token.
+    Deserialization (t3) must still be tolerant — the legacy item loads,
+    defaulting to anonymous/unblocked, never crashing. But task t6's hard
+    cutoff then refuses it at verify time: an owner-less (anonymous-era)
+    record no longer authenticates and raises :class:`AnonymousTokenError`
+    naming the onboarding path — the "both stores" half of the cutoff, proven
+    end-to-end through the DynamoDB adapter.
     """
     resource = FakeDynamoDBResource()
     store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
     issued = tokens.issue(
         store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic"
-    )
+    )  # owner_account_id defaults to None -- an anonymous-era token
     # Simulate a pre-t3 item: strip the attributes the old _to_item never wrote.
     (item,) = resource.table.items.values()
     del item["owner_account_id"]
     del item["blocked"]
 
+    # Deserialization stays tolerant: the legacy item still loads.
     loaded = store.get_by_hash(item["token_hash"])
     assert loaded.owner_account_id is None
     assert loaded.blocked is False
-    # legacy record still resolves through the request-path verify()
+    # ...but the anonymous cutoff refuses it at the request-path verify().
+    with pytest.raises(tokens.AnonymousTokenError) as excinfo:
+        tokens.verify(store, issued.token)
+    assert tokens.ONBOARDING_URL in str(excinfo.value)
+
+
+def test_dynamodb_token_store_owned_token_verifies() -> None:
+    """The positive half of the cutoff over the DynamoDB adapter: an
+    account-owned token verifies end-to-end through the fake resource."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    issued = tokens.issue(
+        store,
+        agent_name="probe-bot",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:4242",
+    )
+
     identity = tokens.verify(store, issued.token)
+
     assert identity is not None
     assert identity.agent_name == "probe-bot"
+    assert identity.owner_account_id == "github:4242"
 
 
 def test_dynamodb_token_store_revoked_token_fails_verification() -> None:
@@ -271,7 +296,11 @@ def test_dynamodb_token_store_revoked_token_fails_verification() -> None:
     resource = FakeDynamoDBResource()
     store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
     issued = tokens.issue(
-        store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic"
+        store,
+        agent_name="probe-bot",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:4242",
     )
     assert tokens.verify(store, issued.token) is not None
 

@@ -56,6 +56,22 @@ def unauthorized(message: str = "authentication required") -> ApiError:
     return ApiError("401 Unauthorized", "unauthorized", message)
 
 
+def anonymous_token(message: str) -> ApiError:
+    """``401 Unauthorized`` — a presented bearer token is an anonymous-era token.
+
+    The request-side rendering of
+    :class:`league_site.auth.tokens.AnonymousTokenError` (task t6's hard
+    cutoff): a token minted before agent tokens were anchored to a human
+    account no longer authenticates. Distinct ``code`` from
+    :func:`unauthorized` on purpose — the agent's operator needs to know this
+    isn't "you forgot to send a token" but "re-mint this one under an
+    account"; ``message`` (passed through from the exception) names the
+    onboarding path. Raised nowhere directly: :func:`league_site.api.wsgi.
+    with_api` catches the exception and builds this at the dispatch boundary.
+    """
+    return ApiError("401 Unauthorized", "anonymous_token", message)
+
+
 def forbidden(message: str = "not a participant of this match") -> ApiError:
     """``403 Forbidden`` — the request cannot act on this match.
 

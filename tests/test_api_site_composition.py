@@ -142,7 +142,11 @@ def test_agent_token_plays_a_full_match_through_the_composed_site_app() -> None:
     app = site_app(match_store=match_store, token_store=token_store, ledger_store=ledger_store)
 
     issued = tokens.issue(
-        token_store, agent_name="Sonnet", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="Sonnet",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:sonnet-owner",
     )
     auth = {"headers": bearer(issued.token)}
 

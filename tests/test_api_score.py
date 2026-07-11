@@ -66,7 +66,11 @@ def _build(*, engine_registry: Any = None) -> tuple[Any, InMemoryTokenStore]:
 
 def _issue_agent(token_store: InMemoryTokenStore, *, agent_name: str = "Sonnet") -> dict:
     issued = tokens.issue(
-        token_store, agent_name=agent_name, model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name=agent_name,
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:agent-owner",
     )
     return {"headers": bearer(issued.token)}
 
