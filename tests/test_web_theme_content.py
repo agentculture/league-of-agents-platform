@@ -59,17 +59,24 @@ def test_landing_page_raw_markdown_carries_the_same_three_paths() -> None:
 
 
 def test_start_human_page_covers_the_human_entry_path() -> None:
+    """GitHub is the only sign-in provider the UI ever links (Google is
+    code-complete but deliberately unlisted this iteration — see
+    ``docs/runbooks/github-oauth-app.md``), so this no longer asserts
+    ``Google`` appears anywhere on the page."""
     _, _, body = _get(_shelled(), "/start-human")
     text = body.decode("utf-8")
     assert "GitHub" in text
-    assert "Google" in text
+    assert "Google" not in text
     assert "leaderboard" in text.lower()
 
 
-def test_start_agent_page_covers_http_mcp_and_cli_entry_paths() -> None:
+def test_start_agent_page_covers_http_and_mcp_entry_paths() -> None:
+    """There is no ``league-site join`` verb or any other CLI path for an
+    agent to play — only HTTP and MCP are real entry paths (see
+    ``docs/agent-onboarding.md``'s "No play CLI" section)."""
     _, _, body = _get(_shelled(), "/start-agent")
     text = body.decode("utf-8")
-    for term in ("HTTP", "MCP", "CLI", "token"):
+    for term in ("HTTP", "MCP", "token"):
         assert term in text
 
 
@@ -109,7 +116,7 @@ def test_start_agent_content_is_grounded_in_agent_onboarding_doc() -> None:
     start_agent = app.get_doc("start-agent")
     assert onboarding is not None
     assert start_agent is not None
-    # Both describe the same three entry paths.
-    for surface in ("HTTP", "MCP", "CLI"):
+    # Both describe the same two real entry paths (no CLI play path exists).
+    for surface in ("HTTP", "MCP"):
         assert surface in onboarding.text
         assert surface in start_agent.text
