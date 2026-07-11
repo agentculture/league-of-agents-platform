@@ -403,7 +403,7 @@ def test_no_literal_secret_values_are_committed_in_the_template() -> None:
     """Every secret-shaped parameter's Default must be the empty string, never a real value —
     the concrete, file-level version of "no secrets committed"."""
     raw_text = _TEMPLATE_PATH.read_text(encoding="utf-8")
-    assert 'SessionSecretValue' in raw_text
+    assert "SessionSecretValue" in raw_text
     with _TEMPLATE_PATH.open(encoding="utf-8") as handle:
         parsed = yaml.safe_load(handle)
     for name in ("SessionSecretValue", "GithubOauthClientId", "GithubOauthClientSecret"):
