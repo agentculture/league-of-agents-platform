@@ -16,9 +16,12 @@ Route behavior:
   authorization URL (:func:`league_site.auth.oauth.authorize_url`).
 * ``GET /auth/callback/<provider>?code=...&state=...`` — verifies
   ``state``, exchanges ``code`` for the provider's identity
-  (:func:`league_site.auth.oauth.complete_login`), issues a session
-  (:func:`league_site.auth.sessions.issue`), sets it as a cookie, and
-  redirects to ``/``.
+  (:func:`league_site.auth.oauth.complete_login`), upserts that identity as
+  an :class:`league_site.accounts.store.AccountRecord` when an
+  ``account_store`` is wired (see :func:`_upsert_account`), issues a session
+  (:func:`league_site.auth.sessions.issue`) whose
+  :attr:`~league_site.auth.sessions.Session.account_id` resolves that very
+  record, sets it as a cookie, and redirects to ``/``.
 * ``GET /auth/logout`` — clears the session cookie and redirects to ``/``.
 * ``POST /auth/agents`` — self-serve agent token onboarding. JSON body
   ``{"name", "model", "provider"}`` in; ``201 {"token": "loa_...",
@@ -41,6 +44,7 @@ from http.cookies import SimpleCookie
 from typing import Any, Callable
 from urllib.parse import parse_qs
 
+from league_site.accounts.store import AccountRecord, AccountStore, account_id_for
 from league_site.auth import oauth, sessions, tokens
 from league_site.auth.token_store import TokenStore
 
@@ -64,6 +68,7 @@ def with_auth(
     *,
     transport: oauth.Transport = oauth.default_transport,
     token_store: TokenStore | None = None,
+    account_store: AccountStore | None = None,
     issue_hourly_cap: int | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> WSGIApp:
@@ -79,6 +84,15 @@ def with_auth(
     ``/api/v1`` layer (:func:`league_site.api.wsgi.with_api`) verifies
     bearer tokens against — a token minted into any other store would never
     authenticate. Left ``None``, the route answers ``503 not_configured``.
+
+    ``account_store`` is where a successful OAuth callback upserts the
+    signed-in human's :class:`~league_site.accounts.store.AccountRecord`
+    (idempotent by ``account_id``: re-sign-in refreshes display/email but
+    preserves ``created_at`` and any operator ``blocked`` flag — see
+    :func:`_upsert_account`). Left ``None``, the callback still issues a
+    session exactly as before; it simply records no account. Wired in prod by
+    :func:`league_site.aws_lambda.wiring.build_site_app` /
+    :func:`league_site.web.http.site_app`.
 
     ``issue_hourly_cap`` overrides the self-serve issuance cap; ``None``
     (the default) reads :data:`~league_site.auth.tokens.ISSUE_HOURLY_CAP_ENV`
@@ -100,7 +114,13 @@ def with_auth(
         if path.startswith(_LOGIN_PREFIX):
             return _login(environ, start_response, path[len(_LOGIN_PREFIX) :])
         if path.startswith(_CALLBACK_PREFIX):
-            return _callback(environ, start_response, path[len(_CALLBACK_PREFIX) :], transport)
+            return _callback(
+                environ,
+                start_response,
+                path[len(_CALLBACK_PREFIX) :],
+                transport,
+                account_store,
+            )
         if path == _LOGOUT_PATH:
             return _logout(environ, start_response)
         if path == _AGENTS_PATH:
@@ -180,7 +200,11 @@ def _login(environ: dict[str, Any], start_response: Any, provider: str) -> list[
 
 
 def _callback(
-    environ: dict[str, Any], start_response: Any, provider: str, transport: oauth.Transport
+    environ: dict[str, Any],
+    start_response: Any,
+    provider: str,
+    transport: oauth.Transport,
+    account_store: AccountStore | None,
 ) -> list[bytes]:
     if not _is_valid_provider_segment(provider):
         return _plain(start_response, "404 Not Found", b"unknown auth provider")
@@ -195,8 +219,36 @@ def _callback(
         )
     except oauth.OAuthError as exc:
         return _plain(start_response, "400 Bad Request", str(exc).encode("utf-8"))
+    if account_store is not None:
+        _upsert_account(account_store, identity)
     token = sessions.issue(identity)
     return _redirect(start_response, "/", cookie=_set_cookie_header(environ, token))
+
+
+def _upsert_account(account_store: AccountStore, identity: oauth.Identity) -> None:
+    """Record the signed-in human as an :class:`~league_site.accounts.store.AccountRecord`.
+
+    The account id is built from the *same* identity fields the session is
+    (``account_id_for(identity["provider"], identity["subject"])``), so
+    ``account_store.get(session.account_id)`` resolves this record for the life
+    of the session — the linkage documented on
+    :attr:`league_site.auth.sessions.Session.account_id`. The upsert is
+    idempotent by that id: a re-sign-in refreshes ``display_name``/``email``
+    but the store preserves the original ``created_at`` and any operator
+    ``blocked`` flag (see :meth:`league_site.accounts.store.AccountStore.
+    upsert`), so signing in never resurrects a blocked account.
+    """
+    provider = identity["provider"]
+    provider_user_id = identity["subject"]
+    account_store.upsert(
+        AccountRecord(
+            account_id=account_id_for(provider, provider_user_id),
+            provider=provider,
+            provider_user_id=provider_user_id,
+            display_name=identity["display_name"],
+            email=identity["email"],
+        )
+    )
 
 
 def _logout(environ: dict[str, Any], start_response: Any) -> list[bytes]:

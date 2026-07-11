@@ -10,8 +10,11 @@ itself (that lives in :mod:`league_site.auth.wsgi`):
   (:func:`build_state` / :func:`verify_state`).
 * :func:`complete_login` — exchanges an authorization ``code`` for a token
   and fetches+normalizes the provider's userinfo into an :class:`Identity`
-  (``{provider, subject, handle, display_name}``), the shape every
-  downstream consumer (sessions, and eventually match participants) reads.
+  (``{provider, subject, handle, display_name, email}``), the shape every
+  downstream consumer (sessions, the account upsert, and eventually match
+  participants) reads. ``email`` may be ``None``; for GitHub the
+  ``user:email`` scope plus a ``/user/emails`` fallback recovers a hidden
+  address when it can (:func:`fetch_identity`).
 
 All outbound HTTP goes through an injectable ``transport`` callable
 (:data:`Transport`) rather than calling :mod:`urllib.request` directly, so
@@ -76,12 +79,22 @@ class ProviderConfig:
 
 
 class Identity(TypedDict):
-    """Normalized identity returned by :func:`fetch_identity` / :func:`complete_login`."""
+    """Normalized identity returned by :func:`fetch_identity` / :func:`complete_login`.
+
+    ``email`` is ``None`` when the provider reports no usable address — GitHub
+    omits it from the ``/user`` profile for humans who keep their email private
+    (see :func:`_fetch_github_primary_email` for the ``user:email`` fallback
+    that recovers it when it can). Downstream, the OAuth callback carries this
+    straight onto the account it upserts (:class:`league_site.accounts.store.
+    AccountRecord`), where an absent email is a valid, explicit state — never
+    an error, and never a reason to fail a sign-in.
+    """
 
     provider: str
     subject: str
     handle: str
     display_name: str
+    email: str | None
 
 
 @dataclass(frozen=True)
@@ -123,6 +136,16 @@ def default_transport(request: HttpRequest) -> HttpResponse:
         return HttpResponse(status=raw.status, body=raw.read())
 
 
+def _clean_email(value: Any) -> str | None:
+    """Return *value* as an email string, or ``None`` if it is not a usable one.
+
+    Providers report a hidden/absent email as ``null`` (GitHub) or simply omit
+    the key; both normalize to ``None`` here so every :class:`Identity` agrees
+    that "no email" is exactly ``None``, never ``""`` or a stray non-string.
+    """
+    return value if isinstance(value, str) and value else None
+
+
 def _normalize_github(data: dict[str, Any]) -> Identity:
     handle = str(data.get("login") or data["id"])
     return Identity(
@@ -130,6 +153,7 @@ def _normalize_github(data: dict[str, Any]) -> Identity:
         subject=str(data["id"]),
         handle=handle,
         display_name=str(data.get("name") or handle),
+        email=_clean_email(data.get("email")),
     )
 
 
@@ -140,8 +164,16 @@ def _normalize_google(data: dict[str, Any]) -> Identity:
         subject=str(data["sub"]),
         handle=handle,
         display_name=str(data.get("name") or handle),
+        email=_clean_email(data.get("email")),
     )
 
+
+#: GitHub's "list the authenticated user's email addresses" endpoint. Read
+#: only when the ``/user`` profile hides the email (see
+#: :func:`_fetch_github_primary_email`); reachable because the authorize
+#: redirect requests the ``user:email`` scope (see the ``github`` provider's
+#: ``scopes`` below).
+_GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 
 PROVIDERS: dict[str, ProviderConfig] = {
     "github": ProviderConfig(
@@ -297,13 +329,57 @@ def exchange_code(
     return data
 
 
+def _fetch_github_primary_email(access_token: str, *, transport: Transport) -> str | None:
+    """Return the account's primary verified email from GitHub's /user/emails, or ``None``.
+
+    GitHub omits ``email`` from the ``/user`` profile when the human keeps
+    their address private in their profile settings; with the ``user:email``
+    scope granted this endpoint still lists it. This is strictly best-effort
+    and **never raises**: a hidden email must never fail a sign-in (the account
+    simply carries ``email=None``), so a transport error, a non-JSON body, a
+    body that is not a JSON list, or the absence of a primary *verified*
+    address all resolve to ``None``.
+    """
+    request = HttpRequest(
+        method="GET",
+        url=_GITHUB_EMAILS_URL,
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+    )
+    try:
+        # OSError covers urllib's URLError/HTTPError/timeouts from the real
+        # transport; ValueError covers a non-JSON body (UnicodeDecodeError is a
+        # ValueError). Any of them means "email not retrievable" -> None.
+        data = json.loads(transport(request).body.decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, list):
+        return None
+    for entry in data:
+        if (
+            isinstance(entry, dict)
+            and entry.get("primary")
+            and entry.get("verified")
+            and _clean_email(entry.get("email"))
+        ):
+            return str(entry["email"])
+    return None
+
+
 def fetch_identity(
     provider_name: str,
     access_token: str,
     *,
     transport: Transport = default_transport,
 ) -> Identity:
-    """Fetch the provider's userinfo for *access_token* and normalize it to an :class:`Identity`."""
+    """Fetch the provider's userinfo for *access_token* and normalize it to an :class:`Identity`.
+
+    For GitHub, when the ``/user`` profile hides the email
+    (``email is None``), fall back to
+    :func:`_fetch_github_primary_email` (the ``/user/emails`` endpoint the
+    ``user:email`` scope unlocks) to recover the primary verified address —
+    still leaving ``email`` as ``None`` if none is retrievable, so the sign-in
+    proceeds either way.
+    """
     provider = get_provider(provider_name)
     request = HttpRequest(
         method="GET",
@@ -312,9 +388,12 @@ def fetch_identity(
     )
     data = _parse_json_body(transport(request), provider_name=provider_name, what="userinfo")
     try:
-        return _NORMALIZERS[provider_name](data)
+        identity = _NORMALIZERS[provider_name](data)
     except KeyError as exc:
         raise OAuthError(f"{provider_name}: userinfo response missing {exc}") from exc
+    if provider_name == "github" and identity["email"] is None:
+        identity["email"] = _fetch_github_primary_email(access_token, transport=transport)
+    return identity
 
 
 def complete_login(

@@ -36,6 +36,7 @@ import re
 from typing import Any, Callable
 from wsgiref.simple_server import WSGIServer, make_server
 
+from league_site.accounts.store import AccountStore, InMemoryAccountStore
 from league_site.api.wsgi import EngineRegistry, with_api
 from league_site.auth import oauth
 from league_site.auth.token_store import InMemoryTokenStore, TokenStore
@@ -189,6 +190,7 @@ def site_app(
     match_store: MatchStore | None = None,
     token_store: TokenStore | None = None,
     ledger_store: RatingLedgerStore | None = None,
+    account_store: AccountStore | None = None,
     engine_registry: EngineRegistry | None = None,
 ) -> WSGIApp:
     """Return the platform's composed site app: viewer + profiles + auth + API + :func:`http_app`.
@@ -227,7 +229,13 @@ def site_app(
       ``environ[league_site.auth.wsgi.SESSION_ENVIRON_KEY]`` before the
       request reaches ``with_api``. This is why ``with_api`` must sit
       *inside* ``with_auth`` rather than the other way around — see
-      :mod:`league_site.api.wsgi`'s docstring.
+      :mod:`league_site.api.wsgi`'s docstring. The ``account_store`` keyword
+      (defaulting, like the others, to a fresh
+      :class:`~league_site.accounts.store.InMemoryAccountStore`) is handed to
+      ``with_auth`` so a successful OAuth callback upserts the signed-in
+      human's account; in prod
+      :func:`league_site.aws_lambda.wiring.build_site_app` passes the
+      DynamoDB-backed store here.
     * :func:`~league_site.web.shell.with_shell` wraps that, rendering every
       markdown page (``/``, ``/<slug>``) in the shared HTML layout — header,
       main content, and the footer above. It leaves the API's
@@ -278,6 +286,7 @@ def site_app(
         ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
     )
     resolved_token_store = token_store if token_store is not None else InMemoryTokenStore()
+    resolved_account_store = account_store if account_store is not None else InMemoryAccountStore()
     api = with_api(
         http_app(),
         match_store=resolved_match_store,
@@ -285,7 +294,14 @@ def site_app(
         ledger_store=resolved_ledger_store,
         engine_registry=engine_registry,
     )
-    composed = with_shell(with_auth(api, transport=transport, token_store=resolved_token_store))
+    composed = with_shell(
+        with_auth(
+            api,
+            transport=transport,
+            token_store=resolved_token_store,
+            account_store=resolved_account_store,
+        )
+    )
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
     viewer = viewer_app(resolved_match_store, resolved_ledger_store)
     return _with_viewer(_with_profiles(composed, profiles), viewer)

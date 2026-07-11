@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from league_site.accounts.store import account_id_for
 from league_site.auth._signing import read_secret, sign_payload, verify_payload
 
 SESSION_SECRET_ENV = "LEAGUE_SESSION_SECRET"  # nosec B105 - an env var *name*, not a credential
@@ -42,6 +43,22 @@ class Session:
     display: str
     issued_at: int
     expiry: int
+
+    @property
+    def account_id(self) -> str:
+        """The :class:`~league_site.accounts.store.AccountStore` key this session resolves to.
+
+        This is *by construction* identical to the id the OAuth callback
+        upserts the account under: the callback builds both from the very same
+        :class:`~league_site.auth.oauth.Identity` — the account via
+        ``account_id_for(identity["provider"], identity["subject"])`` (see
+        :func:`league_site.auth.wsgi._upsert_account`) and this session via
+        ``provider=identity["provider"]``, ``subject=identity["subject"]``
+        (see :func:`issue`). So ``account_store.get(session.account_id)`` always
+        returns the account of the signed-in human — the one place that
+        equality is asserted lives here, next to the fields it derives from.
+        """
+        return account_id_for(self.provider, self.subject)
 
     def is_expired(self, *, now: int | None = None) -> bool:
         """Return ``True`` once *now* (default: the current time) reaches ``expiry``."""
