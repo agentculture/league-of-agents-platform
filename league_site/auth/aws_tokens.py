@@ -154,11 +154,24 @@ class DynamoDBTokenStore(TokenStore):
         :meth:`league_site.auth.token_store.TokenStore.list_all`); the same
         launch-scale O(n) tradeoff as :meth:`revoke` applies.
         """
+        from boto3.dynamodb.conditions import Attr
+
         records: list[TokenRecord] = []
-        scan_kwargs: dict[str, Any] = {}
+        # Accounts share this table (single-table design — see
+        # league_site/accounts/aws.py), so the scan must not assume every
+        # item is a token. Filter server-side by the PK prefix (true for
+        # every token item ever written, including pre-``entity_type``
+        # launch records) and re-check client-side for fakes/scans that
+        # don't evaluate ``FilterExpression`` — same belt-and-braces as
+        # :meth:`revoke`.
+        scan_kwargs: dict[str, Any] = {"FilterExpression": Attr("PK").begins_with("TOKEN#")}
         while True:
             response = self._table.scan(**scan_kwargs)
-            records.extend(_from_item(item) for item in response.get("Items", []))
+            records.extend(
+                _from_item(item)
+                for item in response.get("Items", [])
+                if str(item.get("PK", "")).startswith("TOKEN#")
+            )
             last_key = response.get("LastEvaluatedKey")
             if not last_key:
                 return records

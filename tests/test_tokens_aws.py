@@ -380,3 +380,29 @@ def test_dynamodb_token_store_list_all_returns_every_record_revoked_included() -
     revoked_flags = {r.token_hash: r.revoked for r in records}
     assert revoked_flags[records_in[1].token_hash] is True
     assert revoked_flags[records_in[0].token_hash] is False
+
+
+def test_dynamodb_token_store_list_all_ignores_non_token_items_in_the_shared_table() -> None:
+    """Accounts share the tokens table (single-table design, task t2): a
+    full-table scan sees ACCOUNT# items that carry no ``token_id``. list_all
+    must skip them — not crash — or every scan consumer (the mint guards, the
+    tokens CLI) breaks the moment the first human signs in. Regression test
+    for the prod incident found during 0.9.0 live verification."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    resource.table.put_item(
+        Item={
+            "PK": "ACCOUNT#github:424242",
+            "SK": "METADATA",
+            "entity_type": "account",
+            "account_id": "github:424242",
+        }
+    )
+    first = _record("alpha")
+    second = _record("beta")
+    store.save(first)
+    store.save(second)
+
+    records = store.list_all()
+
+    assert {record.token_hash for record in records} == {"alpha", "beta"}
