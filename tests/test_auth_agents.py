@@ -412,6 +412,61 @@ def test_post_auth_agents_anchors_the_token_to_the_signed_in_account() -> None:
     assert tokens.verify(store, payload["token"]) is not None
 
 
+def test_post_auth_agents_refuses_a_blocked_account() -> None:
+    """Task t4: a blocked human account cannot mint new agent tokens. The
+    session is valid, so this is a ``403``, not the ``401`` of an absent
+    session — and nothing is minted."""
+    from league_site.accounts.store import AccountRecord, InMemoryAccountStore
+
+    store = InMemoryTokenStore()
+    accounts = InMemoryAccountStore()
+    account_id = account_id_for("github", "42")
+    accounts.upsert(
+        AccountRecord(
+            account_id=account_id,
+            provider="github",
+            provider_user_id="42",
+            display_name="Ada",
+            email=None,
+        )
+    )
+    accounts.set_blocked(account_id, True)
+    app = with_auth(_leaf_app, token_store=store, account_store=accounts)
+
+    status, _, payload = _post_json(
+        app, "/auth/agents", _mint_body(), headers=_signed_in(subject="42")
+    )
+    assert status == "403 Forbidden"
+    assert payload["code"] == "account_blocked"
+    assert store.list_all() == []
+
+
+def test_post_auth_agents_allows_an_unblocked_account_with_account_store_wired() -> None:
+    """The account-block check does not disturb the ordinary mint: an
+    unblocked (or absent-flag) account still mints normally."""
+    from league_site.accounts.store import AccountRecord, InMemoryAccountStore
+
+    store = InMemoryTokenStore()
+    accounts = InMemoryAccountStore()
+    account_id = account_id_for("github", "42")
+    accounts.upsert(
+        AccountRecord(
+            account_id=account_id,
+            provider="github",
+            provider_user_id="42",
+            display_name="Ada",
+            email=None,
+        )
+    )
+    app = with_auth(_leaf_app, token_store=store, account_store=accounts)
+
+    status, _, payload = _post_json(
+        app, "/auth/agents", _mint_body(), headers=_signed_in(subject="42")
+    )
+    assert status == "201 Created"
+    assert payload["token"].startswith(tokens.TOKEN_PREFIX)
+
+
 def test_minted_token_authenticates_the_match_api() -> None:
     """The acceptance path: mint over HTTP, then create a match on /api/v1 with it."""
     store = InMemoryTokenStore()

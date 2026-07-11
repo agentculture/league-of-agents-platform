@@ -232,8 +232,11 @@ def site_app(
       :mod:`league_site.api.wsgi`'s docstring. The ``account_store`` keyword
       (defaulting, like the others, to a fresh
       :class:`~league_site.accounts.store.InMemoryAccountStore`) is handed to
-      ``with_auth`` so a successful OAuth callback upserts the signed-in
-      human's account; in prod
+      *both* ``with_auth`` and ``with_api`` — the *same* instance — so a
+      successful OAuth callback upserts the signed-in human's account and an
+      operator account-block flipped on that store is read live by
+      ``with_api``'s bearer-token enforcement (task t4): blocking one human
+      denies every token they minted, on the very next request. In prod
       :func:`league_site.aws_lambda.wiring.build_site_app` passes the
       DynamoDB-backed store here.
     * :func:`~league_site.web.shell.with_shell` wraps that, rendering every
@@ -292,6 +295,7 @@ def site_app(
         match_store=resolved_match_store,
         token_store=resolved_token_store,
         ledger_store=resolved_ledger_store,
+        account_store=resolved_account_store,
         engine_registry=engine_registry,
     )
     composed = with_shell(

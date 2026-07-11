@@ -211,3 +211,40 @@ class DynamoDBTokenStore(TokenStore):
                 break
             scan_kwargs["ExclusiveStartKey"] = last_key
         raise TokenNotFoundError(token_id)
+
+    def set_blocked(self, token_id: str, blocked: bool) -> None:
+        """Flip the operator ``blocked`` kill-switch on the token ``token_id``.
+
+        The same deliberate scan-then-flip shape as :meth:`revoke` (see that
+        method and the *Revocation design* note above): a paginated,
+        ``token_id``-filtered full-table scan to locate the item, then a
+        single targeted ``update_item`` that sets its ``blocked`` attribute —
+        the one DynamoDB write the auth path reads on the very next
+        :func:`league_site.auth.tokens.verify`, with no cache in between. O(n)
+        in issued tokens at launch scale; the same GSI-on-``token_id`` follow-up
+        recommended for :meth:`revoke` retires the scan here too.
+
+        Raises :class:`~league_site.auth.token_store.TokenNotFoundError` if no
+        record has that ``token_id`` — the scan exhausts every page unmatched.
+        """
+        from boto3.dynamodb.conditions import Attr
+
+        scan_kwargs: dict[str, Any] = {
+            "ProjectionExpression": "PK, SK, token_id",
+            "FilterExpression": Attr("token_id").eq(token_id),
+        }
+        while True:
+            response = self._table.scan(**scan_kwargs)
+            for item in response.get("Items", []):
+                if item.get("token_id") == token_id:
+                    self._table.update_item(
+                        Key={"PK": item["PK"], "SK": item["SK"]},
+                        UpdateExpression="SET blocked = :blocked",
+                        ExpressionAttributeValues={":blocked": blocked},
+                    )
+                    return
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last_key
+        raise TokenNotFoundError(token_id)

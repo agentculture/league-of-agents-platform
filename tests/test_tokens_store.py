@@ -153,3 +153,66 @@ def test_revoke_leaves_owner_account_id_and_blocked_untouched() -> None:
     assert stored.revoked is True
     assert stored.owner_account_id == "github:4242"
     assert stored.blocked is True
+
+
+# --- set_blocked (t4 operator kill-switch) -----------------------------------
+
+
+def test_set_blocked_flips_only_the_targeted_record() -> None:
+    store = InMemoryTokenStore()
+    first = _record(token_id="tok-1", token_hash="a" * 64)
+    second = _record(token_id="tok-2", token_hash="b" * 64)
+    store.save(first)
+    store.save(second)
+
+    store.set_blocked("tok-1", True)
+
+    assert store.get_by_hash("a" * 64).blocked is True
+    assert store.get_by_hash("b" * 64).blocked is False
+
+
+def test_set_blocked_can_unblock() -> None:
+    store = InMemoryTokenStore()
+    record = _record(blocked=True)
+    store.save(record)
+
+    store.set_blocked(record.token_id, False)
+
+    assert store.get_by_hash(record.token_hash).blocked is False
+
+
+def test_set_blocked_leaves_revoked_and_owner_untouched() -> None:
+    store = InMemoryTokenStore()
+    record = _record(owner_account_id="github:4242", revoked=False)
+    store.save(record)
+
+    store.set_blocked(record.token_id, True)
+
+    stored = store.get_by_hash(record.token_hash)
+    assert stored.blocked is True
+    assert stored.revoked is False
+    assert stored.owner_account_id == "github:4242"
+
+
+def test_set_blocked_missing_token_id_raises_token_not_found_error() -> None:
+    store = InMemoryTokenStore()
+    with pytest.raises(TokenNotFoundError):
+        store.set_blocked("does-not-exist", True)
+
+
+def test_token_store_set_blocked_default_raises_not_implemented() -> None:
+    """The base-class default documents the contract concrete stores grow
+    (see aws_tokens) — same pattern as ``TokenStore.list_all``."""
+
+    class _Bare(TokenStore):
+        def save(self, record: TokenRecord) -> None:  # pragma: no cover - unused
+            raise AssertionError
+
+        def get_by_hash(self, token_hash: str) -> TokenRecord | None:  # pragma: no cover
+            raise AssertionError
+
+        def revoke(self, token_id: str) -> None:  # pragma: no cover - unused
+            raise AssertionError
+
+    with pytest.raises(NotImplementedError):
+        _Bare().set_blocked("tok-1", True)

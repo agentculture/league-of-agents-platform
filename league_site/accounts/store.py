@@ -109,6 +109,25 @@ class AccountStore(ABC):
         Raises :class:`AccountNotFoundError` if no record has that id.
         """
 
+    def list_all(self) -> list[AccountRecord]:
+        """Return every stored account record, in no particular order.
+
+        The enumeration the operator ``league-site accounts list`` reads to
+        show which accounts are blocked. Accounts have no growth-bounding cap
+        the way agent tokens do, but they are one-per-signed-in-human, so a
+        full scan is acceptable at launch scale — the same tradeoff
+        :meth:`league_site.auth.token_store.TokenStore.list_all` documents.
+
+        Deliberately *not* ``@abstractmethod``, matching
+        :meth:`TokenStore.list_all`: a pre-existing :class:`AccountStore`
+        subclass stays instantiable, and this default raises
+        :class:`NotImplementedError` until the store grows its own
+        implementation — see :meth:`InMemoryAccountStore.list_all`.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement AccountStore.list_all()"
+        )
+
 
 class InMemoryAccountStore(AccountStore):
     """Reference ``AccountStore`` backed by a process-local dict, keyed by ``account_id``."""
@@ -135,3 +154,6 @@ class InMemoryAccountStore(AccountStore):
         self._records[account_id] = dataclasses.replace(
             existing, blocked=blocked, updated_at=utcnow()
         )
+
+    def list_all(self) -> list[AccountRecord]:
+        return list(self._records.values())

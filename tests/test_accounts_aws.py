@@ -20,12 +20,15 @@ from league_site.accounts.store import AccountNotFoundError, AccountRecord, acco
 class FakeTable:
     """Stand-in for a boto3 DynamoDB Table resource: an in-process dict.
 
-    Only ``get_item``/``put_item`` are needed — unlike
-    :mod:`league_site.auth.aws_tokens`'s token-hash lookup,
-    :class:`DynamoDBAccountStore` addresses every item directly by its
-    partition key (``ACCOUNT#<account_id>``), so there is no scan-fallback
-    path here to fake.
+    ``get_item``/``put_item`` cover the direct-by-partition-key access
+    (``ACCOUNT#<account_id>``) most methods use; ``scan`` (paginated, and
+    *not* evaluating ``FilterExpression`` server-side, exactly like the token
+    fake) exercises :meth:`DynamoDBAccountStore.list_all`'s
+    entity-type-filtered enumeration across the shared table.
     """
+
+    #: Small on purpose so a handful of saved items already forces >1 page.
+    scan_page_size = 2
 
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, object]] = {}
@@ -38,6 +41,24 @@ class FakeTable:
     def get_item(self, *, Key: dict[str, str]) -> dict[str, object]:  # noqa: N803
         item = self.items.get((Key["PK"], Key["SK"]))
         return {"Item": item} if item is not None else {}
+
+    def scan(self, **kwargs: object) -> dict[str, object]:
+        ordered = list(self.items.values())
+        start_key = kwargs.get("ExclusiveStartKey")
+        start_index = 0
+        if start_key is not None:
+            needle = (start_key["PK"], start_key["SK"])  # type: ignore[index]
+            for i, item in enumerate(ordered):
+                if (item["PK"], item["SK"]) == needle:
+                    start_index = i + 1
+                    break
+        page = ordered[start_index : start_index + self.scan_page_size]
+        response: dict[str, object] = {"Items": page}
+        next_index = start_index + self.scan_page_size
+        if next_index < len(ordered):
+            last = page[-1]
+            response["LastEvaluatedKey"] = {"PK": last["PK"], "SK": last["SK"]}
+        return response
 
 
 class FakeDynamoDBResource:
@@ -179,6 +200,45 @@ def test_dynamodb_account_store_set_blocked_raises_account_not_found_error() -> 
     store = DynamoDBAccountStore("league-agent-tokens", resource=FakeDynamoDBResource())
     with pytest.raises(AccountNotFoundError):
         store.set_blocked("github:does-not-exist", True)
+
+
+def test_dynamodb_account_store_list_all_returns_every_account_across_scan_pages() -> None:
+    """`list_all` feeds ``accounts list`` — it must return every account record
+    across scan pages (the fake's page size of 2 forces pagination with three)."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBAccountStore("league-agent-tokens", resource=resource)
+    ids = [account_id_for("github", str(i)) for i in range(1, 4)]
+    for account_id in ids:
+        store.upsert(_record(provider_user_id=account_id.split(":")[1]))
+    store.set_blocked(ids[1], True)
+
+    records = store.list_all()
+
+    assert {r.account_id for r in records} == set(ids)
+    blocked_by_id = {r.account_id: r.blocked for r in records}
+    assert blocked_by_id[ids[1]] is True
+    assert blocked_by_id[ids[0]] is False
+
+
+def test_dynamodb_account_store_list_all_ignores_non_account_items_in_the_shared_table() -> None:
+    """Accounts share the physical tokens table; ``list_all`` must return only
+    ``entity_type == "account"`` items, never the agent-token rows alongside."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBAccountStore("league-agent-tokens", resource=resource)
+    store.upsert(_record())
+    # A stray token item lands in the same table (as the real deployment does).
+    resource.table.put_item(
+        Item={
+            "PK": "TOKEN#abc",
+            "SK": "METADATA",
+            "entity_type": "agent_token",
+            "token_id": "tok-1",
+        }
+    )
+
+    records = store.list_all()
+
+    assert [r.account_id for r in records] == [account_id_for("github", "12345")]
 
 
 def test_require_boto3_raises_runtime_error_when_boto3_is_unavailable(monkeypatch) -> None:

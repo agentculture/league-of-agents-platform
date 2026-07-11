@@ -68,9 +68,12 @@ class FakeTable:
     def update_item(
         self, *, Key: dict[str, str], UpdateExpression: str, ExpressionAttributeValues: dict
     ) -> None:  # noqa: N803
-        assert UpdateExpression == "SET revoked = :revoked"
+        # Both revoke (SET revoked = :revoked) and set_blocked
+        # (SET blocked = :blocked) flip a single existing attribute in place.
+        assert UpdateExpression in ("SET revoked = :revoked", "SET blocked = :blocked")
+        attr = "revoked" if "revoked" in UpdateExpression else "blocked"
         item = self.items[(Key["PK"], Key["SK"])]
-        item["revoked"] = ExpressionAttributeValues[":revoked"]
+        item[attr] = ExpressionAttributeValues[f":{attr}"]
 
 
 class FakeDynamoDBResource:
@@ -307,6 +310,56 @@ def test_dynamodb_token_store_revoked_token_fails_verification() -> None:
     tokens.revoke(store, issued.identity.token_id)
 
     assert tokens.verify(store, issued.token) is None
+
+
+def test_dynamodb_token_store_set_blocked_flips_the_flag() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    record = _record(token_hash="f" * 64, owner_account_id="github:1")
+    store.save(record)
+    assert store.get_by_hash(record.token_hash).blocked is False
+
+    store.set_blocked(record.token_id, True)
+
+    reloaded = store.get_by_hash(record.token_hash)
+    assert reloaded.blocked is True
+    # every other field is untouched
+    assert reloaded.revoked is False
+    assert reloaded.owner_account_id == "github:1"
+    assert reloaded.agent_name == record.agent_name
+
+
+def test_dynamodb_token_store_set_blocked_can_unblock() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    record = _record(token_hash="0" * 64, blocked=True)
+    store.save(record)
+
+    store.set_blocked(record.token_id, False)
+
+    assert store.get_by_hash(record.token_hash).blocked is False
+
+
+def test_dynamodb_token_store_set_blocked_raises_token_not_found_for_an_unknown_id() -> None:
+    store = DynamoDBTokenStore("league-agent-tokens", resource=FakeDynamoDBResource())
+    with pytest.raises(TokenNotFoundError):
+        store.set_blocked("does-not-exist", True)
+
+
+def test_dynamodb_token_store_set_blocked_finds_the_record_across_multiple_scan_pages() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    records = [_record(token_hash=str(i) * 64) for i in range(1, 6)]
+    for record in records:
+        store.save(record)
+    target = records[-1]  # lands on a later scan page
+    assert resource.table.scan_page_size < len(records)
+
+    store.set_blocked(target.token_id, True)
+
+    assert store.get_by_hash(target.token_hash).blocked is True
+    for other in records[:-1]:
+        assert store.get_by_hash(other.token_hash).blocked is False
 
 
 def test_dynamodb_token_store_list_all_returns_every_record_revoked_included() -> None:
