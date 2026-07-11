@@ -9,7 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Favicon rendered blank in browser tabs: the mark was a <text> \u2694 glyph and favicon renderers have no glyph for it in their serif fallbacks. The site now wears the family mesh mark (three nodes, two threads) verbatim from agentculture.org — pure vector geometry, renders everywhere, scheme-aware.
+- Favicon rendered blank in browser tabs: the mark was a `<text>` U+2694 crossed-swords glyph and favicon renderers have no glyph for it in their serif fallbacks. The site now wears the family mesh mark (three nodes, two threads) verbatim from agentculture.org — pure vector geometry, renders everywhere, scheme-aware.
 
 ## [0.8.0] - 2026-07-11
 
