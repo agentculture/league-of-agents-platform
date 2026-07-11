@@ -22,9 +22,17 @@
 # land on PATH inside a --target artifact; runner.py's LEAGUE_CLI_MODULE
 # env var mode (`sys.executable -m league`) is how the deployed handler
 # runs it regardless.
+# The docs/ tree must ship inside the artifact: league_site/web/app.py's
+# _repo_docs_dir() walks up from the installed package looking for a docs/
+# dir, and the site's own content (index.md, agents.md) links to pages that
+# live there (/agent-onboarding, /agent-tokens, /skill-sources). Without
+# this copy those pages 404 in the deployed Lambda while working in every
+# dev install — the local link-crawl test can't see the difference, only a
+# live crawl can (how this was found, post-0.7.0).
 build-HttpHandlerFunction:
 	pip install --no-cache-dir --target "$(ARTIFACTS_DIR)" .
 	pip install --no-cache-dir --target "$(ARTIFACTS_DIR)" "league-of-agents>=0.16,<0.17"
+	cp -r docs "$(ARTIFACTS_DIR)/docs"
 
 build-CleanupFunction:
 	pip install --no-cache-dir --target "$(ARTIFACTS_DIR)" .

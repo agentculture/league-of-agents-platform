@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-11
+
+### Fixed
+
+- Deployed Lambda now ships the repo docs/ tree inside the artifact (cp -r docs into ARTIFACTS_DIR in the sam build Makefile) — /agent-onboarding, /agent-tokens, and /skill-sources no longer 404 in production; found by the live ship-gate link crawl (t8), invisible to the local crawl test which runs against a dev install
+
 ## [0.7.0] - 2026-07-10
 
 ### Added
