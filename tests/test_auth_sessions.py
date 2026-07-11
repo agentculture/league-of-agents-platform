@@ -32,6 +32,18 @@ def test_issue_and_verify_round_trip_carries_identity() -> None:
     )
 
 
+def test_session_account_id_matches_account_id_for() -> None:
+    """A session's ``account_id`` is exactly the key the accounts store is
+    written under — ``account_id_for(provider, subject)`` — so a signed-in
+    human always resolves to the account the OAuth callback upserted."""
+    from league_site.accounts.store import account_id_for
+
+    session = verify(issue(_IDENTITY, now=1_000), now=1_001)
+    assert session is not None
+    assert session.account_id == account_id_for("github", "12345")
+    assert session.account_id == "github:12345"
+
+
 def test_display_falls_back_to_handle_then_subject() -> None:
     token = issue({"provider": "google", "subject": "9", "handle": "nine"}, now=0)
     session = verify(token, now=1)

@@ -7,9 +7,10 @@ stores back :func:`league_site.web.http.site_app`:
   ``infra/template.yaml``): each named table becomes its DynamoDB-backed
   adapter — :class:`~league_site.matches.aws.DynamoDBMatchStore`,
   :class:`~league_site.auth.aws_tokens.DynamoDBTokenStore`,
-  :class:`~league_site.ratings.aws.DynamoDBRatingLedgerStore` — all sharing
-  one lazily-built ``boto3`` DynamoDB resource, so state persists across
-  invocations, cold starts, and deploys.
+  :class:`~league_site.ratings.aws.DynamoDBRatingLedgerStore`, and (on the
+  tokens table it shares) :class:`~league_site.accounts.aws.
+  DynamoDBAccountStore` — all sharing one lazily-built ``boto3`` DynamoDB
+  resource, so state persists across invocations, cold starts, and deploys.
 * **Local dev / tests** (variables absent): no store kwargs are passed at
   all, so ``site_app()`` composes exactly its in-memory defaults —
   byte-identical to serving ``site_app()`` bare.
@@ -33,10 +34,12 @@ Env contract (names must match ``infra/template.yaml`` exactly):
   gracefully instead of failing — see :func:`_without_session_cookies`.
 
 :func:`build_account_store` is the same env-driven construction for
-:class:`~league_site.accounts.store.AccountStore`, kept as its own function
-rather than a :func:`build_site_app` keyword: no route in the composed app
-reads an account store yet (the OAuth callback upsert and blocking
-enforcement are later tasks), so there is nothing yet to pass it to.
+:class:`~league_site.accounts.store.AccountStore`. :func:`build_site_app`
+now calls it — exactly when :data:`TOKENS_TABLE_ENV` is set (the table
+accounts share) — and passes the result as ``site_app(account_store=...)``
+so the OAuth callback (:func:`league_site.auth.wsgi._callback`) can upsert
+the signed-in human; with the variable unset (local dev, tests)
+``site_app()`` falls back to its own in-memory account store default.
 Accounts deliberately reuse :data:`TOKENS_TABLE_ENV` — no dedicated
 ``ACCOUNTS_TABLE_NAME`` variable exists — because
 :class:`~league_site.accounts.aws.DynamoDBAccountStore` shares the physical
@@ -198,6 +201,15 @@ def build_site_app(
         from league_site.auth.aws_tokens import DynamoDBTokenStore
 
         store_kwargs["token_store"] = DynamoDBTokenStore(tokens_table, resource=dynamodb_resource)
+        # Accounts ride the *same* tokens table (see build_account_store /
+        # league_site.accounts.aws), so they are wired exactly when the tokens
+        # table is — reusing the one dynamodb_resource already built above so
+        # the OAuth callback (league_site.auth.wsgi._callback) can persist the
+        # signed-in human. Local dev / tests (no table var) fall through to
+        # site_app()'s own in-memory AccountStore default.
+        store_kwargs["account_store"] = build_account_store(
+            env, dynamodb_resource=dynamodb_resource
+        )
     if ratings_table:
         from league_site.ratings.aws import DynamoDBRatingLedgerStore
 
@@ -225,11 +237,11 @@ def build_account_store(
     :mod:`league_site.accounts.aws`'s module docstring), so no separate
     ``ACCOUNTS_TABLE_NAME`` variable exists to read.
 
-    Not yet threaded into :func:`build_site_app`/``site_app()`` itself: no
-    route in the composed app reads an account store yet (the OAuth
-    callback upsert and blocking enforcement are later tasks) — this
-    function is the env-driven build-a-store half of that wiring, ready
-    for those tasks to call once they exist.
+    Threaded into :func:`build_site_app`, which calls this (reusing its
+    already-built ``dynamodb_resource``) whenever :data:`TOKENS_TABLE_ENV`
+    is set and passes the result to ``site_app(account_store=...)`` so the
+    OAuth callback can persist accounts; still callable on its own by the
+    operator CLI and blocking-enforcement paths.
 
     *environ* defaults to ``os.environ``; tests pass a plain dict to pin
     the decision input, exactly like :func:`build_site_app`.

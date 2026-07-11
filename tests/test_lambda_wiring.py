@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from league_site.accounts.aws import DynamoDBAccountStore
 from league_site.auth import tokens
 from league_site.auth.aws_tokens import DynamoDBTokenStore
 from league_site.aws_lambda import wiring
@@ -139,12 +140,14 @@ def test_full_env_selects_dynamodb_backed_stores(recorded_site_app) -> None:
     wiring.build_site_app({**FULL_ENV, "LEAGUE_SESSION_SECRET": "s"}, dynamodb_resource=resource)
 
     kwargs = recorded_site_app["kwargs"]
-    assert set(kwargs) == {"match_store", "token_store", "ledger_store"}
+    assert set(kwargs) == {"match_store", "token_store", "ledger_store", "account_store"}
     assert isinstance(kwargs["match_store"], DynamoDBMatchStore)
     assert isinstance(kwargs["token_store"], DynamoDBTokenStore)
     assert isinstance(kwargs["ledger_store"], DynamoDBRatingLedgerStore)
-    # each store bound to its own env-named table
+    assert isinstance(kwargs["account_store"], DynamoDBAccountStore)
+    # each store bound to its own env-named table; accounts ride the tokens table
     assert set(resource.tables) == {"league-matches", "league-tokens", "league-ratings"}
+    assert kwargs["account_store"]._table_name == "league-tokens"
 
 
 def test_each_table_env_var_is_wired_independently(recorded_site_app) -> None:
