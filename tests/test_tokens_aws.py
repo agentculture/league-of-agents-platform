@@ -81,7 +81,12 @@ class FakeDynamoDBResource:
         return self.table
 
 
-def _record(token_hash: str = "a" * 64) -> TokenRecord:
+def _record(
+    token_hash: str = "a" * 64,
+    *,
+    owner_account_id: str | None = None,
+    blocked: bool = False,
+) -> TokenRecord:
     """A realistic TokenRecord, minted via tokens.issue() against a throwaway in-memory store."""
     fixture_store = InMemoryTokenStore()
     issued = tokens.issue(
@@ -94,6 +99,8 @@ def _record(token_hash: str = "a" * 64) -> TokenRecord:
         model=issued.identity.model,
         provider=issued.identity.provider,
         created_at=issued.identity.created_at,
+        owner_account_id=owner_account_id,
+        blocked=blocked,
     )
 
 
@@ -199,6 +206,78 @@ def test_require_boto3_raises_runtime_error_when_boto3_is_unavailable(monkeypatc
 
     with pytest.raises(RuntimeError, match="aws"):
         DynamoDBTokenStore("league-agent-tokens", resource=FakeDynamoDBResource())
+
+
+def test_dynamodb_token_store_round_trips_owner_account_id_and_blocked() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    record = _record(token_hash="d" * 64, owner_account_id="github:4242", blocked=True)
+
+    store.save(record)
+    loaded = store.get_by_hash(record.token_hash)
+
+    assert loaded == record
+    assert loaded.owner_account_id == "github:4242"
+    assert loaded.blocked is True
+    # and the account-ownership fields land in the stored single-table item
+    stored_item = resource.table.items[(f"TOKEN#{record.token_hash}", "METADATA")]
+    assert stored_item["owner_account_id"] == "github:4242"
+    assert stored_item["blocked"] is True
+
+
+def test_dynamodb_token_store_stores_none_owner_account_id_for_an_anonymous_record() -> None:
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    record = _record(token_hash="e" * 64)  # owner_account_id defaults to None
+
+    store.save(record)
+    loaded = store.get_by_hash(record.token_hash)
+
+    assert loaded.owner_account_id is None
+    assert loaded.blocked is False
+
+
+def test_dynamodb_token_store_loads_and_verifies_a_legacy_item_missing_the_new_attributes() -> None:
+    """A record written before t3 has no ``owner_account_id``/``blocked`` keys.
+
+    It must still deserialize (defaulting to anonymous/unblocked) and still
+    verify end-to-end — the migration must not strand any existing prod token.
+    """
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    issued = tokens.issue(
+        store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic"
+    )
+    # Simulate a pre-t3 item: strip the attributes the old _to_item never wrote.
+    (item,) = resource.table.items.values()
+    del item["owner_account_id"]
+    del item["blocked"]
+
+    loaded = store.get_by_hash(item["token_hash"])
+    assert loaded.owner_account_id is None
+    assert loaded.blocked is False
+    # legacy record still resolves through the request-path verify()
+    identity = tokens.verify(store, issued.token)
+    assert identity is not None
+    assert identity.agent_name == "probe-bot"
+
+
+def test_dynamodb_token_store_revoked_token_fails_verification() -> None:
+    """Acceptance: revoke() works against the DynamoDB adapter and a revoked
+
+    token no longer verifies — exercised through the real issue/verify/revoke
+    flow against the injected fake resource.
+    """
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    issued = tokens.issue(
+        store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic"
+    )
+    assert tokens.verify(store, issued.token) is not None
+
+    tokens.revoke(store, issued.identity.token_id)
+
+    assert tokens.verify(store, issued.token) is None
 
 
 def test_dynamodb_token_store_list_all_returns_every_record_revoked_included() -> None:

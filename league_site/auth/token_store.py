@@ -25,6 +25,17 @@ class TokenRecord:
     token itself is never stored here. ``agent_name``/``model``/``provider``
     are the benchmark identity fields and are immutable for the token's
     lifetime; only ``revoked`` changes, via :meth:`TokenStore.revoke`.
+
+    ``owner_account_id`` anchors the token to the human account that minted it
+    (the human-anchored-token model); it is ``None`` for a legacy or anonymous
+    record — every token issued before accounts existed, and any minted
+    outside the signed-in flow. ``blocked`` is the operator kill-switch the
+    request-time enforcement path reads: this store only carries the flag
+    faithfully — turning ``blocked`` into a denied request is the auth path's
+    job, not the store's. Both fields default so that the pre-account
+    :func:`league_site.auth.tokens.issue` call site, and any record
+    deserialized from an item written before these fields existed, load as an
+    anonymous, unblocked token.
     """
 
     token_id: str
@@ -34,6 +45,8 @@ class TokenRecord:
     provider: str
     created_at: datetime
     revoked: bool = False
+    owner_account_id: str | None = None
+    blocked: bool = False
 
 
 class TokenNotFoundError(Exception):
