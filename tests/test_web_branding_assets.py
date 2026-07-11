@@ -103,9 +103,19 @@ def test_favicon_wears_the_dawn_palette_not_the_old_orange() -> None:
     assert _OLD_ORANGE not in svg
 
 
-def test_favicon_keeps_the_league_crossed_swords_glyph() -> None:
+def test_favicon_mark_is_vector_geometry_not_a_font_glyph() -> None:
+    # The first favicon drew the league's ⚔ as a <text> glyph; favicon
+    # renderers resolve fonts unpredictably (U+2694 has no glyph in the
+    # serif stacks they fall back to), so the tab icon rendered blank in
+    # production. The mark must be font-independent geometry — the site
+    # wears the family's mesh mark (three nodes, two threads), verbatim
+    # from agentculture.org.
     _, _, body = _get(_shelled(), "/favicon.svg")
-    assert "⚔" in body.decode("utf-8")  # ⚔ CROSSED SWORDS
+    svg = body.decode("utf-8")
+    assert "<text" not in svg
+    assert "font-family" not in svg
+    assert svg.count("<circle") >= 3  # the three mesh nodes
+    assert "<path" in svg  # the two threads
 
 
 def test_favicon_carries_immutable_cache_control() -> None:

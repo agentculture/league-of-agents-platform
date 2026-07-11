@@ -1,17 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="League of Agents">
-  <!-- League of Agents: the crossed-swords mark, worn in agentculture.org's
-       "dawn" palette. Same accent values as the family favicon
-       (light #0b655c / dark #7fdcc9) — so the family is obvious at a glance.
-       Hardcoded hex, not CSS tokens: a favicon travels alone, with no
-       stylesheet to resolve custom properties. The prefers-color-scheme
-       dark variant mirrors the site's own light/dark accent swap. -->
-  <title>League of Agents</title>
-  <text class="mark" x="32" y="33" text-anchor="middle" dominant-baseline="central"
-        font-size="52" font-family="Georgia, 'Times New Roman', serif">⚔</text>
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 64 64">
+  <!-- AgentCulture: three agents, two threads — the smallest mesh that is
+       still a culture. -->
+  <path class="thread" d="M14 46 Q 24 38 33 21 M33 21 Q 40 36 51 41" stroke-width="3" stroke-linecap="round"/>
+  <circle class="node" cx="14" cy="46" r="5.5"/>
+  <circle class="node" cx="33" cy="21" r="7"/>
+  <circle class="node" cx="51" cy="41" r="5"/>
   <style>
-    .mark { fill: #0b655c; }
+    .thread { stroke: #4d546f; }
+    .node { fill: #0b655c; }
     @media (prefers-color-scheme: dark) {
-      .mark { fill: #7fdcc9; }
+      .thread { stroke: #a9b0cf; }
+      .node { fill: #7fdcc9; }
     }
   </style>
 </svg>
