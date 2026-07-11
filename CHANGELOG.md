@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-07-11
+
+### Added
+
+- Converged devague spec + 10-task plan for the agentculture.org family alignment (full adoption: dawn palette, self-hosted Fraunces + Albert Sans, mesh motif, toggle kept) and the strategy-game demo board (JS-driven sim: unit roles, resource gather/deliver, capturable control posts, message ticker, real scoring formula)
+
+### Fixed
+
+- Root-caused the dead theme toggle on production: Cloudflare edge serves the pre-dazzle /theme.css (no data-theme blocks) against the current origin build; spec adds an ops purge task and a versioned-asset-URL requirement so deploys can never strand stale CSS again
+
 ## [0.7.1] - 2026-07-11
 
 ### Fixed
