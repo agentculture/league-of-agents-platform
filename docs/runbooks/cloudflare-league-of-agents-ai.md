@@ -237,6 +237,148 @@ makes that exit `0` rather than an error.
   resolving through Cloudflare; the certificate and custom domain resources
   are untouched.
 
+## Cache purge (emergency, /theme.css and /site.js)
+
+### Why this section exists
+
+On 2026-07-11 a deploy shipped a new `theme.py` (10,604 B `/theme.css`,
+with `:root[data-theme=...]` blocks) and a new `scripts.py`, but the
+three-state theme toggle did nothing on production. The origin Lambda was
+serving the current build correctly — a direct fetch confirmed the
+10,604-byte stylesheet with the `data-theme` rules. Cloudflare's edge,
+however, was still serving the pre-dazzle `/theme.css` (5,863 B, no
+`data-theme` blocks at all) under `cache-control: max-age=14400`
+(`cf-cache-status: HIT`). New HTML, new JS, stale CSS: the toggle stamped
+`data-theme` on `<html>` exactly as designed, but no CSS rule existed at
+the edge to react to it. This is a caching problem, not an application
+bug — `theme.py` and `scripts.py` were both correct on origin the whole
+time.
+
+The fix has two legs, and this section documents only the first:
+
+1. **(ops, immediate)** Purge the two stale URLs from Cloudflare's edge
+   cache — the procedure below. This is a manual operator action taken
+   against the real zone; it is not automated by this repository and
+   there is nothing in `tests/` that exercises it, for the same reason
+   `cultureflare` itself cannot be exercised against a real zone in CI
+   (see "Status" above). **Execution against the real
+   `league-of-agents.ai` zone, and the resulting fresh-fetch confirmation,
+   are operator actions recorded when they happen — not claimed here.**
+2. **(code, durable)** Ship versioned asset URLs (`/theme.css?v=<version>`
+   or a content-hashed path) so a deploy can never again strand new HTML
+   against an old stylesheet at any caching layer. See the closing
+   paragraph below — that leg is tracked as a separate task and, once it
+   ships, this purge procedure stops being part of the routine deploy
+   path.
+
+### Purge-by-URL API call
+
+Cloudflare's purge endpoint supports several granularities (purge
+everything, purge by tag, purge by hostname); this runbook uses only the
+narrowest and least invasive: **purge by URL**, which invalidates exactly
+the files named and nothing else on the zone.
+
+```bash
+curl -sS -X POST \
+  "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache" \
+  -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "files": [
+      "https://league-of-agents.ai/theme.css",
+      "https://league-of-agents.ai/site.js",
+      "https://www.league-of-agents.ai/theme.css",
+      "https://www.league-of-agents.ai/site.js"
+    ]
+  }'
+```
+
+Both the apex and `www` hosts are listed explicitly — Cloudflare caches
+each hostname's copy of a URL independently, and this site answers on
+both (see "Phase 2" above). Purging only the apex would leave a visitor
+on `www.league-of-agents.ai` looking at the stale stylesheet.
+
+`ZONE_ID` is not something this runbook or `cultureflare` has printed
+before now; get it with:
+
+```bash
+cultureflare zones list
+```
+
+This is one of the documented direct-API exceptions to "every mutation in
+this runbook goes through `cultureflare`" (see "How this satisfies
+honesty condition h4" below for the parallel case) — `cultureflare` has
+`whoami`, `zones list`, `dns create`, `learn`, and `explain`, and no purge
+verb as of this writing (`cultureflare --help`). The `DELETE
+/zones/{zone_id}/dns_records/{id}` call in "Rollback" above is the same
+kind of exception, for the same reason: the CLI simply doesn't cover that
+verb yet, and the direct API call is what's left.
+
+### Required token scope
+
+The purge call needs a token with **Zone → Cache Purge → Purge**
+permission on the `league-of-agents.ai` zone. This is a narrower grant
+than the `Zone → DNS → Edit` scope this runbook's `CLOUDFLARE_API_TOKEN`
+otherwise needs for `cultureflare dns create` — if the token configured
+for day-to-day DNS work was not also granted Cache Purge at creation time,
+the purge call fails with a 403 and a new or edited token is needed before
+it will succeed. Check current scope with `cultureflare whoami` (it
+reports what the configured token can do) before assuming a 403 means
+something else is wrong.
+
+### Loading the token
+
+Same secure-loading pattern this runbook already uses for
+`CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (see "Prerequisites"
+above and `cultureflare learn`): a `chmod 600` env file kept outside any
+git-tracked directory, sourced into the shell immediately before the
+`curl` call —
+
+```bash
+chmod 600 ~/.config/agent/cultureflare.env
+set -a; . ~/.config/agent/cultureflare.env; set +a
+```
+
+— never committed, and never pasted directly into an editor or a chat
+transcript. The purge token is a bearer credential with write access to
+Cloudflare's cache for this zone; treat it with the same care as the DNS
+token.
+
+### Browser caches are a second, separate cache
+
+Purging the edge fixes what Cloudflare serves to the *next* request for
+`/theme.css` and `/site.js`. It does nothing for a browser that already
+fetched and cached those files during the 4-hour `max-age=14400` window —
+that copy lives on the visitor's disk, not at Cloudflare, and a
+Cloudflare-side purge cannot reach it. A visitor who loaded the site
+before the purge needs a hard refresh (bypassing the browser's own HTTP
+cache, not just a normal reload) to see the corrected stylesheet. This is
+why the honesty condition on the toggle fix is checked "on production,
+not locally" with "a fresh fetch through Cloudflare" — verifying the edge
+is necessary but not sufficient; the operator doing that verification
+should also confirm with a hard refresh (or a private/incognito window,
+which starts with no cache at all) that the browser layer isn't masking
+either a real fix or a real remaining bug.
+
+### When purging stops being necessary
+
+This procedure exists because `/theme.css` and `/site.js` are currently
+served at fixed, unversioned URLs — a deploy changes the bytes behind
+`/theme.css` without changing its name, so anything that cached the old
+name (Cloudflare's edge, a visitor's browser) keeps serving stale bytes
+until it expires or is told to forget. Once versioned asset URLs ship
+(`/theme.css?v=<version>` or a content-hashed path — tracked as a
+separate task in this plan), that stops being true: each deploy's shelled
+HTML references a *new* URL for its build, so there is nothing stale to
+purge — the new URL was never cached by anyone, and the old URL's cached
+copy is simply never requested again. At that point routine purges leave
+the deploy path entirely. This procedure remains useful only for genuine
+emergencies after that point: if a bug ships that is bad enough to need
+pulling *the currently-referenced* versioned URL's content out of cache
+before its natural TTL expires (rather than shipping a fix forward under
+a newer version), the same purge-by-URL call above still works — it
+purges whatever URL is named, versioned or not.
+
 ## How this satisfies honesty condition h4
 
 The spec (`docs/specs/2026-07-10-league-of-agents-ai-is-live-a-beautiful-welcoming.md`)
