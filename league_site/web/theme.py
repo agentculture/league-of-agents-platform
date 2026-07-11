@@ -128,6 +128,24 @@ Spacing, type scale, and rhythm
     derived ``--radius-sm`` for inline code and pill (999px) forms for
     buttons, the toggle, and the skip link.
 
+Desktop layout — a wide shell, one left rail (the desktop-arena pass)
+    ``--max-width`` is the page *shell* (78rem), shared by header, main,
+    and footer via ``.wrap`` with a fluid ``--gutter`` (1rem floor — so
+    narrow viewports keep their exact previous padding — up to 3rem).
+    Inside the shell, content zones do the desktop work instead of
+    stretched text: every direct child of ``main.wrap`` anchors to the
+    shell's left rail and prose keeps its readable ``--measure`` (46rem,
+    the previous column, unchanged as a *reading* width), while the
+    artifacts that earn width opt out — the hero scene and ``.table-wrap``
+    tables (the leaderboard, profile histories) may run the whole shell,
+    and ``pre`` blocks grow past the measure only as far as their content
+    asks (``width: fit-content``). In the header, from 48rem up, an auto
+    margin on the primary nav anchors the wordmark hard left and nav +
+    theme toggle hard right; below that the row wraps exactly as before.
+    The hero's self-centering ``--hero-w`` (sized for the old 46rem
+    column) is overridden to span the shell so its copy column shares the
+    rail and its board reaches toward the header's right anchor.
+
 Performance budget (documented here per the design brief; renegotiated,
 not abandoned, twice now — first for the dazzle pass (spec c11), again
 for the sibling-of-agentculture.org pass (spec h1) — see the note below)
@@ -391,11 +409,16 @@ STYLESHEET = f"""\
   --text-xl: 2rem;
   --text-2xl: 2.75rem;
 
-  /* rhythm */
+  /* rhythm — a wide desktop shell (--max-width) with a readable prose
+     measure (--measure) anchored to its left rail; see the content-zone
+     rules under main.wrap below. --gutter floors at --space-4 so narrow
+     viewports keep their exact pre-desktop-pass padding. */
   --section-pad: clamp(4.5rem, 10vh, 8rem);
   --radius: 1.25rem;
   --radius-sm: 0.5rem;
-  --max-width: 46rem;
+  --max-width: 78rem;
+  --measure: 46rem;
+  --gutter: clamp(var(--space-4), 4vw, var(--space-7));
 }}
 
 /* Explicit visitor choice: data-theme="dark"/"light" on <html>, set by the
@@ -486,7 +509,7 @@ a:hover, a:focus-visible {{ text-decoration-color: var(--accent); }}
 .wrap {{
   max-width: var(--max-width);
   margin: 0 auto;
-  padding: 0 var(--space-4);
+  padding: 0 var(--gutter);
 }}
 
 .site-header {{
@@ -494,7 +517,6 @@ a:hover, a:focus-visible {{ text-decoration-color: var(--accent); }}
   padding: var(--space-4) 0;
 }}
 .site-header .wrap {{
-  max-width: 64rem;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -529,6 +551,15 @@ nav[aria-label="Primary"] a {{ color: var(--text-muted); text-decoration: none; 
 nav[aria-label="Primary"] a:hover,
 nav[aria-label="Primary"] a:focus-visible {{ color: var(--accent); }}
 
+/* One row up from mobile the header stops floating mid-strip: the
+   wordmark anchors hard left, and the auto margin sends nav + theme
+   toggle hard right, to the shell's edges. Below this the row wraps and
+   space-between lays the wrapped rows out exactly as before. */
+@media (min-width: 48rem) {{
+  nav[aria-label="Primary"] {{ margin-left: auto; gap: var(--space-5); }}
+  .site-header .wrap {{ gap: var(--space-4); }}
+}}
+
 /* Every page shell renders <main id="main" class="wrap">; the compound
    selector outranks .wrap's padding shorthand (a bare `main` rule would
    lose that cascade and the rhythm would silently never apply). */
@@ -536,6 +567,35 @@ main.wrap {{
   padding-block: var(--section-pad);
 }}
 main > .wrap {{ padding: 0; }}
+
+/* Content zones inside the wide shell. Everything shares one hard left
+   rail — the wordmark's own edge — so the page reads as architecture,
+   not a centered strip. Prose keeps its readable measure; the artifacts
+   that earn width take it: the hero scene and tables (the leaderboard, a
+   profile's match history) may run the whole shell, and code blocks grow
+   past the measure only when their content does. */
+main.wrap > * {{ max-width: var(--measure); }}
+main.wrap > .hero, main.wrap > .table-wrap {{ max-width: none; }}
+main.wrap > pre {{
+  width: fit-content;
+  min-width: min(var(--measure), 100%);
+  max-width: 100%; /* fit-content alone would trace an unwrappable long
+    line past the shell (a pre's min-content is its longest line); the cap
+    hands anything longer back to overflow-x. */
+}}
+
+/* The hero spans the shell (its own --hero-w self-centering was sized
+   for the old narrow column) so its copy column starts on the shared
+   left rail and the board's right edge lands exactly on the header's
+   right anchor — the board's own >=78rem pop-out margin compensated for
+   the narrow column and is retired with it. The wider column gap only
+   applies at desktop widths — below that the hero's own gap rules
+   stand. */
+main.wrap > .hero {{ --hero-w: 100%; }}
+main.wrap > .hero .hero-board {{ margin-right: 0; }}
+@media (min-width: 64rem) {{
+  main.wrap > .hero {{ column-gap: clamp(var(--space-7), 6vw, 5rem); }}
+}}
 
 h1, h2, h3, h4, h5, h6 {{
   font-family: var(--font-display);
