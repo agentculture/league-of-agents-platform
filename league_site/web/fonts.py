@@ -46,8 +46,11 @@ MEDIA_TYPE = "font/woff2"
 
 #: Long-lived immutable caching: font bytes are content-stable, so a browser
 #: may cache them for a year and never revalidate. Versioned/fingerprinted
-#: URLs (which make this bulletproof against edits) are a later task (t4);
-#: today the files are simply never edited in place.
+#: URLs, which make this bulletproof against edits, landed in t4 — see
+#: :func:`league_site.web.shell.asset_url`, which appends a content-hash
+#: ``?v=`` query to every ``/fonts/*.woff2`` reference the shell emits (and
+#: reuses this exact ``Cache-Control`` value for ``/theme.css``/``/site.js``
+#: too, now that their URLs are versioned as well).
 CACHE_CONTROL = "public, max-age=31536000, immutable"
 
 _FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"

@@ -47,6 +47,25 @@ It also serves the design system's stylesheet at ``/theme.css`` (see
 only has to wrap the app once to get the layout, its styling, and its
 progressive enhancements (theme toggle, reveal-on-scroll).
 
+Versioned asset URLs
+---------------------
+Every stylesheet/script/font URL this module emits — the ``<link
+rel="stylesheet">``, the deferred ``<script src>``, and both font
+``<link rel="preload">`` tags — carries a ``?v=<hash>`` query built once at
+import time from the exact bytes served (see :func:`asset_url`). This is
+the fix for the incident documented in
+``docs/runbooks/cloudflare-league-of-agents-ai.md`` ("Cache purge
+(emergency, /theme.css and /site.js)"): a deploy that changes an asset's
+bytes changes its URL too, so shelled HTML can never reference stale bytes
+at any caching layer (Cloudflare's edge, a visitor's browser) — there is
+nothing stale left to purge, ever. ``/theme.css`` and ``/site.js`` are
+served with the same long-lived immutable ``Cache-Control`` the fonts
+already carry, safe now that the URL changes with the content.
+:mod:`league_site.viewer.wsgi` and :mod:`league_site.profiles.wsgi` — the
+two standalone page shells that render ahead of this module — call
+:func:`asset_url` too, so there is exactly one hash computation for the
+whole site.
+
 JavaScript in the shell — two pieces, both first-party
 ------------------------------------------------------
 Shelled pages carry exactly two scripts, and raw passthrough responses
@@ -66,6 +85,7 @@ carry none (they are byte-identical to the unwrapped app, as ever):
 
 from __future__ import annotations
 
+import hashlib
 import html
 import re
 from typing import Any, Callable
@@ -237,7 +257,11 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
         if method in ("GET", "HEAD"):
             if path == _THEME_PATH:
                 return _serve_static(
-                    start_response, _STYLESHEET_BYTES, "text/css; charset=utf-8", method
+                    start_response,
+                    _STYLESHEET_BYTES,
+                    "text/css; charset=utf-8",
+                    method,
+                    extra_headers=(("Cache-Control", fonts.CACHE_CONTROL),),
                 )
             if path == _SITE_JS_PATH:
                 return _serve_static(
@@ -245,6 +269,7 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
                     _SITE_JS_BYTES,
                     "application/javascript; charset=utf-8",
                     method,
+                    extra_headers=(("Cache-Control", fonts.CACHE_CONTROL),),
                 )
             if path.startswith(_FONTS_PREFIX):
                 font_bytes = fonts.FONTS.get(path[len(_FONTS_PREFIX) :])
@@ -317,6 +342,74 @@ def _header(headers: list[tuple[str, str]], name: str) -> str:
 _STYLESHEET_BYTES = theme.STYLESHEET.encode("utf-8")
 _SITE_JS_BYTES = scripts.SITE_JS.encode("utf-8")
 
+#: Hex digits of a content hash kept in a ``?v=`` query — long enough that
+#: an accidental collision between two different builds is not a practical
+#: concern, short enough to stay a cheap, readable cache-buster rather than
+#: a full 64-char sha256 hex digest.
+_ASSET_HASH_LEN = 8
+
+
+def _content_hash(data: bytes) -> str:
+    """The ``?v=`` query value for *data*: the first :data:`_ASSET_HASH_LEN`
+    hex digits of its sha256.
+
+    Not a security hash — a short, deterministic fingerprint of content. Two
+    different byte strings (almost certainly) hash to two different values,
+    which is what makes "bumping the version changes every reference" true
+    by construction: every URL below is literally ``path + "?v=" +
+    _content_hash(served_bytes)``, so a build that changes an asset's bytes
+    can only ever be reached at a new URL.
+    """
+    return hashlib.sha256(data).hexdigest()[:_ASSET_HASH_LEN]
+
+
+#: Every shell-served static asset's versioned URL, keyed by served name
+#: (``"theme.css"``, ``"site.js"``, or a font filename matching a key of
+#: :data:`league_site.web.fonts.FONTS`) — the single source :func:`asset_url`
+#: reads from. Built once at import from the exact bytes :func:`with_shell`
+#: serves at each path, so this dict, the served bytes, and every emitted
+#: reference can never disagree about which build they name.
+_ASSET_URLS: dict[str, str] = {
+    "theme.css": f"{_THEME_PATH}?v={_content_hash(_STYLESHEET_BYTES)}",
+    "site.js": f"{_SITE_JS_PATH}?v={_content_hash(_SITE_JS_BYTES)}",
+    **{
+        name: f"{_FONTS_PREFIX}{name}?v={_content_hash(data)}" for name, data in fonts.FONTS.items()
+    },
+}
+
+
+def asset_url(name: str) -> str:
+    """The versioned URL for a shell-served static asset.
+
+    *name* is ``"theme.css"``, ``"site.js"``, or a font filename (a key of
+    :data:`league_site.web.fonts.FONTS`, e.g. ``"fraunces-var.woff2"``).
+    Every URL this returns carries ``?v=<hash>`` (see :func:`_content_hash`)
+    — the content hash of the bytes actually served at that path — so
+    bumping the build changes every reference to it, and the referenced URL
+    always returns exactly the bytes that hash names, on the very first
+    fetch. Route matching only ever looks at ``PATH_INFO``, which never
+    includes the query string (confirmed for the real deploy path by
+    :mod:`league_site.aws_lambda.wsgi`, which builds ``PATH_INFO`` /
+    ``QUERY_STRING`` from ``rawPath`` / ``rawQueryString`` separately), so
+    the query is decorative to the server but load-bearing for every cache
+    in front of it.
+
+    This is the ONE place the hash is computed — :mod:`league_site.web.shell`
+    calls it below for the stylesheet link, the script tag, and both font
+    preloads; :mod:`league_site.viewer.wsgi` and
+    :mod:`league_site.profiles.wsgi`, the two standalone page shells that
+    render ahead of :func:`with_shell`, call it too for their own
+    ``/site.js`` reference rather than hardcoding the path.
+
+    Raises :class:`ValueError` for any other *name* — always a programming
+    error (a typo'd asset name), never user input.
+    """
+    try:
+        return _ASSET_URLS[name]
+    except KeyError:
+        raise ValueError(f"unknown asset: {name!r}") from None
+
+
 #: ``<head>`` preload links for both self-hosted fonts — one per file in
 #: :data:`league_site.web.fonts.FONTS` (display before body), built once at
 #: import. ``crossorigin`` is REQUIRED on a font preload even for a
@@ -327,10 +420,10 @@ _SITE_JS_BYTES = scripts.SITE_JS.encode("utf-8")
 #: starts fetching the fonts as early as possible. The ``@font-face`` rules
 #: that consume these URLs live in :mod:`league_site.web.theme` (a later
 #: task); a preload with no matching ``@font-face`` is a harmless no-op until
-#: then.
+#: then. Each ``href`` is versioned via :func:`asset_url`.
 _FONT_PRELOAD_HTML = "\n".join(
     f'<link rel="preload" as="font" type="{fonts.MEDIA_TYPE}"'
-    f' href="{_FONTS_PREFIX}{name}" crossorigin>'
+    f' href="{asset_url(name)}" crossorigin>'
     for name in fonts.FONTS
 )
 
@@ -396,8 +489,8 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
 <title>{html.escape(page_title)}</title>
 <script>{scripts.PRE_PAINT_JS}</script>
 {_FONT_PRELOAD_HTML}
-<link rel="stylesheet" href="{_THEME_PATH}">
-<script defer src="{_SITE_JS_PATH}"></script>
+<link rel="stylesheet" href="{asset_url('theme.css')}">
+<script defer src="{asset_url('site.js')}"></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>

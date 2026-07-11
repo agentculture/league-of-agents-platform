@@ -42,7 +42,7 @@ import pytest
 
 from league_site.web import shell, theme
 from league_site.web.http import WSGIApp, http_app, site_app
-from league_site.web.shell import FooterSlotRegistry, with_shell
+from league_site.web.shell import FooterSlotRegistry, asset_url, with_shell
 
 
 def _get(app: WSGIApp, path: str) -> tuple[str, dict[str, str], bytes]:
@@ -203,10 +203,12 @@ def test_unshelled_paths_and_md_suffix_constants_are_unchanged() -> None:
 
 def test_every_page_carries_exactly_the_two_known_scripts() -> None:
     """Pin the complete <script> inventory on every page family: ONE inline
-    pre-paint snippet (no src) and ONE deferred first-party /site.js. A
-    single-quoted src, a protocol-relative //host, or a smuggled inline
-    beacon script all fail here — the earlier src-attribute scans only saw
-    double-quoted attributes (review finding B2)."""
+    pre-paint snippet (no src) and ONE deferred first-party /site.js
+    (t4: versioned, ``?v=<hash>`` -- see
+    :func:`league_site.web.shell.asset_url`). A single-quoted src, a
+    protocol-relative //host, or a smuggled inline beacon script all fail
+    here — the earlier src-attribute scans only saw double-quoted
+    attributes (review finding B2)."""
     for path, text in (
         ("/", _get(_shelled(), "/")[2].decode("utf-8")),
         ("/docs", _get(site_app(), "/docs")[2].decode("utf-8")),
@@ -214,7 +216,7 @@ def test_every_page_carries_exactly_the_two_known_scripts() -> None:
     ):
         tags = _SCRIPT_TAG_RE.findall(text)
         srcs = [m for tag in tags for m in _SRC_RE.findall(tag)]
-        assert srcs == ["/site.js"], f"{path}: unexpected script srcs {srcs!r}"
+        assert srcs == [asset_url("site.js")], f"{path}: unexpected script srcs {srcs!r}"
         inline = [tag for tag in tags if "src" not in tag]
         assert len(inline) == 1, f"{path}: expected exactly one inline script"
         assert "dataset.js" in text, f"{path}: pre-paint snippet missing"
