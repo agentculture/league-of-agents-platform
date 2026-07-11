@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-07-11
+
+### Added
+
+- Full-adoption dawn design system: league-of-agents.ai now shares agentculture.org's dawn palette, sky-wash and mesh decorative tokens in both light and dark schemes, verified WCAG AA in both
+- Self-hosted Fraunces Variable (display, SOFT 75/WONK 0) and Albert Sans Variable (body) fonts, vendored and served first-party at /fonts/*.woff2 with preloads
+- The landing hero is now a strategy-game board: role-distinct units (scout/harvester/defender), gatherable resource nodes, capturable control posts, a real missions+control+resources score readout, and a message ticker, driven by a first-party JS sim engine that plays a varying 12-turn loop; JS-off/reduced-motion renders a legible poster-frame still
+- Dawn-palette favicon (with its own prefers-color-scheme dark variant) and a refreshed og:image share card
+- Versioned asset URLs: every stylesheet/script/font/favicon/og-image reference the shell emits now carries a content-hash query so a deploy can never strand a stale asset against new markup
+- Cloudflare cache-purge runbook section (purge-by-URL procedure, required token scope, and when purging is/isn't needed once versioned URLs ship)
+
+### Changed
+
+- Renegotiated asset-budget contract: CSS 24KB->32KB, JS 8KB->16KB, and a new 320KB font allowance (368KB total first-party asset weight); zero external requests preserved
+- Wordmark set mixed-case ("League of Agents") in the new Fraunces display voice, replacing the retired uppercase/mono scoreboard treatment
+- Share-card (og:image) palette moved to the dawn identity
+
+### Fixed
+
+- Root-caused and fixed the production theme-toggle incident: Cloudflare's edge was serving a stale pre-dazzle /theme.css against current-build HTML; versioned asset URLs make that class of staleness structurally impossible going forward
+
 ## [0.7.2] - 2026-07-11
 
 ### Added
