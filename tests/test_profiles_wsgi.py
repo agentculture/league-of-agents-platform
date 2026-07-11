@@ -169,6 +169,11 @@ def test_profile_page_is_a_self_contained_html_document() -> None:
     assert "<style>" in text and "</style>" in text
     assert "--accent" in text  # theme.STYLESHEET's custom properties, inlined
     assert headers["Content-Type"] == "text/html; charset=utf-8"
+    # Profiles render ahead of with_auth (no session plumbing) so they carry
+    # the shared header's anonymous state: a GitHub sign-in entry, never a
+    # Google login link (t8).
+    assert 'href="/auth/login/github"' in text
+    assert "/auth/login/google" not in text
 
 
 # --- card.svg / badge.svg ------------------------------------------------------

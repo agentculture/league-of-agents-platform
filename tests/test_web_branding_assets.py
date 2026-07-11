@@ -142,6 +142,17 @@ def test_shell_head_links_the_favicon() -> None:
     assert f'<link rel="icon" type="image/svg+xml" href="{asset_url("favicon.svg")}">' in head
 
 
+@pytest.mark.parametrize("path", ("/leaderboard", "/play"))
+def test_page_shell_pages_link_the_favicon(path: str) -> None:
+    """The play/watch/leaderboard surfaces render through
+    ``league_site.viewer.wsgi.page_shell`` (a standalone ``<head>`` built
+    ahead of ``with_shell``, not the main shell), so the favicon ``<link>``
+    must be present there too — otherwise those pages lose the tab icon the
+    home page carries (2026-07-11: the browser-play surface had dropped it)."""
+    head = _head_html(_get(site_app(), path)[2].decode("utf-8"))
+    assert f'<link rel="icon" type="image/svg+xml" href="{asset_url("favicon.svg")}">' in head
+
+
 # ---------------------------------------------------------------------------
 # og:image (the raster card)
 # ---------------------------------------------------------------------------

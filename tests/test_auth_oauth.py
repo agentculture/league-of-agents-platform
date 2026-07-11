@@ -29,7 +29,11 @@ from league_site.auth.oauth import (
     verify_state,
 )
 
-GITHUB_USER = {"id": 42, "login": "octocat", "name": "The Octocat"}
+GITHUB_USER = {"id": 42, "login": "octocat", "name": "The Octocat", "email": "octocat@example.com"}
+#: A GitHub profile that hides its email (the /user endpoint returns ``email:
+#: null`` when the human keeps their address private) — the trigger for the
+#: /user/emails fallback :func:`fetch_identity` performs.
+GITHUB_USER_NO_EMAIL = {"id": 42, "login": "octocat", "name": "The Octocat", "email": None}
 GOOGLE_USER = {"sub": "9999", "email": "octocat@example.com", "name": "The Octocat"}
 
 
@@ -54,6 +58,31 @@ def _stub_transport(token_payload: dict[str, object], userinfo_payload: dict[str
         calls.append(request)
         if request.method == "POST":
             return _json_response(token_payload)
+        return _json_response(userinfo_payload)
+
+    transport.calls = calls  # type: ignore[attr-defined]
+    return transport
+
+
+def _stub_transport_with_emails(
+    token_payload: dict[str, object],
+    userinfo_payload: dict[str, object],
+    emails_response: HttpResponse,
+):
+    """Stub routing token -> userinfo -> the GitHub ``/user/emails`` fallback.
+
+    ``emails_response`` is returned verbatim for a GET to ``/user/emails`` so a
+    test can hand back a list, a non-list object, or an outright junk body to
+    exercise the fallback's tolerance.
+    """
+    calls: list[HttpRequest] = []
+
+    def transport(request: HttpRequest) -> HttpResponse:
+        calls.append(request)
+        if request.method == "POST":
+            return _json_response(token_payload)
+        if request.url.endswith("/user/emails"):
+            return emails_response
         return _json_response(userinfo_payload)
 
     transport.calls = calls  # type: ignore[attr-defined]
@@ -166,8 +195,10 @@ def test_github_flow_normalizes_identity() -> None:
         "subject": "42",
         "handle": "octocat",
         "display_name": "The Octocat",
+        "email": "octocat@example.com",
     }
-    # token exchange, then userinfo — each carrying the right auth
+    # A profile that already carries an email needs no /user/emails fallback:
+    # token exchange, then userinfo — exactly two calls, each with the right auth.
     token_request, userinfo_request = transport.calls  # type: ignore[attr-defined]
     assert token_request.method == "POST"
     assert userinfo_request.headers["Authorization"] == "Bearer gh-token-abc"
@@ -189,6 +220,7 @@ def test_google_flow_normalizes_identity() -> None:
         "subject": "9999",
         "handle": "octocat@example.com",
         "display_name": "The Octocat",
+        "email": "octocat@example.com",
     }
 
 
@@ -222,6 +254,104 @@ def test_fetch_identity_raises_when_required_field_missing() -> None:
 
     with pytest.raises(OAuthError, match="userinfo response missing"):
         fetch_identity("github", "token", transport=transport)
+
+
+def test_authorize_url_requests_user_email_scope_for_github() -> None:
+    """The GitHub authorize redirect must ask for ``user:email`` — the scope
+    that lets the callback read a private/primary email from /user/emails."""
+    url, _state = authorize_url("github", "https://league-of-agents.ai/auth/callback/github")
+    scope = parse_qs(urlparse(url).query)["scope"][0].split(" ")
+    assert "user:email" in scope
+
+
+def test_github_hidden_email_is_fetched_from_user_emails() -> None:
+    """A profile with ``email: null`` triggers the /user/emails fallback, which
+    returns the primary verified address — bearer-authed, at the emails URL."""
+    emails = [
+        {"email": "secondary@example.com", "primary": False, "verified": True},
+        {"email": "primary@example.com", "primary": True, "verified": True},
+    ]
+    transport = _stub_transport_with_emails(
+        token_payload={"access_token": "gh-token-abc", "token_type": "bearer"},
+        userinfo_payload=GITHUB_USER_NO_EMAIL,
+        emails_response=_json_response(emails),  # type: ignore[arg-type]
+    )
+    identity = complete_login(
+        "github", "code", "https://league-of-agents.ai/auth/callback/github", transport=transport
+    )
+    assert identity["email"] == "primary@example.com"
+    # token exchange, userinfo, then the emails fallback — three calls in order.
+    token_request, userinfo_request, emails_request = transport.calls  # type: ignore[attr-defined]
+    assert token_request.method == "POST"
+    assert userinfo_request.url.endswith("/user")
+    assert emails_request.url.endswith("/user/emails")
+    assert emails_request.headers["Authorization"] == "Bearer gh-token-abc"
+
+
+def test_github_hidden_email_absent_when_no_primary_verified_address() -> None:
+    """No *primary verified* address is retrievable -> email stays absent
+    (None), and the sign-in still succeeds — a hidden email never fails it."""
+    emails = [
+        {"email": "unverified@example.com", "primary": True, "verified": False},
+        {"email": "verified-not-primary@example.com", "primary": False, "verified": True},
+    ]
+    transport = _stub_transport_with_emails(
+        token_payload={"access_token": "t", "token_type": "bearer"},
+        userinfo_payload=GITHUB_USER_NO_EMAIL,
+        emails_response=_json_response(emails),  # type: ignore[arg-type]
+    )
+    identity = fetch_identity("github", "t", transport=transport)
+    assert identity["email"] is None
+    assert identity["subject"] == "42"
+
+
+def test_github_hidden_email_absent_when_emails_endpoint_returns_non_list() -> None:
+    """A junk/error /user/emails body (not a JSON list) is tolerated: email
+    absent, no exception — the sign-in must not fail over the fallback."""
+    transport = _stub_transport_with_emails(
+        token_payload={"access_token": "t", "token_type": "bearer"},
+        userinfo_payload=GITHUB_USER_NO_EMAIL,
+        emails_response=HttpResponse(status=403, body=b'{"message": "Requires authentication"}'),
+    )
+    identity = fetch_identity("github", "t", transport=transport)
+    assert identity["email"] is None
+
+
+def test_github_hidden_email_absent_when_emails_endpoint_body_is_not_json() -> None:
+    transport = _stub_transport_with_emails(
+        token_payload={"access_token": "t", "token_type": "bearer"},
+        userinfo_payload=GITHUB_USER_NO_EMAIL,
+        emails_response=HttpResponse(status=200, body=b"not json at all"),
+    )
+    identity = fetch_identity("github", "t", transport=transport)
+    assert identity["email"] is None
+
+
+def test_github_hidden_email_survives_a_raising_transport() -> None:
+    """If the emails call itself raises (a network blip), sign-in still
+    completes with email absent rather than 500-ing the callback."""
+
+    def transport(request: HttpRequest) -> HttpResponse:
+        if request.url.endswith("/user/emails"):
+            raise OSError("connection reset")
+        return _json_response(GITHUB_USER_NO_EMAIL)
+
+    identity = fetch_identity("github", "t", transport=transport)
+    assert identity["email"] is None
+
+
+def test_github_profile_with_email_never_calls_user_emails() -> None:
+    """When the profile already carries an email, the fallback is skipped
+    entirely — no second GET to /user/emails."""
+    transport = _stub_transport(
+        token_payload={"access_token": "t", "token_type": "bearer"},
+        userinfo_payload=GITHUB_USER,
+    )
+    identity = complete_login("github", "code", "https://x/callback", transport=transport)
+    calls = transport.calls  # type: ignore[attr-defined]
+    assert identity["email"] == "octocat@example.com"
+    assert len(calls) == 2
+    assert all(not c.url.endswith("/user/emails") for c in calls)
 
 
 def test_default_transport_is_the_default_for_exchange_and_fetch() -> None:

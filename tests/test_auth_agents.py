@@ -21,8 +21,9 @@ from typing import Any
 
 import pytest
 
+from league_site.accounts.store import account_id_for
 from league_site.api.wsgi import with_api
-from league_site.auth import tokens
+from league_site.auth import sessions, tokens
 from league_site.auth.token_store import InMemoryTokenStore, TokenRecord, TokenStore
 from league_site.auth.tokens import (
     DEFAULT_ISSUE_HOURLY_CAP,
@@ -32,9 +33,30 @@ from league_site.auth.tokens import (
     issue_hourly_cap_from_env,
     issue_self_serve,
 )
-from league_site.auth.wsgi import with_auth
+from league_site.auth.wsgi import SESSION_COOKIE_NAME, with_auth
 
 T0 = datetime(2026, 7, 10, 12, 0, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture(autouse=True)
+def _session_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A signing secret so ``POST /auth/agents`` can read (and this module can
+    mint) the human session cookie every mint now requires — see
+    :func:`_signed_in`."""
+    monkeypatch.setenv(sessions.SESSION_SECRET_ENV, "test-session-secret")
+
+
+def _signed_in(
+    subject: str = "42", provider: str = "github", display: str = "Ada"
+) -> dict[str, str]:
+    """``headers=`` value carrying a valid human session cookie.
+
+    The mint is now human-gated: without one of these, ``POST /auth/agents``
+    is a 401. The resulting token's ``owner_account_id`` is
+    ``account_id_for(provider, subject)``.
+    """
+    token = sessions.issue({"subject": subject, "provider": provider, "display_name": display})
+    return {"HTTP_COOKIE": f"{SESSION_COOKIE_NAME}={token}"}
 
 
 # --- WSGI plumbing -----------------------------------------------------------
@@ -102,10 +124,15 @@ class _Clock:
 # --- the guarded issuance primitive ------------------------------------------
 
 
-def test_issue_self_serve_mints_a_verifiable_token() -> None:
+def test_issue_self_serve_mints_a_verifiable_owned_token() -> None:
     store = InMemoryTokenStore()
     issued = issue_self_serve(
-        store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic", now=T0
+        store,
+        agent_name="probe-bot",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:owner",
+        now=T0,
     )
     assert issued.token.startswith(tokens.TOKEN_PREFIX)
     identity = tokens.verify(store, issued.token)
@@ -114,42 +141,144 @@ def test_issue_self_serve_mints_a_verifiable_token() -> None:
     assert identity.model == "claude-sonnet-5"
     assert identity.provider == "anthropic"
     assert identity.created_at == T0
+    # The token is anchored to the minting account — retrievable off the record.
+    assert identity.owner_account_id == "github:owner"
+    (record,) = store.list_all()
+    assert record.owner_account_id == "github:owner"
+
+
+def test_issue_self_serve_cap_is_per_account_not_store_wide() -> None:
+    """The rolling cap is counted per owning account: one account hitting its
+    cap must not lock out a different account (minting is human-gated, so the
+    cap's job is to bound one account, not the whole store)."""
+    store = InMemoryTokenStore()
+    for index in range(2):
+        issue_self_serve(
+            store,
+            agent_name=f"alice-bot-{index}",
+            model="m",
+            provider="p",
+            owner_account_id="github:alice",
+            hourly_cap=2,
+            now=T0,
+        )
+    # Alice is now at her cap.
+    with pytest.raises(IssueCapExceededError):
+        issue_self_serve(
+            store,
+            agent_name="alice-bot-2",
+            model="m",
+            provider="p",
+            owner_account_id="github:alice",
+            hourly_cap=2,
+            now=T0,
+        )
+    # ...but Bob's budget is untouched.
+    issued = issue_self_serve(
+        store,
+        agent_name="bob-bot-0",
+        model="m",
+        provider="p",
+        owner_account_id="github:bob",
+        hourly_cap=2,
+        now=T0,
+    )
+    assert tokens.verify(store, issued.token) is not None
 
 
 def test_issue_self_serve_rejects_a_name_with_a_live_token() -> None:
     store = InMemoryTokenStore()
-    issue_self_serve(store, agent_name="probe-bot", model="m", provider="p", now=T0)
+    issue_self_serve(
+        store,
+        owner_account_id="github:owner",
+        agent_name="probe-bot",
+        model="m",
+        provider="p",
+        now=T0,
+    )
     with pytest.raises(AgentNameTakenError) as excinfo:
-        issue_self_serve(store, agent_name="probe-bot", model="other", provider="other", now=T0)
+        issue_self_serve(
+            store,
+            owner_account_id="github:owner",
+            agent_name="probe-bot",
+            model="other",
+            provider="other",
+            now=T0,
+        )
     assert excinfo.value.agent_name == "probe-bot"
     # A different name is unaffected.
-    issue_self_serve(store, agent_name="other-bot", model="m", provider="p", now=T0)
+    issue_self_serve(
+        store,
+        owner_account_id="github:owner",
+        agent_name="other-bot",
+        model="m",
+        provider="p",
+        now=T0,
+    )
 
 
 def test_revoking_a_token_frees_its_name() -> None:
     store = InMemoryTokenStore()
-    first = issue_self_serve(store, agent_name="probe-bot", model="m", provider="p", now=T0)
+    first = issue_self_serve(
+        store,
+        owner_account_id="github:owner",
+        agent_name="probe-bot",
+        model="m",
+        provider="p",
+        now=T0,
+    )
     tokens.revoke(store, first.identity.token_id)
-    second = issue_self_serve(store, agent_name="probe-bot", model="m", provider="p", now=T0)
+    second = issue_self_serve(
+        store,
+        owner_account_id="github:owner",
+        agent_name="probe-bot",
+        model="m",
+        provider="p",
+        now=T0,
+    )
     assert tokens.verify(store, second.token) is not None
 
 
 def test_hourly_cap_blocks_issuance_past_the_cap() -> None:
     store = InMemoryTokenStore()
     for index in range(3):
-        issue_self_serve(store, agent_name=f"bot-{index}", model="m", provider="p", now=T0)
+        issue_self_serve(
+            store,
+            owner_account_id="github:owner",
+            agent_name=f"bot-{index}",
+            model="m",
+            provider="p",
+            now=T0,
+        )
     with pytest.raises(IssueCapExceededError) as excinfo:
-        issue_self_serve(store, agent_name="bot-3", model="m", provider="p", hourly_cap=3, now=T0)
+        issue_self_serve(
+            store,
+            owner_account_id="github:owner",
+            agent_name="bot-3",
+            model="m",
+            provider="p",
+            hourly_cap=3,
+            now=T0,
+        )
     assert excinfo.value.cap == 3
 
 
 def test_cap_window_rolls_so_old_issuances_stop_counting() -> None:
     store = InMemoryTokenStore()
-    issue_self_serve(store, agent_name="bot-0", model="m", provider="p", hourly_cap=1, now=T0)
+    issue_self_serve(
+        store,
+        owner_account_id="github:owner",
+        agent_name="bot-0",
+        model="m",
+        provider="p",
+        hourly_cap=1,
+        now=T0,
+    )
     # Still inside the rolling hour: blocked.
     with pytest.raises(IssueCapExceededError):
         issue_self_serve(
             store,
+            owner_account_id="github:owner",
             agent_name="bot-1",
             model="m",
             provider="p",
@@ -159,6 +288,7 @@ def test_cap_window_rolls_so_old_issuances_stop_counting() -> None:
     # Past the window: the first issuance no longer counts.
     issue_self_serve(
         store,
+        owner_account_id="github:owner",
         agent_name="bot-1",
         model="m",
         provider="p",
@@ -170,10 +300,20 @@ def test_cap_window_rolls_so_old_issuances_stop_counting() -> None:
 def test_revoked_tokens_still_count_against_the_cap() -> None:
     """Revoking a token must not refund abuse budget inside the window."""
     store = InMemoryTokenStore()
-    issued = issue_self_serve(store, agent_name="bot-0", model="m", provider="p", now=T0)
+    issued = issue_self_serve(
+        store, owner_account_id="github:owner", agent_name="bot-0", model="m", provider="p", now=T0
+    )
     tokens.revoke(store, issued.identity.token_id)
     with pytest.raises(IssueCapExceededError):
-        issue_self_serve(store, agent_name="bot-1", model="m", provider="p", hourly_cap=1, now=T0)
+        issue_self_serve(
+            store,
+            owner_account_id="github:owner",
+            agent_name="bot-1",
+            model="m",
+            provider="p",
+            hourly_cap=1,
+            now=T0,
+        )
 
 
 # --- the env-configured cap ---------------------------------------------------
@@ -234,7 +374,7 @@ def test_token_store_list_all_default_raises_not_implemented() -> None:
 def test_post_auth_agents_mints_a_token_and_identity() -> None:
     store = InMemoryTokenStore()
     app = with_auth(_leaf_app, token_store=store)
-    status, headers, payload = _post_json(app, "/auth/agents", _mint_body())
+    status, headers, payload = _post_json(app, "/auth/agents", _mint_body(), headers=_signed_in())
     assert status == "201 Created"
     assert headers["Content-Type"].startswith("application/json")
     assert payload["token"].startswith(tokens.TOKEN_PREFIX)
@@ -243,12 +383,96 @@ def test_post_auth_agents_mints_a_token_and_identity() -> None:
     assert tokens.verify(store, payload["token"]) is not None
 
 
+def test_post_auth_agents_without_a_session_is_401() -> None:
+    """The human gate (task t6): no live session -> refused, with a
+    machine-readable error whose message names the new onboarding path so the
+    agent's operator knows a human must sign in and mint the token."""
+    store = InMemoryTokenStore()
+    app = with_auth(_leaf_app, token_store=store)
+    status, _, payload = _post_json(app, "/auth/agents", _mint_body())  # no session cookie
+    assert status == "401 Unauthorized"
+    assert payload["code"] == "authentication_required"
+    assert tokens.ONBOARDING_URL in payload["message"]
+    # Nothing was minted.
+    assert store.list_all() == []
+
+
+def test_post_auth_agents_anchors_the_token_to_the_signed_in_account() -> None:
+    """A session-authed mint stores ``owner_account_id`` on the record —
+    retrievable, and equal to the signed-in human's account id."""
+    store = InMemoryTokenStore()
+    app = with_auth(_leaf_app, token_store=store)
+    status, _, payload = _post_json(
+        app, "/auth/agents", _mint_body(), headers=_signed_in(subject="4242")
+    )
+    assert status == "201 Created"
+    (record,) = store.list_all()
+    assert record.owner_account_id == account_id_for("github", "4242")
+    # And it verifies (an owned token is not caught by the anonymous cutoff).
+    assert tokens.verify(store, payload["token"]) is not None
+
+
+def test_post_auth_agents_refuses_a_blocked_account() -> None:
+    """Task t4: a blocked human account cannot mint new agent tokens. The
+    session is valid, so this is a ``403``, not the ``401`` of an absent
+    session — and nothing is minted."""
+    from league_site.accounts.store import AccountRecord, InMemoryAccountStore
+
+    store = InMemoryTokenStore()
+    accounts = InMemoryAccountStore()
+    account_id = account_id_for("github", "42")
+    accounts.upsert(
+        AccountRecord(
+            account_id=account_id,
+            provider="github",
+            provider_user_id="42",
+            display_name="Ada",
+            email=None,
+        )
+    )
+    accounts.set_blocked(account_id, True)
+    app = with_auth(_leaf_app, token_store=store, account_store=accounts)
+
+    status, _, payload = _post_json(
+        app, "/auth/agents", _mint_body(), headers=_signed_in(subject="42")
+    )
+    assert status == "403 Forbidden"
+    assert payload["code"] == "account_blocked"
+    assert store.list_all() == []
+
+
+def test_post_auth_agents_allows_an_unblocked_account_with_account_store_wired() -> None:
+    """The account-block check does not disturb the ordinary mint: an
+    unblocked (or absent-flag) account still mints normally."""
+    from league_site.accounts.store import AccountRecord, InMemoryAccountStore
+
+    store = InMemoryTokenStore()
+    accounts = InMemoryAccountStore()
+    account_id = account_id_for("github", "42")
+    accounts.upsert(
+        AccountRecord(
+            account_id=account_id,
+            provider="github",
+            provider_user_id="42",
+            display_name="Ada",
+            email=None,
+        )
+    )
+    app = with_auth(_leaf_app, token_store=store, account_store=accounts)
+
+    status, _, payload = _post_json(
+        app, "/auth/agents", _mint_body(), headers=_signed_in(subject="42")
+    )
+    assert status == "201 Created"
+    assert payload["token"].startswith(tokens.TOKEN_PREFIX)
+
+
 def test_minted_token_authenticates_the_match_api() -> None:
     """The acceptance path: mint over HTTP, then create a match on /api/v1 with it."""
     store = InMemoryTokenStore()
     app = with_auth(with_api(_leaf_app, token_store=store), token_store=store)
 
-    status, _, minted = _post_json(app, "/auth/agents", _mint_body())
+    status, _, minted = _post_json(app, "/auth/agents", _mint_body(), headers=_signed_in())
     assert status == "201 Created"
 
     status, _, match = _post_json(
@@ -280,7 +504,7 @@ def test_post_auth_agents_missing_field_is_400(missing: str) -> None:
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
     body = _mint_body()
     del body[missing]
-    status, _, payload = _post_json(app, "/auth/agents", body)
+    status, _, payload = _post_json(app, "/auth/agents", body, headers=_signed_in())
     assert status == "400 Bad Request"
     assert payload["code"] == "bad_request"
     assert missing in payload["message"]
@@ -289,7 +513,9 @@ def test_post_auth_agents_missing_field_is_400(missing: str) -> None:
 @pytest.mark.parametrize("blank", ["", "   "])
 def test_post_auth_agents_blank_name_is_400(blank: str) -> None:
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
-    status, _, payload = _post_json(app, "/auth/agents", _mint_body(name=blank))
+    status, _, payload = _post_json(
+        app, "/auth/agents", _mint_body(name=blank), headers=_signed_in()
+    )
     assert status == "400 Bad Request"
     assert payload["code"] == "bad_request"
 
@@ -297,29 +523,31 @@ def test_post_auth_agents_blank_name_is_400(blank: str) -> None:
 def test_post_auth_agents_non_string_field_is_400() -> None:
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
     body: dict[str, Any] = dict(_mint_body(), model=42)
-    status, _, payload = _post_json(app, "/auth/agents", body)
+    status, _, payload = _post_json(app, "/auth/agents", body, headers=_signed_in())
     assert status == "400 Bad Request"
     assert "model" in payload["message"]
 
 
 def test_post_auth_agents_malformed_json_is_400() -> None:
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
-    status, _, body = _call(app, "POST", "/auth/agents", body=b"{not json")
+    status, _, body = _call(app, "POST", "/auth/agents", body=b"{not json", headers=_signed_in())
     assert status == "400 Bad Request"
     assert json.loads(body)["code"] == "bad_request"
 
 
 def test_post_auth_agents_non_object_body_is_400() -> None:
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
-    status, _, payload = _post_json(app, "/auth/agents", ["not", "an", "object"])
+    status, _, payload = _post_json(
+        app, "/auth/agents", ["not", "an", "object"], headers=_signed_in()
+    )
     assert status == "400 Bad Request"
 
 
 def test_post_auth_agents_duplicate_name_is_409() -> None:
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
-    status, _, _ = _post_json(app, "/auth/agents", _mint_body())
+    status, _, _ = _post_json(app, "/auth/agents", _mint_body(), headers=_signed_in())
     assert status == "201 Created"
-    status, _, payload = _post_json(app, "/auth/agents", _mint_body())
+    status, _, payload = _post_json(app, "/auth/agents", _mint_body(), headers=_signed_in())
     assert status == "409 Conflict"
     assert payload["code"] == "name_taken"
 
@@ -327,16 +555,17 @@ def test_post_auth_agents_duplicate_name_is_409() -> None:
 def test_post_auth_agents_over_cap_is_429_until_the_window_rolls() -> None:
     clock = _Clock(T0)
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore(), issue_hourly_cap=2, clock=clock)
+    session = _signed_in()  # one account mints repeatedly -> hits its per-account cap
     for name in ("bot-0", "bot-1"):
-        status, _, _ = _post_json(app, "/auth/agents", _mint_body(name=name))
+        status, _, _ = _post_json(app, "/auth/agents", _mint_body(name=name), headers=session)
         assert status == "201 Created"
 
-    status, _, payload = _post_json(app, "/auth/agents", _mint_body(name="bot-2"))
+    status, _, payload = _post_json(app, "/auth/agents", _mint_body(name="bot-2"), headers=session)
     assert status == "429 Too Many Requests"
     assert payload["code"] == "issue_cap_exceeded"
 
     clock.advance(timedelta(minutes=61))
-    status, _, _ = _post_json(app, "/auth/agents", _mint_body(name="bot-2"))
+    status, _, _ = _post_json(app, "/auth/agents", _mint_body(name="bot-2"), headers=session)
     assert status == "201 Created"
 
 
@@ -345,9 +574,10 @@ def test_post_auth_agents_cap_reads_env_at_construction(
 ) -> None:
     monkeypatch.setenv(ISSUE_HOURLY_CAP_ENV, "1")
     app = with_auth(_leaf_app, token_store=InMemoryTokenStore())
-    status, _, _ = _post_json(app, "/auth/agents", _mint_body(name="bot-0"))
+    session = _signed_in()
+    status, _, _ = _post_json(app, "/auth/agents", _mint_body(name="bot-0"), headers=session)
     assert status == "201 Created"
-    status, _, payload = _post_json(app, "/auth/agents", _mint_body(name="bot-1"))
+    status, _, payload = _post_json(app, "/auth/agents", _mint_body(name="bot-1"), headers=session)
     assert status == "429 Too Many Requests"
     assert payload["code"] == "issue_cap_exceeded"
 
@@ -365,7 +595,8 @@ def test_site_app_ships_self_serve_issuance_wired() -> None:
 
     Integration seam: ``site_app`` resolves one token store and hands the
     same instance to both ``with_auth`` (issuance) and ``with_api``
-    (authentication) — a token minted over HTTP must authenticate API calls.
+    (authentication) — a token minted over HTTP by a signed-in human must
+    authenticate API calls.
     """
     from league_site.web.http import site_app
 
@@ -375,7 +606,26 @@ def test_site_app_ships_self_serve_issuance_wired() -> None:
         "POST",
         "/auth/agents",
         body=json.dumps({"name": "sitewired", "model": "m", "provider": "p"}).encode("utf-8"),
+        headers=_signed_in(),
     )
     assert status == "201 Created"
     payload = json.loads(body)
     assert payload["token"].startswith("loa_")
+
+
+def test_site_app_refuses_anonymous_minting() -> None:
+    """The shipped composition enforces the human gate: no session -> 401
+    naming the onboarding path (the anonymous self-serve path is closed)."""
+    from league_site.web.http import site_app
+
+    app = site_app()
+    status, _, body = _call(
+        app,
+        "POST",
+        "/auth/agents",
+        body=json.dumps({"name": "sitewired", "model": "m", "provider": "p"}).encode("utf-8"),
+    )
+    assert status == "401 Unauthorized"
+    payload = json.loads(body)
+    assert payload["code"] == "authentication_required"
+    assert tokens.ONBOARDING_URL in payload["message"]

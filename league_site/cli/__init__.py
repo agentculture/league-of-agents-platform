@@ -62,6 +62,7 @@ def _argv_has_json(argv: list[str] | None) -> bool:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    from league_site.cli._commands import accounts as _accounts_group
     from league_site.cli._commands import cli as _cli_group
     from league_site.cli._commands import doctor as _doctor_cmd
     from league_site.cli._commands import explain as _explain_cmd
@@ -70,6 +71,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from league_site.cli._commands import ops as _ops_group
     from league_site.cli._commands import overview as _overview_cmd
     from league_site.cli._commands import site as _site_group
+    from league_site.cli._commands import tokens as _tokens_group
     from league_site.cli._commands import whoami as _whoami_cmd
 
     parser = _CliArgumentParser(
@@ -97,6 +99,10 @@ def _build_parser() -> argparse.ArgumentParser:
     _site_group.register(sub)
     _ops_group.register(sub)
     _match_group.register(sub)
+    # Blocking-enforcement operator surface (t4): the credential/account
+    # kill-switches, effective on the next request with no deploy or restart.
+    _tokens_group.register(sub)
+    _accounts_group.register(sub)
 
     return parser
 

@@ -99,24 +99,20 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs
 
-from league_site.api import errors
+from league_site.accounts.store import AccountStore
+from league_site.api import errors, matchops
 from league_site.api.engines import DEFAULT_MODE
-from league_site.api.identity import (
-    RequestIdentity,
-    participant_for_identity,
-    participant_for_opponent_spec,
-    resolve_identity,
-)
+from league_site.api.identity import RequestIdentity, resolve_identity
+from league_site.api.matchops import EngineRegistry
 from league_site.api.registry import default_engine_registry
+from league_site.auth import tokens
 from league_site.auth.token_store import InMemoryTokenStore, TokenStore
 from league_site.capacity.config import CapacityConfig
-from league_site.capacity.guard import Refusal, check_capacity
 from league_site.matches import (
-    GameEngine,
     InMemoryMatchStore,
     InvalidTransitionError,
     Match,
@@ -129,10 +125,9 @@ from league_site.matches import (
 )
 from league_site.ratings.leaderboard import LeaderboardRow, leaderboard
 from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
-from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem, outcome_from_match
+from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
-EngineRegistry = Mapping[str, Callable[[], GameEngine]]
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +150,7 @@ def with_api(
     match_store: MatchStore | None = None,
     token_store: TokenStore | None = None,
     ledger_store: RatingLedgerStore | None = None,
+    account_store: AccountStore | None = None,
     engine_registry: EngineRegistry | None = None,
     rating_system: RatingSystem | None = None,
     capacity_config: CapacityConfig | None = None,
@@ -168,6 +164,16 @@ def with_api(
     pre-issue agent tokens on the ``token_store``, or to simulate a
     process restart by handing a *new* :class:`~league_site.matches.
     store.InMemoryMatchStore` a copy of a previous one's serialized items.
+
+    ``account_store`` is the one exception to the "default to in-memory" rule:
+    it defaults to ``None``, meaning account-level blocking (task t4) is simply
+    not enforced on this surface (token-level blocking, read straight off the
+    token record, always is). A fresh empty account store would be pointless —
+    it would share nothing with the store the OAuth callback writes accounts
+    to. :func:`league_site.web.http.site_app` passes that *shared* store here,
+    so an operator ``accounts block`` is read live (one extra
+    ``account_store.get`` per authenticated bearer request, only for a token
+    that already resolved) on the very next request — no restart, no cache.
 
     ``capacity_config`` defaults to :meth:`~league_site.capacity.config.
     CapacityConfig.from_env`, read exactly once here (at construction, i.e.
@@ -183,6 +189,14 @@ def with_api(
     matches = match_store if match_store is not None else InMemoryMatchStore()
     agent_tokens = token_store if token_store is not None else InMemoryTokenStore()
     ledger = ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
+    # ``account_store`` is left ``None`` when not injected -- unlike the other
+    # stores it is *not* defaulted to a fresh in-memory instance, because a
+    # fresh empty account store would be pointless here (it would share nothing
+    # with the OAuth callback's store). ``None`` simply means account-level
+    # blocking isn't enforced on this surface (token-level blocking always is);
+    # league_site.web.http.site_app passes the same store the callback writes to
+    # so an operator account-block is read live on the next request. Task t4.
+    accounts = account_store
     registry: EngineRegistry = (
         dict(engine_registry) if engine_registry is not None else default_engine_registry()
     )
@@ -195,39 +209,94 @@ def with_api(
             return app(environ, start_response)
 
         method = environ.get("REQUEST_METHOD", "GET").upper()
-        try:
-            status, payload = _dispatch(
-                method,
-                path,
-                environ,
-                matches=matches,
-                agent_tokens=agent_tokens,
-                ledger=ledger,
-                registry=registry,
-                ratings=ratings,
-                capacity=capacity,
-            )
-        except errors.ApiError as exc:
-            body: dict[str, Any] = {"code": exc.code, "message": str(exc)}
-            body.update(exc.extra)
-            return _json_response(start_response, exc.status, body)
-        except Exception:
-            # Last-resort guard: whatever went wrong wasn't already turned
-            # into a structured ApiError by a handler above (see this
-            # module's docstring). Never let it escape as a bare WSGI
-            # error page -- log it for operators and still hand the caller
-            # the same {"code", "message"} JSON envelope every other
-            # failure on this surface uses, just with a generic message
-            # that doesn't leak internals.
-            logger.exception("unhandled exception dispatching %s %s", method, path)
-            body = {"code": "internal_error", "message": "internal server error"}
-            return _json_response(start_response, "500 Internal Server Error", body)
-        return _json_response(start_response, status, payload)
+        return _dispatch_with_error_handling(
+            method,
+            path,
+            environ,
+            start_response,
+            matches=matches,
+            agent_tokens=agent_tokens,
+            ledger=ledger,
+            registry=registry,
+            ratings=ratings,
+            capacity=capacity,
+            accounts=accounts,
+        )
 
     return application
 
 
 # --- routing -----------------------------------------------------------------
+
+
+def _dispatch_with_error_handling(
+    method: str,
+    path: str,
+    environ: dict[str, Any],
+    start_response: Any,
+    *,
+    matches: MatchStore,
+    agent_tokens: TokenStore,
+    ledger: RatingLedgerStore,
+    registry: EngineRegistry,
+    ratings: RatingSystem,
+    capacity: CapacityConfig,
+    accounts: AccountStore | None,
+) -> list[bytes]:
+    """Call :func:`_dispatch` and render every failure mode as the JSON envelope.
+
+    Split out of :func:`with_api`'s ``application`` closure purely to keep
+    each half's Cognitive Complexity low (python:S3776) -- behavior, status
+    codes, and check ordering are unchanged from before the split.
+    """
+    try:
+        status, payload = _dispatch(
+            method,
+            path,
+            environ,
+            matches=matches,
+            agent_tokens=agent_tokens,
+            ledger=ledger,
+            registry=registry,
+            ratings=ratings,
+            capacity=capacity,
+            accounts=accounts,
+        )
+    except tokens.BlockedTokenError as exc:
+        # Task t4's operator kill-switch surfaces here: bearer resolution
+        # (resolve_identity -> tokens.verify) raises this when the token --
+        # or, with an account store wired, its owning account -- is
+        # blocked. Render it as a clean 403 whose short message leaks
+        # nothing beyond "blocked" -- see league_site.api.errors.
+        # blocked_credential.
+        api_error = errors.blocked_credential(str(exc))
+        body: dict[str, Any] = {"code": api_error.code, "message": str(api_error)}
+        return _json_response(start_response, api_error.status, body)
+    except tokens.AnonymousTokenError as exc:
+        # Task t6's hard cutoff surfaces here: bearer resolution
+        # (resolve_identity -> tokens.verify) raises this for a token
+        # minted before agent tokens were anchored to a human account.
+        # Render it as a distinguishable 401 whose message names the new
+        # onboarding path -- see league_site.api.errors.anonymous_token.
+        api_error = errors.anonymous_token(str(exc))
+        body = {"code": api_error.code, "message": str(api_error)}
+        return _json_response(start_response, api_error.status, body)
+    except errors.ApiError as exc:
+        body = {"code": exc.code, "message": str(exc)}
+        body.update(exc.extra)
+        return _json_response(start_response, exc.status, body)
+    except Exception:
+        # Last-resort guard: whatever went wrong wasn't already turned
+        # into a structured ApiError by a handler above (see this
+        # module's docstring). Never let it escape as a bare WSGI
+        # error page -- log it for operators and still hand the caller
+        # the same {"code", "message"} JSON envelope every other
+        # failure on this surface uses, just with a generic message
+        # that doesn't leak internals.
+        logger.exception("unhandled exception dispatching %s %s", method, path)
+        body = {"code": "internal_error", "message": "internal server error"}
+        return _json_response(start_response, "500 Internal Server Error", body)
+    return _json_response(start_response, status, payload)
 
 
 def _dispatch(
@@ -241,6 +310,7 @@ def _dispatch(
     registry: EngineRegistry,
     ratings: RatingSystem,
     capacity: CapacityConfig,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     if path == _LEADERBOARD_PATH:
         _require_method(method, "GET")
@@ -248,24 +318,35 @@ def _dispatch(
 
     if _MATCHES_PATH.match(path):
         _require_method(method, "POST")
-        return _handle_create_match(environ, matches, agent_tokens, registry, capacity)
+        return _handle_create_match(environ, matches, agent_tokens, registry, capacity, accounts)
 
     turns_match = _MATCH_TURNS_PATH.match(path)
     if turns_match:
         _require_method(method, "POST")
         return _handle_take_turn(
-            turns_match.group("match_id"), environ, matches, agent_tokens, registry, ledger, ratings
+            turns_match.group("match_id"),
+            environ,
+            matches,
+            agent_tokens,
+            registry,
+            ledger,
+            ratings,
+            accounts,
         )
 
     pause_match = _MATCH_PAUSE_PATH.match(path)
     if pause_match:
         _require_method(method, "POST")
-        return _handle_pause(pause_match.group("match_id"), environ, matches, agent_tokens)
+        return _handle_pause(
+            pause_match.group("match_id"), environ, matches, agent_tokens, accounts
+        )
 
     resume_match = _MATCH_RESUME_PATH.match(path)
     if resume_match:
         _require_method(method, "POST")
-        return _handle_resume(resume_match.group("match_id"), environ, matches, agent_tokens)
+        return _handle_resume(
+            resume_match.group("match_id"), environ, matches, agent_tokens, accounts
+        )
 
     score_match = _MATCH_SCORE_PATH.match(path)
     if score_match:
@@ -294,39 +375,18 @@ def _handle_create_match(
     agent_tokens: TokenStore,
     registry: EngineRegistry,
     capacity: CapacityConfig,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
-    identity = _require_identity(environ, agent_tokens)
-    decision = check_capacity(matches, capacity)
-    if isinstance(decision, Refusal):
-        raise errors.capacity_exceeded(
-            f"cannot create match: {decision.reason} limit reached "
-            f"({decision.current}/{decision.limit})",
-            reason=decision.reason,
-            current=decision.current,
-            limit=decision.limit,
-        )
+    identity = _require_identity(environ, agent_tokens, accounts)
+    matchops.check_create_capacity(matches, capacity)
     body = _read_json_body(environ)
-
-    mode = body.get("mode", DEFAULT_MODE)
-    if not isinstance(mode, str) or not mode:
-        raise errors.bad_request("mode must be a non-empty string")
-    engine = _engine_for(registry, mode)
-
-    creator = participant_for_identity(identity)
-    participants = [creator]
-    opponent_spec = body.get("opponent")
-    if opponent_spec is not None:
-        try:
-            opponent = participant_for_opponent_spec(opponent_spec)
-        except ValueError as exc:
-            raise errors.bad_request(str(exc)) from exc
-        if opponent.participant_id == creator.participant_id:
-            raise errors.bad_request("opponent must be a different identity than the creator")
-        participants.append(opponent)
-
-    match = Match.create(game_id=mode, participants=participants)
-    match.start(engine)
-    matches.save(match)
+    match = matchops.create_match(
+        identity,
+        matches=matches,
+        registry=registry,
+        mode=body.get("mode", DEFAULT_MODE),
+        opponent_spec=body.get("opponent"),
+    )
     return "201 Created", _match_view(match)
 
 
@@ -343,43 +403,36 @@ def _handle_take_turn(
     registry: EngineRegistry,
     ledger: RatingLedgerStore,
     ratings: RatingSystem,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
-    identity = _require_participant(environ, agent_tokens, match)
+    identity = _require_participant(environ, agent_tokens, match, accounts)
 
     body = _read_json_body(environ)
-    action = body.get("action")
-    engine = _engine_for(registry, match.game_id)
-
-    try:
-        match.take_turn(engine, identity.key, action)
-    except InvalidTransitionError as exc:
-        raise errors.conflict(str(exc), code="invalid_transition") from exc
-    except ValueError as exc:
-        raise errors.bad_request(str(exc), code="illegal_action") from exc
-    except TypeError as exc:
-        # An engine (e.g. GridLaneEngine.apply_turn) raises TypeError for a
-        # structurally malformed action -- a body that isn't shaped like an
-        # order at all (wrong JSON type, a missing wrapper key), as opposed
-        # to ValueError's "well-shaped but illegal" -- see this module's
-        # docstring and league_site.game.adapter. Both are the caller's
-        # fault, so both become a 400; the engine's own message is kept
-        # verbatim since it already names the expected shape.
-        raise errors.bad_request(str(exc), code="malformed_action") from exc
-
-    if engine.is_over(match.game_state):
-        match.complete(engine)
-        _record_rating(match, ledger, ratings)
-
-    matches.save(match)
+    # Engine failures (InvalidTransitionError / ValueError / TypeError --
+    # see this module's docstring) translate to the same 409/400s as ever
+    # inside the shared flow, which the browser play surface drives too.
+    match = matchops.take_turn(
+        match,
+        identity.key,
+        body.get("action"),
+        matches=matches,
+        registry=registry,
+        ledger=ledger,
+        ratings=ratings,
+    )
     return "200 OK", _match_view(match)
 
 
 def _handle_pause(
-    match_id: str, environ: dict[str, Any], matches: MatchStore, agent_tokens: TokenStore
+    match_id: str,
+    environ: dict[str, Any],
+    matches: MatchStore,
+    agent_tokens: TokenStore,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
-    _require_participant(environ, agent_tokens, match)
+    _require_participant(environ, agent_tokens, match, accounts)
     try:
         match.pause()
     except InvalidTransitionError as exc:
@@ -389,10 +442,14 @@ def _handle_pause(
 
 
 def _handle_resume(
-    match_id: str, environ: dict[str, Any], matches: MatchStore, agent_tokens: TokenStore
+    match_id: str,
+    environ: dict[str, Any],
+    matches: MatchStore,
+    agent_tokens: TokenStore,
+    accounts: AccountStore | None,
 ) -> tuple[str, Any]:
     match = _load_match(matches, match_id)
-    _require_participant(environ, agent_tokens, match)
+    _require_participant(environ, agent_tokens, match, accounts)
     try:
         match.resume()
     except InvalidTransitionError as exc:
@@ -429,7 +486,7 @@ def _score_extras_view(match: Match, registry: EngineRegistry) -> dict[str, Any]
     """
     from league_site.game import normalize
 
-    engine = _engine_for(registry, match.game_id)
+    engine = matchops.engine_for(registry, match.game_id)
     extras = normalize.score_breakdown(engine, match.game_state)
     return dict(extras) if extras is not None else {}
 
@@ -450,50 +507,45 @@ def _load_match(matches: MatchStore, match_id: str) -> Match:
         raise errors.not_found(str(exc)) from exc
 
 
-def _require_identity(environ: dict[str, Any], agent_tokens: TokenStore) -> RequestIdentity:
-    """Resolve the request's identity, raising ``401`` if there is none at all."""
-    identity = resolve_identity(environ, agent_tokens)
+def _require_identity(
+    environ: dict[str, Any], agent_tokens: TokenStore, accounts: AccountStore | None
+) -> RequestIdentity:
+    """Resolve the request's identity, raising ``401`` if there is none at all.
+
+    A blocked token (or, with *accounts* wired, a token owned by a blocked
+    account) does not resolve to ``None`` here — it raises
+    :class:`league_site.auth.tokens.BlockedTokenError`, caught upstream in
+    :func:`with_api` and rendered ``403 blocked``; it never falls through to
+    the ``401`` below.
+    """
+    identity = resolve_identity(environ, agent_tokens, accounts)
     if identity is None:
         raise errors.unauthorized()
     return identity
 
 
 def _require_participant(
-    environ: dict[str, Any], agent_tokens: TokenStore, match: Match
+    environ: dict[str, Any],
+    agent_tokens: TokenStore,
+    match: Match,
+    accounts: AccountStore | None,
 ) -> RequestIdentity:
     """Resolve the request's identity and require it own a participant of *match*.
 
     Anonymous requests and requests from a real-but-uninvolved identity
     both raise the same ``403`` (see :func:`league_site.api.errors.forbidden`)
     — a participant-only endpoint never distinguishes "no identity" from
-    "wrong identity".
+    "wrong identity". A blocked credential is a *different* ``403``
+    (``blocked``): :func:`resolve_identity` raises
+    :class:`league_site.auth.tokens.BlockedTokenError` before the
+    participant check is even reached, so a kill-switched token never gets to
+    act on a match it *is* a participant of.
     """
-    identity = resolve_identity(environ, agent_tokens)
+    identity = resolve_identity(environ, agent_tokens, accounts)
     participant_ids = {participant.participant_id for participant in match.participants}
     if identity is None or identity.key not in participant_ids:
         raise errors.forbidden()
     return identity
-
-
-def _engine_for(registry: EngineRegistry, mode: str) -> GameEngine:
-    factory = registry.get(mode)
-    if factory is None:
-        raise errors.bad_request(f"unknown game mode {mode!r}", code="unknown_mode")
-    return factory()
-
-
-def _record_rating(match: Match, ledger: RatingLedgerStore, ratings: RatingSystem) -> None:
-    """Apply a rating update for a just-completed *match*, if it can be rated.
-
-    A match needs at least two scored participants to be rated (see
-    :meth:`~league_site.ratings.system.IntegerEloRatingSystem.compute_deltas`);
-    a solo "practice" match (opponent omitted at creation) never reaches
-    that bar and is silently left off the leaderboard.
-    """
-    outcome = outcome_from_match(match)
-    if len(outcome.entries) < 2:
-        return
-    ledger.record_match(outcome, ratings)
 
 
 def _parse_limit(query_string: str) -> int | None:

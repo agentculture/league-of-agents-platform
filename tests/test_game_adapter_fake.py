@@ -58,6 +58,8 @@ class ScriptedRunner:
         mvp_unit: dict[str, str] | None = None,
         lvp_unit: dict[str, str] | None = None,
         units: dict[str, dict[str, Any]] | None = None,
+        board_state: dict[str, Any] | None = None,
+        scenario_payload: dict[str, Any] | None = None,
     ) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
         self.harness_configs: list[dict[str, Any]] = []
@@ -74,6 +76,19 @@ class ScriptedRunner:
         self._mvp_unit = mvp_unit
         self._lvp_unit = lvp_unit
         self._units = units or {}
+        #: Extra `match show --json` "state" keys (the board projections a
+        #: real CLI always includes: grid_width/units/...); absent by default
+        #: so pre-board scripted shows keep exercising the degraded path.
+        self._board_state = board_state or {}
+        #: Full `arena show --json` payload override (capture_hold_turns,
+        #: role stats, ...); default keeps the bare-roles shape.
+        self._scenario_payload = scenario_payload
+
+    def set_board_state(self, board_state: dict[str, Any]) -> None:
+        """Change what subsequent ``match show`` calls project — how a test
+        makes the board *move* between two turns (the events diff needs a
+        before and an after that differ)."""
+        self._board_state = board_state
 
     def run_text(self, args: list[str], *, cwd: Path, timeout: float | None = None) -> str:
         self.calls.append(("run_text", tuple(args)))
@@ -84,6 +99,8 @@ class ScriptedRunner:
         self.calls.append(("run", tuple(args)))
         head = tuple(args[:2])
         if head == ("arena", "show"):
+            if self._scenario_payload is not None:
+                return self._scenario_payload
             return {"roles": {role: {} for role in self.roles}}
         if args[:1] == ["whoami"]:
             return {"nick": "x", "version": "0.13.1", "backend": "unknown", "model": "unknown"}
@@ -158,6 +175,7 @@ class ScriptedRunner:
                 "turn": self.turn,
                 "turn_limit": self.turn_limit,
                 "winner": None,
+                **self._board_state,
             },
             "legal_actions": {"fake-unit": {"move": []}},
             "last_turn_rejections": [],
@@ -236,6 +254,44 @@ def test_initial_state_rejects_the_wrong_participant_count() -> None:
     engine = GridLaneEngine("solo-vs-bot", runner=ScriptedRunner(team_ids=["solo", "house"]))
     with pytest.raises(ValueError, match="needs exactly 1"):
         engine.initial_state([_agent("p-1"), _agent("p-2")])
+
+
+# -- board projections: mirrored from `match show --json` for the board UI ----
+
+
+def test_state_mirrors_the_shows_board_projections(tmp_path: Path) -> None:
+    """The board fields (grid dims, unit positions, control points, resource
+    nodes, missions) ride the state verbatim — they are what the play/viewer
+    board (:mod:`league_site.viewer.board`) renders."""
+    board = {
+        "grid_width": 14,
+        "grid_height": 12,
+        "units": [{"id": "solo-u1", "team_id": "solo", "role": "scout", "pos": [0, 0]}],
+        "control_points": [{"id": "cp-relay", "pos": [7, 5], "owner": None}],
+        "resource_nodes": [{"id": "rn-lowland", "pos": [5, 5], "remaining": 12}],
+        "missions": [{"id": "ms-caravan", "kind": "deliver", "pos": [6, 6], "status": "open"}],
+    }
+    scripted = ScriptedRunner(team_ids=["solo", "house"], board_state=board)
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+
+    state = engine.initial_state([_agent("p-1")])
+    for key, value in board.items():
+        assert state[key] == value, key
+
+    state = engine.apply_turn(state, "p-1", {"actions": []})
+    for key, value in board.items():
+        assert state[key] == value, key
+
+
+def test_a_show_without_board_projections_still_builds_a_state(tmp_path: Path) -> None:
+    """Board fields are additive: a `match show` payload without them (or a
+    pre-board persisted state) must not break state construction — the play
+    surface then simply renders without a board."""
+    scripted = ScriptedRunner(team_ids=["solo", "house"])
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    state = engine.initial_state([_agent("p-1")])
+    assert state["status"] == "active"
+    assert state.get("units") in (None, [])
 
 
 # -- apply_turn: the house/bot side is driven, not force-ticked (platform#9) --
@@ -372,12 +428,31 @@ def test_apply_turn_rejects_a_non_mapping_action(tmp_path: Path) -> None:
         engine.apply_turn(state, "p-1", "not a dict")  # type: ignore[arg-type]
 
 
-# -- h14: solo mode caps orders BEFORE match act is ever invoked -------------
+# -- h14: a capped mode's excess orders are cut BEFORE match act is invoked ---
+# (no bundled mode caps anymore — solo-vs-bot's handicap was lifted in the
+# 2026-07-11 feedback round — but the enforcement point must keep working
+# for any future capped mode)
 
 
-def test_solo_mode_excess_actions_never_reach_match_act(tmp_path: Path) -> None:
+def test_capped_mode_excess_actions_never_reach_match_act(tmp_path: Path) -> None:
+    mode = LaunchMode(
+        name="capped-solo",
+        game_mode="competitive",
+        scenario_id="skirmish-1",
+        seed=1,
+        expected_participants=1,
+        teams=(
+            TeamSpec(team_id="solo", driver_kind="stateless", action_cap=1),
+            TeamSpec(
+                team_id="house",
+                driver_kind="bot",
+                is_bot=True,
+                bot_policy="bot:greedy",
+            ),
+        ),
+    )
     scripted = ScriptedRunner(team_ids=["solo", "house"], turn_limit=5)
-    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    engine = GridLaneEngine(mode, runner=scripted, workdir_root=tmp_path)
     state = engine.initial_state([_agent("p-1")])
 
     excess_action = {
@@ -400,6 +475,28 @@ def test_solo_mode_excess_actions_never_reach_match_act(tmp_path: Path) -> None:
     refused_units = {r["unit_id"] for r in state["last_turn_platform_rejections"]}
     assert refused_units == {"solo-u2", "solo-u3"}
     assert all(r["team_id"] == "solo" for r in state["last_turn_platform_rejections"])
+
+
+def test_solo_vs_bot_full_roster_orders_reach_match_act_untrimmed(tmp_path: Path) -> None:
+    """The lifted handicap, end to end: a solo participant's one-order-per-unit
+    turn reaches ``league match act`` whole."""
+    scripted = ScriptedRunner(team_ids=["solo", "house"], turn_limit=5)
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    state = engine.initial_state([_agent("p-1")])
+
+    full_turn = {
+        "actions": [
+            {"unit_id": "solo-u1", "action": "hold"},
+            {"unit_id": "solo-u2", "action": "hold"},
+            {"unit_id": "solo-u3", "action": "move", "to": [1, 1]},
+        ]
+    }
+    state = engine.apply_turn(state, "p-1", full_turn)
+
+    (act_call,) = scripted.act_calls()
+    submitted = json.loads(act_call[act_call.index("--orders-json") + 1])
+    assert len(submitted["actions"]) == 3
+    assert state["last_turn_platform_rejections"] == []
 
 
 def test_team_vs_team_never_caps_actions(tmp_path: Path) -> None:
@@ -522,3 +619,101 @@ def test_quality_axes_handles_no_mvp_or_lvp(tmp_path: Path) -> None:
     axes = engine.quality_axes(state)
     assert axes["p-1"]["mvp"] == 0.0
     assert axes["p-1"]["lvp"] == 0.0
+
+
+# -- 2026-07-11 feedback round: projections the play surface teaches from ----
+
+
+def test_initial_state_captures_scenario_rules_and_team_resources(tmp_path: Path) -> None:
+    scripted = ScriptedRunner(
+        team_ids=["solo", "house"],
+        scenario_payload={
+            "capture_hold_turns": 2,
+            "roles": {
+                "scout": {
+                    "move": 3,
+                    "carry": 1,
+                    "vision": 4,
+                    "can_gather": True,
+                    "can_capture": False,
+                    "analog": "the eyes",
+                },
+                "harvester": {
+                    "move": 2,
+                    "carry": 3,
+                    "vision": 2,
+                    "can_gather": True,
+                    "can_capture": True,
+                },
+            },
+        },
+        board_state={
+            "teams": [
+                {"id": "solo", "name": "solo", "resources": 0, "agents": []},
+                {"id": "house", "name": "house", "resources": 0, "agents": []},
+            ],
+        },
+    )
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+
+    state = engine.initial_state([_agent("p-1")])
+
+    # the rules slice keeps only what the browser teaches (no 'analog' prose)
+    assert state["scenario_rules"] == {
+        "capture_hold_turns": 2,
+        "roles": {
+            "scout": {"move": 3, "carry": 1, "vision": 4, "can_gather": True, "can_capture": False},
+            "harvester": {
+                "move": 2,
+                "carry": 3,
+                "vision": 2,
+                "can_gather": True,
+                "can_capture": True,
+            },
+        },
+    }
+    assert state["team_resources"] == {"solo": 0, "house": 0}
+    assert state["last_turn_events"] == []
+
+
+def test_a_bare_roles_scenario_yields_empty_rules_not_a_crash(tmp_path: Path) -> None:
+    scripted = ScriptedRunner(team_ids=["solo", "house"])
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    state = engine.initial_state([_agent("p-1")])
+    assert state["scenario_rules"] == {}
+    assert state["team_resources"] == {}
+
+
+def test_apply_turn_derives_last_turn_events_from_the_board_diff(tmp_path: Path) -> None:
+    scripted = ScriptedRunner(
+        team_ids=["solo", "house"],
+        turn_limit=9,
+        board_state={
+            "control_points": [{"id": "cp-west", "pos": [3, 8], "owner": None, "hold": []}],
+            "teams": [{"id": "solo", "resources": 0}, {"id": "house", "resources": 0}],
+        },
+    )
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    state = engine.initial_state([_agent("p-1")])
+
+    # the turn resolves and the board comes back changed: the post captured,
+    # a delivery banked
+    scripted.set_board_state(
+        {
+            "control_points": [
+                {"id": "cp-west", "pos": [3, 8], "owner": "solo", "hold": [["solo", 2]]}
+            ],
+            "teams": [{"id": "solo", "resources": 2}, {"id": "house", "resources": 0}],
+        }
+    )
+    state = engine.apply_turn(state, "p-1", {"actions": []})
+
+    assert state["last_turn_events"] == [
+        {"kind": "post_captured", "post_id": "cp-west", "team": "solo"},
+        {"kind": "delivered", "team": "solo", "amount": 2},
+    ]
+    assert state["team_resources"] == {"solo": 2, "house": 0}
+
+    # a quiet turn resets the feed to empty (events never accumulate)
+    state = engine.apply_turn(state, "p-1", {"actions": []})
+    assert state["last_turn_events"] == []

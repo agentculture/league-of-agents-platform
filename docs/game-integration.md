@@ -39,10 +39,13 @@ deterministic folds of the log.
   `last_turn_rejections` back to whoever chooses the next action.
 - **Unit ids are engine-generated** (`<team_id>-u<N>`), not the registered
   agent ids. Read them from `state.units`.
-- **Driver kinds are audit labels, not gates.** Mode fairness (e.g. the
-  solo mode's one-action-per-turn cap) is enforced only inside the game's
-  own harness — the platform adapter must enforce mode constraints itself
-  before staging orders.
+- **Driver kinds are audit labels, not gates.** Mode fairness is enforced
+  only inside the game's own harness — the platform adapter must enforce
+  mode constraints itself (`enforce_action_cap`) before staging orders.
+  No bundled mode caps today: solo-vs-bot's original one-action-per-turn
+  handicap was lifted in the 2026-07-11 feedback round (the bot moved its
+  whole roster to the human's one unit — it read as unfair, not as a
+  handicap), but the enforcement point stays for any future capped mode.
 - **Pin the game version to 0.14.0 or later** and record it on every match
   record. The published 0.13.1 has stale `learn`/`overview` self-teaching
   text that misleads onboarding agents (mechanics are identical).

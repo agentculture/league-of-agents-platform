@@ -20,8 +20,10 @@ import pytest
 
 from league_site.auth.token_store import InMemoryTokenStore, TokenNotFoundError, TokenRecord
 from league_site.auth.tokens import (
+    ONBOARDING_URL,
     TOKEN_PREFIX,
     AgentTokenIdentity,
+    AnonymousTokenError,
     IssuedToken,
     issue,
     parse_bearer_token,
@@ -31,7 +33,12 @@ from league_site.auth.tokens import (
 
 
 def _issue(store: InMemoryTokenStore, **overrides: str) -> IssuedToken:
-    fields = {"agent_name": "probe-bot", "model": "claude-sonnet-5", "provider": "anthropic"}
+    fields = {
+        "agent_name": "probe-bot",
+        "model": "claude-sonnet-5",
+        "provider": "anthropic",
+        "owner_account_id": "github:owner",
+    }
     fields.update(overrides)
     return issue(store, **fields)
 
@@ -81,6 +88,7 @@ def test_issued_token_verifies_to_the_same_identity() -> None:
         provider="anthropic",
         created_at=issued.identity.created_at,
         revoked=False,
+        owner_account_id="github:owner",
     )
 
 
@@ -100,6 +108,56 @@ def test_revoked_token_verifies_as_none() -> None:
     issued = _issue(store)
     assert verify(store, issued.token) is not None
 
+    revoke(store, issued.identity.token_id)
+
+    assert verify(store, issued.token) is None
+
+
+def test_verify_exposes_the_owner_account_id_on_the_identity() -> None:
+    """Downstream (t4 block enforcement, audit) reads the owner off the
+    resolved identity — verify surfaces it from the record."""
+    store = InMemoryTokenStore()
+    issued = _issue(store, owner_account_id="github:4242")
+
+    identity = verify(store, issued.token)
+
+    assert identity is not None
+    assert identity.owner_account_id == "github:4242"
+
+
+def test_verify_hard_cuts_off_an_anonymous_token() -> None:
+    """Task t6: a record with ``owner_account_id is None`` (a token minted
+    before agent tokens were anchored to a human account) no longer
+    authenticates — verify raises the distinguishable
+    :class:`AnonymousTokenError`, and its message names the onboarding path."""
+    store = InMemoryTokenStore()
+    issued = issue(store, agent_name="legacy-bot", model="m", provider="p")  # owner defaults None
+
+    with pytest.raises(AnonymousTokenError) as excinfo:
+        verify(store, issued.token)
+
+    assert ONBOARDING_URL in str(excinfo.value)
+
+
+def test_verify_owned_token_is_unaffected_by_the_anonymous_cutoff() -> None:
+    """The cutoff refuses only owner-less records; an account-owned token
+    verifies exactly as before."""
+    store = InMemoryTokenStore()
+    issued = issue(
+        store, agent_name="owned-bot", model="m", provider="p", owner_account_id="github:7"
+    )
+
+    identity = verify(store, issued.token)
+
+    assert identity is not None
+    assert identity.agent_name == "owned-bot"
+
+
+def test_verify_revoked_anonymous_token_is_still_the_uniform_none() -> None:
+    """Revoked wins over the anonymous cutoff: a revoked owner-less token is
+    the silent ``None`` (it is gone regardless of who owned it), not a raise."""
+    store = InMemoryTokenStore()
+    issued = issue(store, agent_name="legacy-bot", model="m", provider="p")  # owner defaults None
     revoke(store, issued.identity.token_id)
 
     assert verify(store, issued.token) is None

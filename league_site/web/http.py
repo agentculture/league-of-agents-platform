@@ -36,6 +36,7 @@ import re
 from typing import Any, Callable
 from wsgiref.simple_server import WSGIServer, make_server
 
+from league_site.accounts.store import AccountStore, InMemoryAccountStore
 from league_site.api.wsgi import EngineRegistry, with_api
 from league_site.auth import oauth
 from league_site.auth.token_store import InMemoryTokenStore, TokenStore
@@ -189,16 +190,17 @@ def site_app(
     match_store: MatchStore | None = None,
     token_store: TokenStore | None = None,
     ledger_store: RatingLedgerStore | None = None,
+    account_store: AccountStore | None = None,
     engine_registry: EngineRegistry | None = None,
 ) -> WSGIApp:
-    """Return the platform's composed site app: viewer + profiles + auth + API + :func:`http_app`.
+    """The platform's composed site app: viewer + profiles + auth + play + API + :func:`http_app`.
 
     This is the app callers actually want to *serve* — the local dev server
     (:func:`serve`) and the Lambda entrypoint
     (:mod:`league_site.aws_lambda.handler`) both use it. Composition order,
     outermost first::
 
-        viewer-or-profiles-or(with_shell(with_auth(with_api(http_app()))))
+        viewer-or-profiles-or(with_shell(with_auth(with_play(with_api(http_app())))))
 
     * :func:`~league_site.web.branding.register_branding` runs first,
       registering the footer acknowledgement fragment into the
@@ -221,13 +223,31 @@ def site_app(
     * :func:`~league_site.api.wsgi.with_api` is mounted directly on
       :func:`http_app`, claiming every ``/api/v1/*`` path and passing
       everything else through unchanged.
+    * :func:`~league_site.play.wsgi.with_play` wraps *that* (task t9),
+      claiming every ``/play*`` path — the browser play surface. It is
+      handed the exact same ``match_store``/``ledger_store``/
+      ``engine_registry`` as ``with_api`` (a match started in the browser
+      is the same match the API and viewer see), and it MUST sit *inside*
+      ``with_auth``: unlike the viewer/profiles dispatch below, its pages
+      need the verified session from
+      ``environ[league_site.auth.wsgi.SESSION_ENVIRON_KEY]`` — humans play
+      as themselves.
     * :func:`~league_site.auth.wsgi.with_auth` wraps *that* — adding the
       ``/auth/*`` routes and, on every request (API or page alike),
       resolving the session cookie into
       ``environ[league_site.auth.wsgi.SESSION_ENVIRON_KEY]`` before the
       request reaches ``with_api``. This is why ``with_api`` must sit
       *inside* ``with_auth`` rather than the other way around — see
-      :mod:`league_site.api.wsgi`'s docstring.
+      :mod:`league_site.api.wsgi`'s docstring. The ``account_store`` keyword
+      (defaulting, like the others, to a fresh
+      :class:`~league_site.accounts.store.InMemoryAccountStore`) is handed to
+      *both* ``with_auth`` and ``with_api`` — the *same* instance — so a
+      successful OAuth callback upserts the signed-in human's account and an
+      operator account-block flipped on that store is read live by
+      ``with_api``'s bearer-token enforcement (task t4): blocking one human
+      denies every token they minted, on the very next request. In prod
+      :func:`league_site.aws_lambda.wiring.build_site_app` passes the
+      DynamoDB-backed store here.
     * :func:`~league_site.web.shell.with_shell` wraps that, rendering every
       markdown page (``/``, ``/<slug>``) in the shared HTML layout — header,
       main content, and the footer above. It leaves the API's
@@ -262,13 +282,15 @@ def site_app(
     games.
     """
     # Imported lazily (not at module scope) to break an import cycle:
-    # league_site.profiles.wsgi imports league_site.web.theme, and
-    # league_site.viewer.render imports league_site.web._markdown — importing
+    # league_site.profiles.wsgi imports league_site.web.theme,
+    # league_site.viewer.render imports league_site.web._markdown, and
+    # league_site.play.wsgi imports both viewer modules — importing
     # any league_site.web.* submodule first runs league_site/web/__init__.py,
     # which imports this module's http_app/serve — a module-level import
     # here would deadlock that cycle. By the time site_app() is actually
     # *called*, every module involved has finished initializing, so a local
     # import resolves cleanly.
+    from league_site.play.wsgi import with_play
     from league_site.profiles.wsgi import profile_app
     from league_site.viewer.wsgi import viewer_app
 
@@ -278,14 +300,29 @@ def site_app(
         ledger_store if ledger_store is not None else InMemoryRatingLedgerStore()
     )
     resolved_token_store = token_store if token_store is not None else InMemoryTokenStore()
+    resolved_account_store = account_store if account_store is not None else InMemoryAccountStore()
     api = with_api(
         http_app(),
         match_store=resolved_match_store,
         token_store=resolved_token_store,
         ledger_store=resolved_ledger_store,
+        account_store=resolved_account_store,
         engine_registry=engine_registry,
     )
-    composed = with_shell(with_auth(api, transport=transport, token_store=resolved_token_store))
+    play = with_play(
+        api,
+        match_store=resolved_match_store,
+        ledger_store=resolved_ledger_store,
+        engine_registry=engine_registry,
+    )
+    composed = with_shell(
+        with_auth(
+            play,
+            transport=transport,
+            token_store=resolved_token_store,
+            account_store=resolved_account_store,
+        )
+    )
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
     viewer = viewer_app(resolved_match_store, resolved_ledger_store)
     return _with_viewer(_with_profiles(composed, profiles), viewer)

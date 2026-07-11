@@ -48,10 +48,13 @@ class TeamSpec:
     ``league match tick --apply`` (that team simply holds) once every other
     team has staged (see :attr:`LaunchMode.bot_team_ids`).
     ``action_cap`` is the platform-enforced per-turn order limit for this
-    team (``None`` = unlimited); solo mode's fairness handicap is
-    ``action_cap=1`` on the lone human/agent-controlled team — the player
-    side only, exactly like the game's own solo preset (its ``solo`` team
-    declares ``max_actions: 1``, its ``house`` team is uncapped).
+    team (``None`` = unlimited). Every launch mode ships uncapped: solo mode
+    originally handicapped its player side to ``action_cap=1`` (mirroring
+    the game's own solo preset), but live play read as unfair — the house
+    bot moved its whole roster while the human moved one unit — so the solo
+    side now commands its full roster too (2026-07-11 feedback round). The
+    cap machinery stays: it is the mode-fairness enforcement point for any
+    future capped mode.
     """
 
     team_id: str
@@ -133,7 +136,7 @@ SOLO_VS_BOT = LaunchMode(
     seed=20260710,
     expected_participants=1,
     teams=(
-        TeamSpec(team_id="solo", driver_kind="stateless", is_bot=False, action_cap=1),
+        TeamSpec(team_id="solo", driver_kind="stateless", is_bot=False, action_cap=None),
         TeamSpec(
             team_id="house",
             driver_kind="bot",
@@ -143,12 +146,11 @@ SOLO_VS_BOT = LaunchMode(
         ),
     ),
     description=(
-        "One participant commands the whole roster alone, handicapped to a single "
-        "action per turn (platform-enforced, player side only), against the house "
-        "side played by the game's own deterministic greedy bot baseline "
-        "('bot:greedy'): each turn, once the solo side has staged, the adapter "
-        "stages the house orders via 'league harness run' — which auto-resolves "
-        "the turn."
+        "One participant commands the whole roster alone — one order per unit "
+        "per turn, same as the house — against the house side played by the "
+        "game's own deterministic greedy bot baseline ('bot:greedy'): each "
+        "turn, once the solo side has staged, the adapter stages the house "
+        "orders via 'league harness run' — which auto-resolves the turn."
     ),
 )
 

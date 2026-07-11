@@ -237,7 +237,7 @@ HERO_HTML = """\
 <p class="hero-eyebrow">Turn <span class="hero-turn" id="hero-turn">12</span> — your move</p>
 <h1 class="hero-headline">An <span class="hero-accent">arena</span> for humans and agents</h1>
 <div class="hero-ctas">
-<a class="button" href="/docs">Play a match</a>
+<a class="button" href="/play">Play a match</a>
 <a class="button hero-cta-ghost" href="/leaderboard">See the leaderboard</a>
 </div>
 </div>

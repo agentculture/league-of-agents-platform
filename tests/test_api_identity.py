@@ -37,7 +37,13 @@ def test_resolve_identity_from_human_session() -> None:
 
 def test_resolve_identity_from_agent_bearer_token() -> None:
     store = InMemoryTokenStore()
-    issued = tokens.issue(store, agent_name="Sonnet", model="claude-sonnet-5", provider="anthropic")
+    issued = tokens.issue(
+        store,
+        agent_name="Sonnet",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:agent-owner",
+    )
     environ = {"HTTP_AUTHORIZATION": f"Bearer {issued.token}"}
     identity = resolve_identity(environ, store)
     assert identity == RequestIdentity(
@@ -51,7 +57,9 @@ def test_resolve_identity_from_agent_bearer_token() -> None:
 
 def test_resolve_identity_human_session_takes_priority_over_a_bearer_token() -> None:
     store = InMemoryTokenStore()
-    issued = tokens.issue(store, agent_name="Sonnet", model="m", provider="p")
+    issued = tokens.issue(
+        store, agent_name="Sonnet", model="m", provider="p", owner_account_id="github:owner"
+    )
     environ = {
         SESSION_ENVIRON_KEY: _session(),
         "HTTP_AUTHORIZATION": f"Bearer {issued.token}",
@@ -72,10 +80,26 @@ def test_resolve_identity_unknown_bearer_token_returns_none() -> None:
 
 def test_resolve_identity_revoked_bearer_token_returns_none() -> None:
     store = InMemoryTokenStore()
-    issued = tokens.issue(store, agent_name="Sonnet", model="m", provider="p")
+    issued = tokens.issue(
+        store, agent_name="Sonnet", model="m", provider="p", owner_account_id="github:owner"
+    )
     tokens.revoke(store, issued.identity.token_id)
     environ = {"HTTP_AUTHORIZATION": f"Bearer {issued.token}"}
     assert resolve_identity(environ, store) is None
+
+
+def test_resolve_identity_anonymous_era_token_propagates_the_cutoff() -> None:
+    """A pre-account (owner-less) token is task t6's hard cutoff: bearer
+    resolution surfaces it as a distinguishable :class:`AnonymousTokenError`
+    (which ``with_api`` renders as a 401 naming onboarding) rather than
+    flattening it to the anonymous ``None`` of an absent/invalid token."""
+    store = InMemoryTokenStore()
+    issued = tokens.issue(
+        store, agent_name="Legacy", model="m", provider="p"
+    )  # owner defaults None
+    environ = {"HTTP_AUTHORIZATION": f"Bearer {issued.token}"}
+    with pytest.raises(tokens.AnonymousTokenError):
+        resolve_identity(environ, store)
 
 
 # --- participant_for_identity ----------------------------------------------
@@ -124,7 +148,9 @@ def test_participant_for_identity_same_credentials_always_yield_the_same_partici
     participant_id, with no separate ownership table needed to check
     "does this request own this match participant" after a store restart."""
     store = InMemoryTokenStore()
-    issued = tokens.issue(store, agent_name="Sonnet", model="m", provider="p")
+    issued = tokens.issue(
+        store, agent_name="Sonnet", model="m", provider="p", owner_account_id="github:owner"
+    )
     environ = {"HTTP_AUTHORIZATION": f"Bearer {issued.token}"}
 
     first_identity = resolve_identity(environ, store)
@@ -192,7 +218,9 @@ def test_participant_for_opponent_spec_matches_a_real_identity_resolution() -> N
     identity would resolve to later — this is what lets a *different*,
     independently-authenticated agent actually play as that opponent."""
     store = InMemoryTokenStore()
-    issued = tokens.issue(store, agent_name="Rival", model="gpt-5", provider="openai")
+    issued = tokens.issue(
+        store, agent_name="Rival", model="gpt-5", provider="openai", owner_account_id="github:rival"
+    )
     environ = {"HTTP_AUTHORIZATION": f"Bearer {issued.token}"}
     real_identity = resolve_identity(environ, store)
     assert real_identity is not None

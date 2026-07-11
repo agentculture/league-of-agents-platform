@@ -29,6 +29,8 @@ from __future__ import annotations
 import os
 from typing import Any, Callable, TypeVar
 
+from league_site.accounts.store import AccountStore, InMemoryAccountStore
+from league_site.auth.token_store import InMemoryTokenStore, TokenStore
 from league_site.cli._errors import EXIT_ENV_ERROR, CliError
 from league_site.matches.errors import MatchError
 from league_site.matches.store import InMemoryMatchStore, MatchStore
@@ -40,12 +42,33 @@ MATCHES_TABLE_ENV = "MATCHES_TABLE_NAME"
 #: Same env var name the cleanup Lambda reads for its archive bucket.
 ARCHIVE_BUCKET_ENV = "ARCHIVE_BUCKET_NAME"
 
+#: Same env var name :mod:`league_site.aws_lambda.wiring` uses for the deployed
+#: agent-tokens table — which the account store shares (accounts ride the
+#: tokens table, see :mod:`league_site.accounts.aws`), so a single variable
+#: resolves both the token and account operator stores.
+TOKENS_TABLE_ENV = "TOKENS_TABLE_NAME"
+
 #: Surfaced (as a diagnostic in text mode, a ``note`` field in JSON mode)
 #: whenever a command falls back to the ephemeral in-memory store.
 EPHEMERAL_NOTE = (
     f"{MATCHES_TABLE_ENV} is not set — using an ephemeral in-memory match store; "
     "state does not persist across CLI invocations"
 )
+
+#: The token/account counterpart of :data:`EPHEMERAL_NOTE`, surfaced by
+#: ``tokens``/``accounts`` verbs when they fall back to the in-memory store —
+#: an operator who forgot to set ``TOKENS_TABLE_NAME`` must never mistake an
+#: empty in-memory store for "no tokens/accounts exist".
+TOKENS_EPHEMERAL_NOTE = (
+    f"{TOKENS_TABLE_ENV} is not set — using an ephemeral in-memory token/account store; "
+    "state does not persist across CLI invocations"
+)
+
+#: Remediation hint surfaced whenever a boto3-backed adapter can't be built —
+#: the import failed or its own boto3 guard fired. Collapsed to one constant
+#: since the same instruction repeats across every store/archive constructor
+#: below.
+_BOTO3_INSTALL_HINT = "install boto3 with `uv sync --extra aws`"
 
 _T = TypeVar("_T")
 
@@ -58,6 +81,38 @@ def resolve_match_store() -> tuple[MatchStore, bool]:
     return _dynamodb_store(table_name), False
 
 
+def resolve_token_store() -> tuple[TokenStore, bool]:
+    """Return ``(store, ephemeral)`` for the agent-token store, env-driven like matches.
+
+    Real :class:`~league_site.auth.aws_tokens.DynamoDBTokenStore` when
+    :data:`TOKENS_TABLE_ENV` is set (the same table the serving Lambda
+    verifies against), else a fresh ephemeral
+    :class:`~league_site.auth.token_store.InMemoryTokenStore`. Backs
+    ``league-site tokens list|block|unblock`` — the operator kill-switch for
+    agent credentials.
+    """
+    table_name = os.environ.get(TOKENS_TABLE_ENV)
+    if not table_name:
+        return InMemoryTokenStore(), True
+    return _dynamodb_token_store(table_name), False
+
+
+def resolve_account_store() -> tuple[AccountStore, bool]:
+    """Return ``(store, ephemeral)`` for the account store, env-driven like matches.
+
+    Real :class:`~league_site.accounts.aws.DynamoDBAccountStore` when
+    :data:`TOKENS_TABLE_ENV` is set — accounts share the physical agent-tokens
+    table, so there is no separate ``ACCOUNTS_TABLE_NAME`` (see
+    :mod:`league_site.accounts.aws`) — else a fresh ephemeral
+    :class:`~league_site.accounts.store.InMemoryAccountStore`. Backs
+    ``league-site accounts list|block|unblock``.
+    """
+    table_name = os.environ.get(TOKENS_TABLE_ENV)
+    if not table_name:
+        return InMemoryAccountStore(), True
+    return _dynamodb_account_store(table_name), False
+
+
 def _dynamodb_store(table_name: str) -> MatchStore:
     try:
         from league_site.matches.aws import DynamoDBMatchStore
@@ -65,7 +120,7 @@ def _dynamodb_store(table_name: str) -> MatchStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=f"cannot import the DynamoDB match store adapter: {exc}",
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
     try:
         return DynamoDBMatchStore(table_name)
@@ -75,7 +130,45 @@ def _dynamodb_store(table_name: str) -> MatchStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=str(exc),
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
+        ) from exc
+
+
+def _dynamodb_token_store(table_name: str) -> TokenStore:
+    try:
+        from league_site.auth.aws_tokens import DynamoDBTokenStore
+    except ImportError as exc:  # pragma: no cover - import machinery, not a runtime path
+        raise CliError(
+            code=EXIT_ENV_ERROR,
+            message=f"cannot import the DynamoDB token store adapter: {exc}",
+            remediation=_BOTO3_INSTALL_HINT,
+        ) from exc
+    try:
+        return DynamoDBTokenStore(table_name)
+    except RuntimeError as exc:
+        raise CliError(
+            code=EXIT_ENV_ERROR,
+            message=str(exc),
+            remediation=_BOTO3_INSTALL_HINT,
+        ) from exc
+
+
+def _dynamodb_account_store(table_name: str) -> AccountStore:
+    try:
+        from league_site.accounts.aws import DynamoDBAccountStore
+    except ImportError as exc:  # pragma: no cover - import machinery, not a runtime path
+        raise CliError(
+            code=EXIT_ENV_ERROR,
+            message=f"cannot import the DynamoDB account store adapter: {exc}",
+            remediation=_BOTO3_INSTALL_HINT,
+        ) from exc
+    try:
+        return DynamoDBAccountStore(table_name)
+    except RuntimeError as exc:
+        raise CliError(
+            code=EXIT_ENV_ERROR,
+            message=str(exc),
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
 
 
@@ -102,7 +195,7 @@ def resolve_archive(bucket_name: str) -> Any:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=f"cannot import the S3 archive adapter: {exc}",
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
     try:
         return S3MatchArchive(bucket_name)
@@ -110,7 +203,7 @@ def resolve_archive(bucket_name: str) -> Any:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=str(exc),
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
 
 

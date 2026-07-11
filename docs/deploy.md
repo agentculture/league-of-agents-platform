@@ -103,6 +103,20 @@ This runs `sam build` (using `the repo-root Makefile`, see above) followed by
 stack name and parameters so later redeploys don't need to repeat them.
 That file is account/operator-specific and gitignored — do not commit it.
 
+### Enabling sessions + GitHub sign-in
+
+`infra/template.yaml` also declares `SessionSecretValue`,
+`GithubOauthClientId`, and `GithubOauthClientSecret` parameters, wired into
+`HttpHandlerFunction`'s environment as `LEAGUE_SESSION_SECRET`,
+`LEAGUE_OAUTH_GITHUB_CLIENT_ID`, and `LEAGUE_OAUTH_GITHUB_CLIENT_SECRET`.
+All three default to an empty string, which is what keeps sessions and
+GitHub sign-in disabled until an operator provisions real values.
+`infra/deploy.sh` sources a repo-root `.env` (gitignored) for these, if
+present, and maps it onto `--parameter-overrides` automatically — see
+[runbooks/github-oauth-app.md](runbooks/github-oauth-app.md) for
+registering the GitHub OAuth App, the exact `.env` variable names, and
+rotation steps.
+
 On success, the stack outputs the deployed API's base URL
 (`ApiUrl`), the DynamoDB table name, and the S3 bucket name. Cloudflare/DNS
 routing of `league-of-agents.ai` to that URL is a separate step — see

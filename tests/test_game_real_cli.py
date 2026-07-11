@@ -157,22 +157,24 @@ def test_solo_vs_bot_house_side_stages_real_orders_from_the_game_bot_policy(
     assert report["outcome"]["house"]["total"] > report["outcome"]["solo"]["total"]
 
 
-# -- h14 (real CLI confirmation): the excess is refused before match act -----
+# -- the solo side plays its whole roster (real CLI confirmation) ------------
+# (the original action_cap=1 handicap was lifted in the 2026-07-11 feedback
+# round — the cap machinery itself stays covered by the fake-runner tests)
 
 
-def test_solo_mode_action_cap_is_enforced_against_the_real_cli(tmp_path: Path) -> None:
+def test_solo_mode_full_roster_turn_plays_against_the_real_cli(tmp_path: Path) -> None:
     engine = GridLaneEngine("solo-vs-bot", workdir_root=tmp_path, scenario_id=_FAST_SCENARIO)
     state = engine.initial_state([_agent("p-solo")])
     unit_ids = list(state["legal_actions"])
     solo_units = [u for u in unit_ids if u.startswith("solo-")]
     assert len(solo_units) == 3  # scout/harvester/defender, engine-generated ids
 
-    excess = {"actions": [{"unit_id": uid, "action": "hold"} for uid in solo_units]}
-    state = engine.apply_turn(state, "p-solo", excess)
+    full_turn = {"actions": [{"unit_id": uid, "action": "hold"} for uid in solo_units]}
+    state = engine.apply_turn(state, "p-solo", full_turn)
 
-    assert state["turn"] == 1  # the (single, capped) order still played fine
-    assert len(state["last_turn_platform_rejections"]) == 2
-    assert {r["unit_id"] for r in state["last_turn_platform_rejections"]} == set(solo_units[1:])
+    assert state["turn"] == 1
+    assert state["last_turn_platform_rejections"] == []
+    assert state["last_turn_rejections"] == []  # the game accepted all three
 
 
 # -- h9: adapter.score matches `league match score --json` field for field,
@@ -294,6 +296,30 @@ def test_workdir_round_trip_state_matches_after_rehydrating_in_a_second_dir(
     show_from_b = runner.run(["match", "show", "m-roundtrip", "--json"], cwd=dir_b)
 
     assert show_from_b == show_from_a
+
+
+# -- board projections (t9b): the state carries what the board UI renders ----
+
+
+def test_state_carries_board_projections_from_the_real_cli(tmp_path: Path) -> None:
+    engine = GridLaneEngine("solo-vs-bot", workdir_root=tmp_path, scenario_id=_FAST_SCENARIO)
+    state = engine.initial_state([_agent("p-solo")])
+
+    assert isinstance(state["grid_width"], int) and state["grid_width"] > 0
+    assert isinstance(state["grid_height"], int) and state["grid_height"] > 0
+    unit_ids = {unit["id"] for unit in state["units"]}
+    assert {uid for uid in unit_ids if uid.startswith("solo-")}, unit_ids
+    for unit in state["units"]:
+        x, y = unit["pos"]
+        assert 0 <= x < state["grid_width"] and 0 <= y < state["grid_height"]
+    assert state["control_points"] and state["resource_nodes"]
+
+    # and the shared board renderer can actually model it
+    from league_site.viewer.board import build_board_model
+
+    model = build_board_model(state)
+    assert model is not None
+    assert {unit.unit_id for unit in model.units} == unit_ids
 
 
 # -- game version pinning -----------------------------------------------------

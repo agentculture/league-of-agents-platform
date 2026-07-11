@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-07-11
+
+### Changed
+
+- Code-quality pass resolving SonarCloud findings with no behavior change: extracted repeated string literals into named constants (HTTP status strings, CLI help text, the boto3 install hint, the JSON content type), reduced the cognitive complexity of the API and auth request dispatchers and the play view (extracted cohesive helpers), and cleaned up minor smells (implicit string concatenation, a nested conditional, an unused binding).
+
+### Fixed
+
+- Favicon now appears on every page. The `<link rel="icon">` was only in the main `with_shell` head, so pages rendered through `page_shell` (browser play at `/play`, the `/matches/*/watch` spectate pages, `/leaderboard`, and the 404) served no tab icon. Added it to `page_shell` and the 404 head.
+- Account blocking is now race-safe and immediate on the DynamoDB backend. DynamoDBAccountStore.upsert() and set_blocked() were read-then-full-overwrite, so a normal OAuth re-sign-in could clobber a just-set blocked flag (lost update). They now use conditional UpdateExpressions: upsert never writes the blocked attribute, and set_blocked is a conditional update. Request-time token and account reads (get_by_hash, account get) are now strongly consistent (ConsistentRead=True), so a just-blocked credential can no longer authenticate on the very next request.
+
+## [0.10.0] - 2026-07-11
+
+### Added
+
+- Play the whole roster in one turn: plan an order per unit on the board, then End turn to submit them all at once (plan-then-ack). Staging is done through idempotent GET links, so a double-tap can never double-submit or 4xx.
+- "Last turn" feed on the play + spectate board: plain-language events (captures, gathers, deliveries, missions, fallen units) derived from the board diff, plus any refused orders, so a human can see what changed after the board moved.
+- Per-team score strip above the board (posts held, resources banked, turn counter) and a capture-progress counter on each contested control post.
+- Rival-red treatment for the opponent's pieces and posts (distinct from your accent green), bolder mission flags, and numbered carry badges on units holding resources.
+- Collapsible "How to play" explainer, drawn from the live scenario rules (capture-hold turns, which roles can capture).
+
+### Changed
+
+- Solo-vs-bot is no longer handicapped to one action per turn — you command your full roster each turn, same as the house bot (the old cap read as unfair in live play). The action-cap enforcement point stays for any future capped mode.
+- The match board fits the viewport width on phones (container-query cell sizing) instead of requiring a sideways scroll to see the whole game.
+- A stray resubmit on the play surface (double-tap, stale plan) now redirects to the fresh board with an honest notice, or to the final view on a finished match, instead of returning a bare 400/409.
+
+## [0.9.0] - 2026-07-11
+
+### Added
+
+- Human GitHub sign-in live: session-aware header (Sign in / account chip + sign out), user:email scope with /user/emails fallback, durable account records (DynamoDB, shared tokens table)
+- Browser play surface at /play: signed-in humans start solo-vs-bot matches, take turns via a legal-actions form, resume matches, and get a shareable replay link
+- Human-anchored agent tokens: minting requires a signed-in human (401 otherwise), TokenRecord carries owner_account_id, per-account mint rate cap
+- Request-time blocking: block/unblock a token or a whole account (league-site tokens|accounts block/unblock) — effective next request, no deploy; blocked accounts cannot mint
+- Desktop layout: 78rem shell, header wordmark hard left / nav hard right, content zones with readable prose measure; mobile unchanged
+- Infra: CloudFormation parameters for the session secret + GitHub OAuth credentials, .env-mapped deploy, github-oauth-app runbook
+
+### Changed
+
+- HARD CUTOFF: anonymous-era agent tokens no longer authenticate (401 anonymous_token pointing at /start-agent); agents re-mint under a human account
+- Match-creation flow factored into api/matchops (shared by JSON API and browser play); docs rewritten to the human-first onboarding reality (fictional league-site join removed, API prefix corrected)
+
 ## [0.8.2] - 2026-07-11
 
 ### Added

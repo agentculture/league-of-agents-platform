@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from league_site.accounts.aws import DynamoDBAccountStore
 from league_site.auth import tokens
 from league_site.auth.aws_tokens import DynamoDBTokenStore
 from league_site.aws_lambda import wiring
@@ -24,6 +25,7 @@ from league_site.matches.aws import DynamoDBMatchStore
 from league_site.ratings.aws import DynamoDBRatingLedgerStore
 from league_site.web.http import site_app
 from tests._api_support import bearer, call
+from tests._dynamo_fake import apply_set_expression
 
 FULL_ENV = {
     "MATCHES_TABLE_NAME": "league-matches",
@@ -57,7 +59,9 @@ class FakeTable:
             raise AssertionError(f"conditional put would overwrite {key}")
         self.items[key] = Item
 
-    def get_item(self, *, Key: dict[str, str]) -> dict[str, Any]:  # noqa: N803
+    def get_item(
+        self, *, Key: dict[str, str], ConsistentRead: bool = False  # noqa: N803
+    ) -> dict[str, Any]:
         item = self.items.get((Key["PK"], Key["SK"]))
         return {"Item": item} if item is not None else {}
 
@@ -79,6 +83,7 @@ class FakeTable:
         Key: dict[str, str],  # noqa: N803
         UpdateExpression: str,  # noqa: N803
         ExpressionAttributeValues: dict[str, Any],  # noqa: N803
+        ConditionExpression: str | None = None,  # noqa: N803
         ReturnValues: str = "NONE",  # noqa: N803
     ) -> dict[str, Any]:
         key = (Key["PK"], Key["SK"])
@@ -90,10 +95,13 @@ class FakeTable:
             if ReturnValues == "UPDATED_NEW":
                 return {"Attributes": {attr: item[attr]}}
             return {}
-        assigned = re.fullmatch(r"SET (\w+) = (:\w+)", UpdateExpression)
-        assert assigned is not None, f"fake cannot apply {UpdateExpression!r}"
-        self.items[key][assigned.group(1)] = ExpressionAttributeValues[assigned.group(2)]
-        return {}
+        # SET expressions (the account store's upsert): may carry multiple
+        # clauses, plain or insert-only if_not_exists — delegate to the
+        # shared applier so this fake tracks the real semantics.
+        item = dict(self.items.get(key, {"PK": Key["PK"], "SK": Key["SK"]}))
+        apply_set_expression(item, UpdateExpression, ExpressionAttributeValues)
+        self.items[key] = item
+        return {"Attributes": dict(item)} if ReturnValues == "ALL_NEW" else {}
 
 
 class FakeDynamoDBServiceResource:
@@ -139,12 +147,14 @@ def test_full_env_selects_dynamodb_backed_stores(recorded_site_app) -> None:
     wiring.build_site_app({**FULL_ENV, "LEAGUE_SESSION_SECRET": "s"}, dynamodb_resource=resource)
 
     kwargs = recorded_site_app["kwargs"]
-    assert set(kwargs) == {"match_store", "token_store", "ledger_store"}
+    assert set(kwargs) == {"match_store", "token_store", "ledger_store", "account_store"}
     assert isinstance(kwargs["match_store"], DynamoDBMatchStore)
     assert isinstance(kwargs["token_store"], DynamoDBTokenStore)
     assert isinstance(kwargs["ledger_store"], DynamoDBRatingLedgerStore)
-    # each store bound to its own env-named table
+    assert isinstance(kwargs["account_store"], DynamoDBAccountStore)
+    # each store bound to its own env-named table; accounts ride the tokens table
     assert set(resource.tables) == {"league-matches", "league-tokens", "league-ratings"}
+    assert kwargs["account_store"]._table_name == "league-tokens"
 
 
 def test_each_table_env_var_is_wired_independently(recorded_site_app) -> None:
@@ -186,6 +196,11 @@ def test_without_a_session_secret_a_stale_session_cookie_stays_anonymous(
 
     assert status == "200 OK"
     assert headers["Content-Type"] == "text/html; charset=utf-8"
+    # Pre-OAuth prod still shows the sign-in entry — the flow itself keeps its
+    # existing disabled behavior, but the header link is present (t8).
+    text = body.decode("utf-8")
+    assert 'href="/auth/login/github"' in text
+    assert "/auth/login/google" not in text
 
 
 def test_without_a_session_secret_other_cookies_pass_through(
@@ -209,7 +224,11 @@ def test_without_a_session_secret_the_bearer_token_api_still_works(
     app = wiring.build_site_app(FULL_ENV, dynamodb_resource=resource)
     token_store = DynamoDBTokenStore("league-tokens", resource=resource)
     issued = tokens.issue(
-        token_store, agent_name="probe-bot", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="probe-bot",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:probe-owner",
     )
 
     status, _, created = call(
@@ -246,7 +265,11 @@ def test_anonymous_pages_are_byte_identical_with_and_without_a_secret(
 def _issue_agent(resource: FakeDynamoDBServiceResource, agent_name: str) -> str:
     token_store = DynamoDBTokenStore("league-tokens", resource=resource)
     issued = tokens.issue(
-        token_store, agent_name=agent_name, model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name=agent_name,
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id=f"github:{agent_name.lower()}-owner",
     )
     return issued.token
 
