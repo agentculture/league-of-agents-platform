@@ -176,6 +176,25 @@ def test_session_secret_parameter_is_a_noecho_string_defaulting_empty(
     assert parameter["Default"] == ""
 
 
+def test_github_oauth_client_id_parameter_defaults_empty(template: dict[str, Any]) -> None:
+    """Not NoEcho: a GitHub OAuth App's client id is not a secret (it appears in the browser's
+    authorize-URL redirect), unlike its client secret below."""
+    parameter = template["Parameters"]["GithubOauthClientId"]
+    assert parameter["Type"] == "String"
+    assert parameter["Default"] == ""
+
+
+def test_github_oauth_client_secret_parameter_is_a_noecho_string_defaulting_empty(
+    template: dict[str, Any],
+) -> None:
+    """Empty default means GitHub sign-in stays disabled until an operator provisions a real
+    value (see docs/runbooks/github-oauth-app.md)."""
+    parameter = template["Parameters"]["GithubOauthClientSecret"]
+    assert parameter["Type"] == "String"
+    assert parameter["NoEcho"] is True
+    assert parameter["Default"] == ""
+
+
 def test_monthly_budget_parameter_defaults_to_20_usd(template: dict[str, Any]) -> None:
     assert template["Parameters"]["MonthlyBudgetUsd"]["Default"] == 20
 
@@ -339,6 +358,8 @@ def test_http_handler_function_grants_query_on_the_status_updated_gsi(
         ("TOKENS_TABLE_NAME", {"Ref": "TokensTable"}),
         ("RATINGS_TABLE_NAME", {"Ref": "RatingsTable"}),
         ("LEAGUE_SESSION_SECRET", {"Ref": "SessionSecretValue"}),
+        ("LEAGUE_OAUTH_GITHUB_CLIENT_ID", {"Ref": "GithubOauthClientId"}),
+        ("LEAGUE_OAUTH_GITHUB_CLIENT_SECRET", {"Ref": "GithubOauthClientSecret"}),
     ],
 )
 def test_http_handler_env_vars_match_the_persistence_env_contract(
@@ -354,6 +375,7 @@ def test_http_handler_env_names_match_python_source_constants(template: dict[str
     code that will read them cannot silently drift apart — the same guard
     test_capacity_parameter_defaults_match_the_python_capacity_config applies to the capacity caps.
     """
+    from league_site.auth.oauth import PROVIDERS
     from league_site.auth.sessions import SESSION_SECRET_ENV
     from league_site.cli._commands._stores import ARCHIVE_BUCKET_ENV, MATCHES_TABLE_ENV
 
@@ -361,6 +383,31 @@ def test_http_handler_env_names_match_python_source_constants(template: dict[str
     assert MATCHES_TABLE_ENV in env
     assert ARCHIVE_BUCKET_ENV in env
     assert SESSION_SECRET_ENV in env
+    github = PROVIDERS["github"]
+    assert github.client_id_env in env
+    assert github.client_secret_env in env
+
+
+def test_cleanup_function_does_not_receive_session_or_oauth_secrets(
+    template: dict[str, Any],
+) -> None:
+    """CleanupFunction never reads sessions or OAuth — it has no web/auth code path at all
+    (league_site.aws_lambda.cleanup) — so it must not be handed these secrets."""
+    env = template["Resources"]["CleanupFunction"]["Properties"]["Environment"]["Variables"]
+    assert "LEAGUE_SESSION_SECRET" not in env
+    assert "LEAGUE_OAUTH_GITHUB_CLIENT_ID" not in env
+    assert "LEAGUE_OAUTH_GITHUB_CLIENT_SECRET" not in env
+
+
+def test_no_literal_secret_values_are_committed_in_the_template() -> None:
+    """Every secret-shaped parameter's Default must be the empty string, never a real value —
+    the concrete, file-level version of "no secrets committed"."""
+    raw_text = _TEMPLATE_PATH.read_text(encoding="utf-8")
+    assert 'SessionSecretValue' in raw_text
+    with _TEMPLATE_PATH.open(encoding="utf-8") as handle:
+        parsed = yaml.safe_load(handle)
+    for name in ("SessionSecretValue", "GithubOauthClientId", "GithubOauthClientSecret"):
+        assert parsed["Parameters"][name]["Default"] == ""
 
 
 def test_outputs_include_tokens_and_ratings_table_names(template: dict[str, Any]) -> None:
