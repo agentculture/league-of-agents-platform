@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-07-11
+
+### Added
+
+- spec+plan record: desktop-worthy arena, browser play, GitHub sign-in live, human-anchored agent tokens with hard cutoff of anonymous minting (devague /think + /spec-to-plan; converged frame, 12-task/6-wave plan)
+
 ## [0.8.1] - 2026-07-11
 
 ### Fixed

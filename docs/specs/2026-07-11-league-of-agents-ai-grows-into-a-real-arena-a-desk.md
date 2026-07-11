@@ -16,7 +16,7 @@
   - instruction: Treat the existing oauth.py flow as the base: enable and extend it (email scope, account upsert at callback); do not rewrite it
 - Before: Agent tokens are anonymous self-serve (POST /auth/agents with just name/model/provider) — nothing ties an agent to a human, so there is no unit of accountability to block, rate-limit, or bill
   - instruction: Record one anonymous POST /auth/agents mint as before-evidence, then verify the identical call fails after deploy
-- Before: There is no browser surface for actually playing: humans can only spectate /matches/<id>/watch; the 'sign in, pick an opponent, take your turn' copy in start-human.md is aspirational; play is API/MCP-only and was verified end-to-end on prod in the launch checklist
+- Before: There is no browser surface for actually playing: humans can only spectate `/matches/<id>/watch`; the 'sign in, pick an opponent, take your turn' copy in start-human.md is aspirational; play is API/MCP-only and was verified end-to-end on prod in the launch checklist
   - instruction: Build human play as a session-authed server-rendered page in the viewer/profiles style — not an SPA
 - After: On a desktop screen the site uses the width purposefully: a wider shell, header anchored to the edges (wordmark left, nav + theme toggle right), and content that breathes instead of huddling in a strip
   - instruction: Raise the shell width in theme.py (content zones around 72-80rem), anchor .site-header .wrap contents to the shell edges (wordmark left, nav + theme toggle right), keep the 40rem breakpoint behavior for mobile
@@ -33,7 +33,7 @@
 ## Requirements
 
 - GitHub OAuth login goes live in production: provision LEAGUE_SESSION_SECRET + GitHub client id/secret in the deploy stack, register the OAuth app with the league-of-agents.ai callback, and add a visible Sign in entry in the header
-  - instruction: Provision LEAGUE_SESSION_SECRET + LEAGUE_OAUTH_GITHUB_CLIENT_ID/SECRET in infra/template.yaml; register the GitHub OAuth app with callback https://league-of-agents.ai/auth/callback/github; add a Sign in entry to the header in shell.py
+  - instruction: Provision LEAGUE_SESSION_SECRET + LEAGUE_OAUTH_GITHUB_CLIENT_ID/SECRET in infra/template.yaml; register the GitHub OAuth app with callback <https://league-of-agents.ai/auth/callback/github>; add a Sign in entry to the header in shell.py
   - honesty: A fresh browser on production completes Sign in with GitHub and lands back on league-of-agents.ai with a live session — verified on prod, not just in tests
 - Agent token issuance requires an authenticated human: POST /auth/agents (or its successor) refuses anonymous minting, and every stored TokenRecord carries the owning account id
   - instruction: Gate POST /auth/agents on an authenticated session (or add a session-bound successor endpoint); persist owner_account_id in TokenRecord across token_store.py and aws_tokens.py; apply the q1 migration policy to existing anonymous tokens
@@ -45,7 +45,7 @@
   - instruction: Request user:email scope in the GitHub provider in oauth.py; when the profile email is null, fetch /user/emails and store the primary; persist on the account record
   - honesty: The OAuth app requests the user:email scope and the account record ends up with a usable email even when the GitHub profile email is private (via the emails API), or the record explicitly marks it absent
 - A persistent account model exists in the data layer (DynamoDB item type or table) — today sessions are stateless signed cookies and no user/account record exists anywhere
-  - instruction: Add an accounts record in the existing single-table pattern (e.g. PK=ACCOUNT#github:<id>), created/updated at OAuth callback; wire through aws_lambda/wiring.py with an in-memory fallback for tests
+  - instruction: Add an accounts record in the existing single-table pattern (e.g. `PK=ACCOUNT#github:<id>`), created/updated at OAuth callback; wire through aws_lambda/wiring.py with an in-memory fallback for tests
   - honesty: An account created by sign-in survives a Lambda cold start and a session expiry — it is a durable DynamoDB record, not cookie state
 - Token revocation actually works: DynamoDBTokenStore.revoke currently raises NotImplementedError (needs a GSI or key redesign) — blocking is meaningless until revoke/deny persists and is honored
   - instruction: Implement DynamoDBTokenStore.revoke (GSI or key redesign so a token is addressable by id); the verify path must honor revoked/blocked before resolving identity
@@ -93,8 +93,8 @@
 
 ## Assumptions
 
-- The operator can register a GitHub OAuth app for league-of-agents.ai (callback https://league-of-agents.ai/auth/callback/github) and provision client id/secret + LEAGUE_SESSION_SECRET into the deploy stack — a human-side prerequisite no code change can satisfy
-  - instruction: Operator runbook step: create the GitHub OAuth app (homepage https://league-of-agents.ai, callback https://league-of-agents.ai/auth/callback/github), then provision client id/secret + LEAGUE_SESSION_SECRET through the deploy parameters
+- The operator can register a GitHub OAuth app for league-of-agents.ai (callback <https://league-of-agents.ai/auth/callback/github>) and provision client id/secret + LEAGUE_SESSION_SECRET into the deploy stack — a human-side prerequisite no code change can satisfy
+  - instruction: Operator runbook step: create the GitHub OAuth app (homepage <https://league-of-agents.ai>, callback <https://league-of-agents.ai/auth/callback/github>), then provision client id/secret + LEAGUE_SESSION_SECRET through the deploy parameters
 
 ## Decisions
 

@@ -8,7 +8,7 @@ slug: `league-of-agents-ai-grows-into-a-real-arena-a-desk` · status: `exported`
 
 ### t1 — Capture before-evidence: prod 1440px rendering + one anonymous mint
 
-- instruction: Use the browser tooling or a headless capture at 1440px against https://league-of-agents.ai/index; store under docs/design/evidence/. Record the anonymous mint with curl (redact the token). No repo code changes.
+- instruction: Use the browser tooling or a headless capture at 1440px against <https://league-of-agents.ai/index>; store under docs/design/evidence/. Record the anonymous mint with curl (redact the token). No repo code changes.
 - covers: c3, h10, c5, h18
 - acceptance:
   - A 1440px screenshot of prod /index is stored as before-evidence showing the 46rem strip and mid-floating header
@@ -16,10 +16,10 @@ slug: `league-of-agents-ai-grows-into-a-real-arena-a-desk` · status: `exported`
 
 ### t2 — Account model: durable accounts store (in-memory + DynamoDB)
 
-- instruction: New module league_site/accounts/ (record + store interface + in-memory impl) plus DynamoDB impl following league_site/auth/aws_tokens.py patterns; wire via aws_lambda/wiring.py env-driven like the other stores; ACCOUNT#github:<id> in the existing single-table shape.
+- instruction: New module league_site/accounts/ (record + store interface + in-memory impl) plus DynamoDB impl following league_site/auth/aws_tokens.py patterns; wire via aws_lambda/wiring.py env-driven like the other stores; `ACCOUNT#github:<id>` in the existing single-table shape.
 - covers: c15, h5
 - acceptance:
-  - AccountRecord persists via the in-memory store in tests and as ACCOUNT#github:<id> items in the existing single-table DynamoDB pattern in prod wiring
+  - AccountRecord persists via the in-memory store in tests and as `ACCOUNT#github:<id>` items in the existing single-table DynamoDB pattern in prod wiring
   - An account created at sign-in survives a simulated cold start (wiring re-init) in an integration test
 
 ### t3 — Token store: owner_account_id + blocked flag + working revoke
@@ -93,7 +93,7 @@ slug: `league-of-agents-ai-grows-into-a-real-arena-a-desk` · status: `exported`
 - covers: c11
 - acceptance:
   - infra/template.yaml gains parameters/env wiring for LEAGUE_SESSION_SECRET + LEAGUE_OAUTH_GITHUB_CLIENT_ID/SECRET with no secrets committed
-  - A runbook documents registering the GitHub OAuth app (homepage https://league-of-agents.ai, callback /auth/callback/github) and provisioning the secrets
+  - A runbook documents registering the GitHub OAuth app (homepage <https://league-of-agents.ai>, callback /auth/callback/github) and provisioning the secrets
 
 ### t4 — Blocking enforcement at request time + operator block controls
 
