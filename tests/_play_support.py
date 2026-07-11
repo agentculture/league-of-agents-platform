@@ -6,8 +6,10 @@ Not collected by pytest (module name doesn't match ``test_*``); imported by
 
 from __future__ import annotations
 
+import copy
 import io
 import time
+from collections.abc import Mapping
 from typing import Any, Callable
 from urllib.parse import urlencode
 
@@ -83,6 +85,143 @@ class PlayableEngine(GameEngine):
         return {participant_id: float(total) for participant_id, total in state["scores"].items()}
 
 
+class GridBoardEngine(GameEngine):
+    """A ``GridLaneEngine``-shaped engine with a real board, no subprocess.
+
+    Publishes the same state shape the real adapter mirrors from ``league
+    match show --json`` (``docs/game-integration.md``): the board projections
+    (``grid_width``/``grid_height``/``units``/``control_points``/
+    ``resource_nodes``/``missions``) plus the per-unit ``legal_actions``
+    summary — so board-interaction tests drive the whole two-step play flow
+    (select a unit, submit a target cell) in-process. ``apply_turn`` accepts
+    the game's own ``{"actions": [...]}`` envelope and refuses anything not
+    in the current ``legal_actions``, exactly like the real engine's CLI
+    would.
+    """
+
+    #: The 6x5 opening scene ``initial_state`` deals: two solo units (a scout
+    #: and a harvester standing on a resource node) versus one house scout.
+    _OPENING: dict[str, Any] = {
+        "game_id": "league-of-agents-grid",
+        "mode": "solo-vs-bot",
+        "status": "active",
+        "turn": 0,
+        "turn_limit": 8,
+        "winner": None,
+        "staged_teams": [],
+        "grid_width": 6,
+        "grid_height": 5,
+        "units": [
+            {
+                "id": "solo-u1",
+                "team_id": "solo",
+                "agent_id": "solo-scout",
+                "role": "scout",
+                "pos": [1, 1],
+                "carrying": 0,
+                "alive": True,
+            },
+            {
+                "id": "solo-u2",
+                "team_id": "solo",
+                "agent_id": "solo-harvester",
+                "role": "harvester",
+                "pos": [2, 3],
+                "carrying": 1,
+                "alive": True,
+            },
+            {
+                "id": "house-u1",
+                "team_id": "house",
+                "agent_id": "house-scout",
+                "role": "scout",
+                "pos": [5, 4],
+                "carrying": 0,
+                "alive": True,
+            },
+        ],
+        "control_points": [{"id": "cp-mid", "pos": [3, 2], "owner": None, "hold": []}],
+        "resource_nodes": [{"id": "rn-a", "pos": [2, 3], "remaining": 5}],
+        "missions": [{"id": "ms-x", "kind": "deliver", "pos": [4, 0], "status": "open"}],
+    }
+
+    def __init__(self, *, game_id: str = "grid-board-duel") -> None:
+        self._game_id = game_id
+
+    @property
+    def game_id(self) -> str:
+        return self._game_id
+
+    def initial_state(self, participants: Any) -> dict[str, Any]:
+        (participant,) = list(participants)
+        state = copy.deepcopy(self._OPENING)
+        state["participant_teams"] = {participant.participant_id: "solo"}
+        state["team_participants"] = {"solo": [participant.participant_id]}
+        state["legal_actions"] = {unit["id"]: self._summary(state, unit) for unit in state["units"]}
+        return state
+
+    def apply_turn(self, state: dict[str, Any], participant_id: str, action: Any) -> dict[str, Any]:
+        if participant_id not in state["participant_teams"]:
+            raise ValueError(f"participant {participant_id!r} controls no team")
+        if not isinstance(action, Mapping) or not isinstance(action.get("actions"), list):
+            raise ValueError(f"expected an {{'actions': [...]}} envelope, got {action!r}")
+        new = copy.deepcopy(state)
+        for order in action["actions"]:
+            self._apply_order(state, new, order)
+        new["turn"] += 1
+        new["legal_actions"] = {unit["id"]: self._summary(new, unit) for unit in new["units"]}
+        return new
+
+    def _apply_order(self, state: dict[str, Any], new: dict[str, Any], order: Any) -> None:
+        unit = next((u for u in new["units"] if u["id"] == order.get("unit_id")), None)
+        if unit is None:
+            raise ValueError(f"unknown unit in order {order!r}")
+        legal = state["legal_actions"].get(unit["id"]) or {}
+        verb = order.get("action")
+        if verb == "move":
+            to = list(order.get("to") or ())
+            if to not in [list(cell) for cell in legal.get("move", [])]:
+                raise ValueError(f"illegal move for {unit['id']}: {order!r}")
+            unit["pos"] = to
+        elif verb in ("gather", "deliver", "hold"):
+            if not legal.get(verb):
+                raise ValueError(f"illegal {verb} for {unit['id']}")
+            if verb == "gather":
+                unit["carrying"] += 1
+        else:
+            raise ValueError(f"unknown verb in order {order!r}")
+
+    def _summary(self, state: dict[str, Any], unit: dict[str, Any]) -> dict[str, Any]:
+        x, y = unit["pos"]
+        moves = [
+            [nx, ny]
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+            if 0 <= nx < state["grid_width"] and 0 <= ny < state["grid_height"]
+        ]
+        on_node = any(
+            list(node["pos"]) == [x, y] and node.get("remaining", 0) > 0
+            for node in state["resource_nodes"]
+        )
+        return {
+            "move": sorted(moves),
+            "gather": on_node,
+            "deliver": False,
+            "hold": True,
+            "can_gather": True,
+            "can_capture": True,
+        }
+
+    def is_over(self, state: dict[str, Any]) -> bool:
+        return state["turn"] >= state["turn_limit"]
+
+    def score(self, state: dict[str, Any]) -> dict[str, float]:
+        totals = {team: 0.0 for team in state["team_participants"]}
+        for unit in state["units"]:
+            if unit["team_id"] in totals:
+                totals[unit["team_id"]] += float(unit["carrying"])
+        return {pid: totals.get(team, 0.0) for pid, team in state["participant_teams"].items()}
+
+
 def session_for(subject: str = "42", display: str = "Ada") -> sessions.Session:
     """A verified-shaped :class:`~league_site.auth.sessions.Session` for tests.
 
@@ -121,8 +260,9 @@ def call_page(
 
     ``form`` is sent urlencoded (the browser's default form encoding);
     ``session`` (or ``None`` for anonymous) is stored under
-    ``SESSION_ENVIRON_KEY`` the way ``with_auth`` would. Returns
-    ``(status, headers, body_text)``.
+    ``SESSION_ENVIRON_KEY`` the way ``with_auth`` would. A ``?query`` suffix
+    on *path* becomes ``QUERY_STRING``, the way a WSGI server would split a
+    request target. Returns ``(status, headers, body_text)``.
     """
     captured: dict[str, Any] = {}
 
@@ -133,10 +273,11 @@ def call_page(
         captured["headers"] = dict(response_headers)
 
     raw_body = urlencode(form).encode("utf-8") if form is not None else b""
+    path, _, query_string = path.partition("?")
     environ: dict[str, Any] = {
         "REQUEST_METHOD": method,
         "PATH_INFO": path,
-        "QUERY_STRING": "",
+        "QUERY_STRING": query_string,
         "CONTENT_LENGTH": str(len(raw_body)),
         "CONTENT_TYPE": "application/x-www-form-urlencoded",
         "wsgi.input": io.BytesIO(raw_body),

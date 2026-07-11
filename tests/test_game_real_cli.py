@@ -296,6 +296,30 @@ def test_workdir_round_trip_state_matches_after_rehydrating_in_a_second_dir(
     assert show_from_b == show_from_a
 
 
+# -- board projections (t9b): the state carries what the board UI renders ----
+
+
+def test_state_carries_board_projections_from_the_real_cli(tmp_path: Path) -> None:
+    engine = GridLaneEngine("solo-vs-bot", workdir_root=tmp_path, scenario_id=_FAST_SCENARIO)
+    state = engine.initial_state([_agent("p-solo")])
+
+    assert isinstance(state["grid_width"], int) and state["grid_width"] > 0
+    assert isinstance(state["grid_height"], int) and state["grid_height"] > 0
+    unit_ids = {unit["id"] for unit in state["units"]}
+    assert {uid for uid in unit_ids if uid.startswith("solo-")}, unit_ids
+    for unit in state["units"]:
+        x, y = unit["pos"]
+        assert 0 <= x < state["grid_width"] and 0 <= y < state["grid_height"]
+    assert state["control_points"] and state["resource_nodes"]
+
+    # and the shared board renderer can actually model it
+    from league_site.viewer.board import build_board_model
+
+    model = build_board_model(state)
+    assert model is not None
+    assert {unit.unit_id for unit in model.units} == unit_ids
+
+
 # -- game version pinning -----------------------------------------------------
 
 

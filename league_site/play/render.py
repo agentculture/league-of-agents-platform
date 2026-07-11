@@ -95,6 +95,32 @@ def _render_live_match_item(match: Match) -> str:
     )
 
 
+def render_board_lead(
+    *,
+    selected_unit: str | None,
+    selected_role: str | None,
+    clear_href: str,
+) -> str:
+    """The one-line instruction above an interactive board.
+
+    Unselected, it teaches the first tap (pick one of your units); with a
+    unit selected it names the unit and offers the way back — a plain GET of
+    *clear_href* (the play view without ``?unit=``) clears the selection.
+    """
+    if selected_unit is None:
+        return (
+            '<p class="board-hint">Your turn — tap or click one of your glowing units, '
+            "then tap where it should go.</p>"
+        )
+    unit = html.escape(selected_unit)
+    role = f" · {html.escape(selected_role)}" if selected_role else ""
+    return (
+        f'<p class="board-hint"><strong>{unit}</strong>{role} selected — '
+        "tap a highlighted square to play it, or "
+        f'<a href="{html.escape(clear_href)}">change unit</a>.</p>'
+    )
+
+
 def render_play_panel(
     match: Match,
     *,
@@ -102,6 +128,7 @@ def render_play_panel(
     show_form: bool,
     waiting: bool,
     watch_href: str,
+    collapse_form: bool = False,
 ) -> str:
     """The panel the play view adds after the reused viewer board rendering.
 
@@ -110,6 +137,11 @@ def render_play_panel(
     form (*show_form*), the waiting-on-the-other-side note (*waiting*), the
     no-browser-actions degrade, a paused note, or — once the match is over —
     the final score with the shareable replay link.
+
+    *collapse_form* is the board-first mode: when the board itself carries
+    the move controls (:mod:`league_site.play.board`), the select-based form
+    stays available — accessibility and fallback, never removed — but folds
+    into a closed ``<details>`` so the board reads as the primary interface.
     """
     if match.status is MatchStatus.COMPLETED:
         return _render_final_panel(match, watch_href)
@@ -124,7 +156,7 @@ def render_play_panel(
             "<p>This match has not started yet.</p></div>"
         )
     if show_form:
-        return _render_turn_form(match, choices)
+        return _render_turn_form(match, choices, collapsed=collapse_form)
     if waiting:
         return (
             '<div class="card play-panel"><h2>Your move</h2>'
@@ -138,22 +170,33 @@ def render_play_panel(
     )
 
 
-def _render_turn_form(match: Match, choices: Sequence[ActionChoice]) -> str:
+def _render_turn_form(
+    match: Match, choices: Sequence[ActionChoice], *, collapsed: bool = False
+) -> str:
     match_id = html.escape(match.match_id)
     options = "".join(
         f'<option value="{html.escape(choice.value)}">{html.escape(choice.label)}</option>'
         for choice in choices
     )
-    return (
-        '<div class="card play-panel">\n'
-        "<h2>Your move</h2>\n"
+    form = (
         f'<form method="post" action="/play/matches/{match_id}/turns" class="play-form">\n'
         '<label for="play-action">Legal actions</label>\n'
         f'<select id="play-action" name="action">{options}</select>\n'
         '<button type="submit" class="button">Play move</button>\n'
-        "</form>\n"
-        "</div>"
+        "</form>"
     )
+    if collapsed:
+        return (
+            '<div class="card play-panel">\n'
+            "<h2>Your move</h2>\n"
+            "<p>Play straight on the board above — or pick from the list.</p>\n"
+            '<details class="play-fallback">\n'
+            "<summary>All legal actions as a list</summary>\n"
+            f"{form}\n"
+            "</details>\n"
+            "</div>"
+        )
+    return f'<div class="card play-panel">\n<h2>Your move</h2>\n{form}\n</div>'
 
 
 def _render_final_panel(match: Match, watch_href: str) -> str:
@@ -206,6 +249,7 @@ def render_error_body(
 __all__ = [
     "render_signed_out_hub_body",
     "render_hub_body",
+    "render_board_lead",
     "render_play_panel",
     "render_error_body",
 ]

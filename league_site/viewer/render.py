@@ -210,13 +210,23 @@ def _render_orders(payload: Any) -> str | None:
     return f"<pre><code>{html.escape(text)}</code></pre>"
 
 
-def render_page_body(model: MatchPageModel) -> str:
-    """Render the ``<main>`` contents for one match-watch page (header + transcript)."""
+def render_page_body(model: MatchPageModel, *, board_html: str | None = None) -> str:
+    """Render the ``<main>`` contents for one match-watch page (header + transcript).
+
+    ``board_html``, if given, is a pre-rendered fragment (the shared match
+    board — :mod:`league_site.viewer.board` — plus, on the play surface,
+    its interaction hint/panel) slotted between the participants card and
+    the result/transcript. Omitted (the default), the output is
+    byte-identical to what this function always produced — non-grid matches
+    and older callers render exactly as before.
+    """
     parts = [
         f"<h1>Match <code>{html.escape(model.match_id)}</code></h1>",
         _render_status_line(model),
         _render_participants(model),
     ]
+    if board_html:
+        parts.append(board_html)
     if not model.is_live:
         result_html = _render_result(model)
         if result_html:

@@ -11,7 +11,10 @@ surfaces.
 
 from __future__ import annotations
 
+import html as html_mod
+import json
 import re
+import shutil
 
 import pytest
 
@@ -22,7 +25,7 @@ from league_site.matches import InMemoryMatchStore
 from league_site.ratings.ledger import InMemoryRatingLedgerStore
 from league_site.web.http import site_app
 from tests._api_support import call
-from tests._play_support import PlayableEngine, call_page
+from tests._play_support import GridBoardEngine, PlayableEngine, call_page
 
 _REGISTRY = {"solo-vs-bot": PlayableEngine}
 
@@ -158,6 +161,99 @@ def test_non_participant_session_is_redirected_to_spectate_and_cannot_move() -> 
     )
     assert status == "403 Forbidden"
     assert store.load(match_id).turns == []
+
+
+def _board_action_values(body: str) -> list[str]:
+    return [
+        html_mod.unescape(value) for value in re.findall(r'name="action" value="([^"]*)"', body)
+    ]
+
+
+_STYLE_RE = re.compile(r"<style>.*?</style>", re.S)
+
+
+def _markup(body: str) -> str:
+    """*body* without its inline ``<style>`` blocks — the stylesheet names the
+    board classes too, so markup assertions must not match CSS text."""
+    return _STYLE_RE.sub("", body)
+
+
+def _play_board_flow(app: object, store: InMemoryMatchStore, cookie: dict[str, str]) -> None:
+    """Create a grid match and play one turn purely through the board controls."""
+    status, headers, _ = call_page(
+        app,
+        "POST",
+        "/play/matches",
+        form={"mode": "solo-vs-bot"},
+        headers=cookie,
+        session_key_present=False,
+    )
+    assert status == "303 See Other"
+    play_url = headers["Location"]
+    match_id = play_url.rsplit("/", 1)[-1]
+
+    # Step 1 — the board itself offers the human's units as selection links.
+    status, _, page = call_page(app, "GET", play_url, headers=cookie, session_key_present=False)
+    assert status == "200 OK"
+    markup = _markup(page)
+    assert 'class="board"' in markup
+    unit_hrefs = re.findall(rf'href="({re.escape(play_url)}\?unit=[^"]+)"', markup)
+    assert unit_hrefs, "expected at least one selectable unit on the board"
+    assert "board-target" not in markup
+
+    # Step 2 — selecting a unit turns its legal targets into POST controls.
+    select_href = html_mod.unescape(unit_hrefs[0])
+    status, _, selected_page = call_page(
+        app, "GET", select_href, headers=cookie, session_key_present=False
+    )
+    assert status == "200 OK"
+    assert "board-unit-selected" in _markup(selected_page)
+    values = _board_action_values(selected_page)
+    assert values, "expected per-cell controls for the selected unit"
+    move_value = next(
+        (v for v in values if json.loads(v)["actions"][0]["action"] == "move"), values[0]
+    )
+
+    # Step 3 — POSTing one control plays exactly that action.
+    status, headers, _ = call_page(
+        app,
+        "POST",
+        f"{play_url}/turns",
+        form={"action": move_value},
+        headers=cookie,
+        session_key_present=False,
+    )
+    assert status == "303 See Other"
+    assert headers["Location"] == play_url
+    reloaded = store.load(match_id)
+    assert len(reloaded.turns) == 1
+    assert reloaded.turns[0].action == json.loads(move_value)
+
+
+def test_board_controls_drive_a_grid_match_through_the_composed_site() -> None:
+    store = InMemoryMatchStore()
+    app = site_app(
+        match_store=store,
+        token_store=InMemoryTokenStore(),
+        ledger_store=InMemoryRatingLedgerStore(),
+        engine_registry={"solo-vs-bot": GridBoardEngine},
+    )
+    _play_board_flow(app, store, _cookie(subject="42", display_name="Ada"))
+
+
+@pytest.mark.skipif(shutil.which("league") is None, reason="league CLI is not installed")
+def test_board_controls_drive_a_real_cli_grid_match_through_the_composed_site() -> None:
+    """The same two-step board flow against the real ``league`` subprocess,
+    via the production ``default_engine_registry()`` (no injected fake)."""
+    store = InMemoryMatchStore()
+    app = site_app(
+        match_store=store,
+        token_store=InMemoryTokenStore(),
+        ledger_store=InMemoryRatingLedgerStore(),
+    )
+    _play_board_flow(app, store, _cookie(subject="42", display_name="Ada"))
+    (match_id,) = store.list_ids()
+    assert store.load(match_id).game_state["turn"] == 1
 
 
 def test_api_json_and_docs_pages_still_route_with_play_mounted() -> None:

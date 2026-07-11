@@ -40,6 +40,7 @@ from __future__ import annotations
 import html
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any, Callable
 from urllib.parse import parse_qs
 
@@ -58,7 +59,9 @@ from league_site.matches import (
     MatchStore,
 )
 from league_site.play.actions import ActionChoice, action_choices, is_waiting, match_choice
+from league_site.play.board import build_overlay
 from league_site.play.render import (
+    render_board_lead,
     render_error_body,
     render_hub_body,
     render_play_panel,
@@ -66,6 +69,7 @@ from league_site.play.render import (
 )
 from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
 from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem
+from league_site.viewer.board import BoardOverlay, build_board_model, render_board
 from league_site.viewer.render import build_page_model, render_page_body
 from league_site.viewer.wsgi import page_shell
 
@@ -206,7 +210,9 @@ def _dispatch(
     view_match = _MATCH_PATH_RE.match(path)
     if view_match:
         _require_method(method, "GET")
-        return _play_view(start_response, session, view_match.group("match_id"), matches, ledger)
+        return _play_view(
+            start_response, session, view_match.group("match_id"), environ, matches, ledger
+        )
 
     raise errors.not_found(f"no play page at {path!r}")
 
@@ -281,6 +287,7 @@ def _play_view(
     start_response: Any,
     session: sessions.Session | None,
     match_id: str,
+    environ: dict[str, Any],
     matches: MatchStore,
     ledger: RatingLedgerStore,
 ) -> list[bytes]:
@@ -300,10 +307,20 @@ def _play_view(
     show_form = match.status is MatchStatus.ACTIVE and bool(choices) and not waiting
 
     model = build_page_model(match, ledger)
-    panel = render_play_panel(
-        match, choices=choices, show_form=show_form, waiting=waiting, watch_href=watch_href
+    play_path = f"/play/matches/{match.match_id}"
+    board_html, overlay = _board_section(
+        match, identity.key, choices, show_form, environ, play_path
     )
-    body = render_page_body(model) + "\n" + panel
+    panel = render_play_panel(
+        match,
+        choices=choices,
+        show_form=show_form,
+        waiting=waiting,
+        watch_href=watch_href,
+        collapse_form=overlay is not None,
+    )
+    slot = f"{board_html}\n{panel}" if board_html else panel
+    body = render_page_body(model, board_html=slot)
 
     # Refresh exactly when someone else's move could change the page under
     # us: live match, no form on screen. When it's the human's turn the
@@ -318,6 +335,67 @@ def _play_view(
         session=session,
     )
     return _html_response(start_response, "200 OK", page)
+
+
+def _board_section(
+    match: Match,
+    identity_key: str,
+    choices: tuple[ActionChoice, ...],
+    show_form: bool,
+    environ: dict[str, Any],
+    play_path: str,
+) -> tuple[str | None, BoardOverlay | None]:
+    """The play view's board fragment (hint + board), and its overlay if any.
+
+    The board renders whenever the match's game state is board-shaped
+    (:func:`league_site.viewer.board.build_board_model`) — waiting turns and
+    final positions included — but the *interaction* overlay only exists
+    while it's the human's move (*show_form*) and the current choices anchor
+    to board cells (:func:`league_site.play.board.build_overlay`); otherwise
+    the same static board a spectator sees renders here. The signed-in
+    human's own team always wears the accent treatment, so "your pieces"
+    reads at a glance. ``?unit=`` selects a unit — a safe, idempotent GET,
+    which is why selection is a link rather than a form.
+    """
+    board_model = build_board_model(match.game_state)
+    if board_model is None:
+        return None, None
+    overlay: BoardOverlay | None = None
+    if show_form:
+        overlay = build_overlay(
+            board_model,
+            choices,
+            selected_unit=_selected_unit(environ),
+            base_path=play_path,
+            form_action=f"{play_path}/turns",
+        )
+    parts = []
+    if overlay is not None:
+        role = next(
+            (unit.role for unit in board_model.units if unit.unit_id == overlay.selected_unit),
+            None,
+        )
+        parts.append(
+            render_board_lead(
+                selected_unit=overlay.selected_unit, selected_role=role, clear_href=play_path
+            )
+        )
+    parts.append(
+        render_board(board_model, overlay=overlay, accent_team=_team_for(match, identity_key))
+    )
+    return "\n".join(parts), overlay
+
+
+def _selected_unit(environ: dict[str, Any]) -> str | None:
+    values = parse_qs(environ.get("QUERY_STRING", "")).get("unit")
+    return values[0] if values else None
+
+
+def _team_for(match: Match, identity_key: str) -> str | None:
+    state = match.game_state
+    teams = state.get("participant_teams") if isinstance(state, Mapping) else None
+    team = teams.get(identity_key) if isinstance(teams, Mapping) else None
+    return team if isinstance(team, str) and team else None
 
 
 def _submit_turn(
