@@ -168,6 +168,7 @@ _SITE_DESCRIPTION = (
 
 _NAV_ITEMS = (
     ("Home", "/index"),
+    ("Play", "/play"),
     ("Docs", "/docs"),
     ("Leaderboard", "/leaderboard"),
     ("About", "/about"),

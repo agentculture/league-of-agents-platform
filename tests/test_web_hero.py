@@ -491,10 +491,10 @@ def test_eyebrow_carries_a_sim_updatable_turn_counter() -> None:
     ), eyebrow.group(1)
 
 
-def test_ctas_name_the_action_and_point_at_docs_and_leaderboard() -> None:
+def test_ctas_name_the_action_and_point_at_play_and_leaderboard() -> None:
     play = re.search(r'<a class="button"[^>]*href="([^"]+)"[^>]*>Play a match</a>', hero.HERO_HTML)
     assert play is not None
-    assert play.group(1) == "/docs"
+    assert play.group(1) == "/play"
     board = re.search(
         r'<a class="button[^"]*"[^>]*href="([^"]+)"[^>]*>See the leaderboard</a>',
         hero.HERO_HTML,
