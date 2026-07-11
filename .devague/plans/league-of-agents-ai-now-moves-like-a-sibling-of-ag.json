@@ -1,11 +1,11 @@
 {
   "slug": "league-of-agents-ai-now-moves-like-a-sibling-of-ag",
-  "title": "league-of-agents.ai now moves like a sibling of agentculture.org \u2014 one shared design language, buttery-smooth experience \u2014 and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter.",
+  "title": "league-of-agents.ai now moves like a sibling of agentculture.org \u2014 one shared design language, buttery-smooth experience \u2014 and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter",
   "frame_slug": "league-of-agents-ai-now-moves-like-a-sibling-of-ag",
   "schema_version": 2,
   "status": "exported",
   "created": "2026-07-11T01:17:05Z",
-  "updated": "2026-07-11T01:25:55Z",
+  "updated": "2026-07-11T01:39:41Z",
   "targets": [
     {
       "id": "c1",
@@ -45,7 +45,7 @@
     {
       "id": "h9",
       "kind": "honesty",
-      "text": "Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (/<slug>.md, /llms.txt, /front, start-agent docs) is untouched and byte-identical."
+      "text": "Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (`/<slug>.md`, `/llms.txt`, `/front`, start-agent docs) is untouched and byte-identical."
     },
     {
       "id": "c5",
@@ -90,7 +90,7 @@
     {
       "id": "c10",
       "kind": "boundary",
-      "text": "Agent-facing raw surfaces (/<slug>.md, /llms.txt, /front) stay byte-identical; no framework rewrite \u2014 the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages."
+      "text": "Agent-facing raw surfaces (`/<slug>.md`, `/llms.txt`, `/front`) stay byte-identical; no framework rewrite \u2014 the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages."
     },
     {
       "id": "h12",
@@ -150,7 +150,7 @@
     {
       "id": "c16",
       "kind": "requirement",
-      "text": "Asset URLs become versioned (cache-busted) \u2014 e.g. /theme.css?v=<version> or a content-hash path \u2014 so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design."
+      "text": "Asset URLs become versioned (cache-busted) \u2014 e.g. `/theme.css?v=<version>` or a content-hash path \u2014 so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design."
     },
     {
       "id": "h7",
@@ -201,7 +201,7 @@
       "status": "confirmed",
       "acceptance_criteria": [
         "GET /fonts/fraunces-var.woff2 and /fonts/albert-sans-var.woff2 return 200 font/woff2, byte-identical to the vendored files, via site_app AND through the Lambda handler's isBase64Encoded binary path \u2014 new tests/test_web_fonts.py proves all of it",
-        "Shell <head> preloads both woff2 (crossorigin) before the stylesheet link; no external font requests anywhere \u2014 budget test still green"
+        "Shell `<head>` preloads both woff2 (crossorigin) before the stylesheet link; no external font requests anywhere \u2014 budget test still green"
       ],
       "deps": [
         "t2"
@@ -217,7 +217,7 @@
       "origin": "llm",
       "status": "confirmed",
       "acceptance_criteria": [
-        "Every stylesheet/script/font URL the shell emits carries the build version (?v=<version> or hashed path); bumping the version changes every reference; tests assert the referenced URL returns current-build bytes on the FIRST fetch",
+        "Every stylesheet/script/font URL the shell emits carries the build version (`?v=<version>` or hashed path); bumping the version changes every reference; tests assert the referenced URL returns current-build bytes on the FIRST fetch",
         "Asset responses carry long-lived immutable cache headers, and the deploy docs drop any asset-purge step"
       ],
       "deps": [
@@ -260,7 +260,7 @@
       "acceptance_criteria": [
         "The SVG scene shows role-distinct unit glyphs (scout/harvester/defender), resource nodes, at least two capturable control posts with team-ownership rings, a missions+control+resources score readout, and a one-line message-ticker slot \u2014 every color via var(--*) tokens, zero literals",
         "With JS off or reduced motion, the unmodified markup composes a legible mid-game poster frame: roles, a gather in progress, a held post, the score, and one ticker line all visible (test_web_hero.py contract rewritten first)",
-        "Board stays the first child of <main> on / only, aria-hidden decorative, zero network requests; every depicted mechanic exists in the real game per docs/game-integration.md + tests/fixtures/grid_match_score.json"
+        "Board stays the first child of `<main>` on `/` only, aria-hidden decorative, zero network requests; every depicted mechanic exists in the real game per docs/game-integration.md + tests/fixtures/grid_match_score.json"
       ],
       "deps": [
         "t5"
@@ -412,7 +412,7 @@
     },
     {
       "id": "r5",
-      "text": "Favicon + og:image still carry the retired orange identity \u2014 frame's parked v3; tension with c21's at-a-glance family bar, may deserve pulling in-scope",
+      "text": "RESOLVED 2026-07-11 (not a residual risk): the favicon/og-image identity tension was settled by pulling the work in-scope as confirmed task t11 (decision c22); kept only as a record of the scope change.",
       "kind": "follow_up",
       "task_id": null
     }

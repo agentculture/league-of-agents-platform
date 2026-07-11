@@ -93,4 +93,4 @@ slug: `league-of-agents-ai-now-moves-like-a-sibling-of-ag` · status: `exported`
 - [unknown_nonblocking] API Gateway HTTP API binary (base64) response path for woff2 through the Lambda adapter — believed supported; prove it in t3's Lambda-path test before building on it (task t3)
 - [unknown_nonblocking] The cache purge needs the Cloudflare zone token on the operator side — the agent was (correctly) denied scraping it from editor history; the user runs the purge or exports the token into the shell (task t8)
 - [follow_up] A visual grid board for REAL matches in the viewer — the frame's parked v2 follow-up, deliberately out of this pass
-- [follow_up] Favicon + og:image still carry the retired orange identity — frame's parked v3; tension with c21's at-a-glance family bar, may deserve pulling in-scope
+- [follow_up] RESOLVED 2026-07-11 (not a residual risk): the favicon/og-image identity tension was settled by pulling the work in-scope as confirmed task t11 (decision c22); kept only as a record of the scope change.

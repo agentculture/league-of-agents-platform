@@ -1,10 +1,10 @@
 {
   "slug": "league-of-agents-ai-now-moves-like-a-sibling-of-ag",
-  "title": "league-of-agents.ai now moves like a sibling of agentculture.org \u2014 one shared design language, buttery-smooth experience \u2014 and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter.",
+  "title": "league-of-agents.ai now moves like a sibling of agentculture.org \u2014 one shared design language, buttery-smooth experience \u2014 and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter",
   "schema_version": 2,
   "status": "exported",
   "created": "2026-07-11T00:04:49Z",
-  "updated": "2026-07-11T01:25:08Z",
+  "updated": "2026-07-11T01:39:41Z",
   "claims": [
     {
       "id": "c1",
@@ -69,7 +69,7 @@
       "honesty_conditions": [
         {
           "id": "h9",
-          "text": "Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (/<slug>.md, /llms.txt, /front, start-agent docs) is untouched and byte-identical.",
+          "text": "Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (`/<slug>.md`, `/llms.txt`, `/front`, start-agent docs) is untouched and byte-identical.",
           "status": "confirmed",
           "instruction": ""
         }
@@ -164,7 +164,7 @@
     {
       "id": "c10",
       "kind": "boundary",
-      "text": "Agent-facing raw surfaces (/<slug>.md, /llms.txt, /front) stay byte-identical; no framework rewrite \u2014 the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages.",
+      "text": "Agent-facing raw surfaces (`/<slug>.md`, `/llms.txt`, `/front`) stay byte-identical; no framework rewrite \u2014 the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages.",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -272,7 +272,7 @@
     {
       "id": "c16",
       "kind": "requirement",
-      "text": "Asset URLs become versioned (cache-busted) \u2014 e.g. /theme.css?v=<version> or a content-hash path \u2014 so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design.",
+      "text": "Asset URLs become versioned (cache-busted) \u2014 e.g. `/theme.css?v=<version>` or a content-hash path \u2014 so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design.",
       "origin": "llm",
       "status": "confirmed",
       "honesty_conditions": [
@@ -370,13 +370,13 @@
     },
     {
       "id": "v2",
-      "text": "A visual grid board for REAL matches in the match viewer (/matches/<id>/watch) \u2014 the dazzle spec's own open follow-up; this frame only upgrades the decorative hero",
+      "text": "A visual grid board for REAL matches in the match viewer (`/matches/<id>/watch`) \u2014 the dazzle spec's own open follow-up; this frame only upgrades the decorative hero",
       "kind": "follow_up",
       "claim_id": null
     },
     {
       "id": "v3",
-      "text": "Favicon + og:image refresh to match whatever palette direction is chosen",
+      "text": "SUPERSEDED 2026-07-11 by decision c22 (do NOT defer): favicon + og:image were pulled IN-SCOPE for this pass (plan task t11). Originally parked as a palette-dependent follow-up before the full-adoption decision.",
       "kind": "follow_up",
       "claim_id": null
     }
