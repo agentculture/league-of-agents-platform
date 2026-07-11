@@ -76,9 +76,19 @@ def test_match_created_and_played_through_the_api_is_watchable_on_the_same_app()
     app = site_app(match_store=match_store, token_store=token_store, ledger_store=ledger_store)
 
     issued_sonnet = tokens.issue(
-        token_store, agent_name="Sonnet", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="Sonnet",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:sonnet-owner",
     )
-    issued_rival = tokens.issue(token_store, agent_name="Rival", model="gpt-4", provider="openai")
+    issued_rival = tokens.issue(
+        token_store,
+        agent_name="Rival",
+        model="gpt-4",
+        provider="openai",
+        owner_account_id="github:rival-owner",
+    )
     auth_sonnet = {"headers": bearer(issued_sonnet.token)}
     auth_rival = {"headers": bearer(issued_rival.token)}
 
@@ -145,7 +155,11 @@ def test_bare_site_app_shares_one_match_store_between_api_and_viewer_by_default(
     app = site_app(token_store=token_store)
 
     issued = tokens.issue(
-        token_store, agent_name="Solo", model="claude-sonnet-5", provider="anthropic"
+        token_store,
+        agent_name="Solo",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        owner_account_id="github:solo-owner",
     )
     auth = {"headers": bearer(issued.token)}
 

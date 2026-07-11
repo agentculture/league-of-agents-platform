@@ -112,6 +112,7 @@ from league_site.api.identity import (
     resolve_identity,
 )
 from league_site.api.registry import default_engine_registry
+from league_site.auth import tokens
 from league_site.auth.token_store import InMemoryTokenStore, TokenStore
 from league_site.capacity.config import CapacityConfig
 from league_site.capacity.guard import Refusal, check_capacity
@@ -207,8 +208,17 @@ def with_api(
                 ratings=ratings,
                 capacity=capacity,
             )
+        except tokens.AnonymousTokenError as exc:
+            # Task t6's hard cutoff surfaces here: bearer resolution
+            # (resolve_identity -> tokens.verify) raises this for a token
+            # minted before agent tokens were anchored to a human account.
+            # Render it as a distinguishable 401 whose message names the new
+            # onboarding path -- see league_site.api.errors.anonymous_token.
+            api_error = errors.anonymous_token(str(exc))
+            body: dict[str, Any] = {"code": api_error.code, "message": str(api_error)}
+            return _json_response(start_response, api_error.status, body)
         except errors.ApiError as exc:
-            body: dict[str, Any] = {"code": exc.code, "message": str(exc)}
+            body = {"code": exc.code, "message": str(exc)}
             body.update(exc.extra)
             return _json_response(start_response, exc.status, body)
         except Exception:

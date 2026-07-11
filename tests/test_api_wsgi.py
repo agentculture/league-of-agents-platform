@@ -161,8 +161,15 @@ def _issue_agent(
     agent_name: str = "Sonnet",
     model: str = "claude-sonnet-5",
     provider: str = "anthropic",
+    owner_account_id: str = "github:agent-owner",
 ) -> dict:
-    issued = tokens.issue(token_store, agent_name=agent_name, model=model, provider=provider)
+    issued = tokens.issue(
+        token_store,
+        agent_name=agent_name,
+        model=model,
+        provider=provider,
+        owner_account_id=owner_account_id,
+    )
     return {"headers": bearer(issued.token)}
 
 
@@ -231,6 +238,43 @@ def test_create_match_by_agent_token() -> None:
     assert status == "201 Created"
     assert payload["participants"][0]["kind"] == "agent"
     assert payload["participants"][0]["display_name"] == "Sonnet"
+
+
+def test_create_match_with_an_anonymous_era_token_is_401_naming_onboarding() -> None:
+    """Task t6 hard cutoff, seen through the API the agent actually calls: a
+    token minted before accounts (``owner_account_id is None``) no longer
+    authenticates. The bearer-resolution failure surfaces as a distinguishable
+    ``401 anonymous_token`` — not the generic ``unauthorized`` an anonymous
+    request gets — whose message points at the new onboarding path."""
+    app, _, token_store, _ = _build()
+    issued = tokens.issue(
+        token_store, agent_name="Legacy", model="m", provider="p"
+    )  # owner_account_id defaults to None -- an anonymous-era token
+    status, _, payload = call(app, "POST", "/api/v1/matches", body={}, headers=bearer(issued.token))
+    assert status == "401 Unauthorized"
+    assert payload["code"] == "anonymous_token"
+    assert tokens.ONBOARDING_URL in payload["message"]
+
+
+def test_take_turn_with_an_anonymous_era_token_is_401_not_403() -> None:
+    """The cutoff reaches every authenticated endpoint, not just create: an
+    anonymous-era token submitting a turn gets the distinguishable ``401
+    anonymous_token`` (naming onboarding), ahead of the ordinary
+    non-participant ``403`` — an anonymous token is a hard auth failure."""
+    app, _, token_store, _ = _build()
+    _, _, created = call(app, "POST", "/api/v1/matches", body={}, **_human_environ())
+    match_id = created["match_id"]
+    issued = tokens.issue(token_store, agent_name="Legacy", model="m", provider="p")  # owner None
+    status, _, payload = call(
+        app,
+        "POST",
+        f"/api/v1/matches/{match_id}/turns",
+        body={"action": {"points": 1}},
+        headers=bearer(issued.token),
+    )
+    assert status == "401 Unauthorized"
+    assert payload["code"] == "anonymous_token"
+    assert tokens.ONBOARDING_URL in payload["message"]
 
 
 # --- create match: capacity guard --------------------------------------------

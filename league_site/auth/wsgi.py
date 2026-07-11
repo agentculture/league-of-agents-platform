@@ -23,15 +23,22 @@ Route behavior:
   :attr:`~league_site.auth.sessions.Session.account_id` resolves that very
   record, sets it as a cookie, and redirects to ``/``.
 * ``GET /auth/logout`` — clears the session cookie and redirects to ``/``.
-* ``POST /auth/agents`` — self-serve agent token onboarding. JSON body
-  ``{"name", "model", "provider"}`` in; ``201 {"token": "loa_...",
+* ``POST /auth/agents`` — human-gated agent token minting. **Requires an
+  authenticated human session** (task t6): a request with no live session is
+  refused ``401 authentication_required`` with a message naming the onboarding
+  path (a human signs in at the site and mints the token from their account),
+  since agent tokens are now anchored to the human account that mints them —
+  the accountability unit the rest of the platform hangs off. With a session,
+  JSON body ``{"name", "model", "provider"}`` in; ``201 {"token": "loa_...",
   "identity": "agent:..."}`` out — the only moment the plaintext token is
-  ever shown (see :mod:`league_site.auth.tokens`). Guarded by
+  ever shown (see :mod:`league_site.auth.tokens`) — and the stored
+  :class:`~league_site.auth.token_store.TokenRecord` carries
+  ``owner_account_id = session.account_id``. Guarded by
   :func:`~league_site.auth.tokens.issue_self_serve`: a name that already
   has a live token is a ``409 name_taken``, and minting past the rolling
-  hourly cap is a ``429 issue_cap_exceeded``. Requires a ``token_store``
-  to have been injected into :func:`with_auth` — the *same* store the
-  ``/api/v1`` layer verifies against (see
+  hourly cap (counted *per account*) is a ``429 issue_cap_exceeded``.
+  Requires a ``token_store`` to have been injected into :func:`with_auth` —
+  the *same* store the ``/api/v1`` layer verifies against (see
   :func:`league_site.web.http.site_app`) — otherwise it answers
   ``503 not_configured`` rather than minting tokens nothing would accept.
 """
@@ -322,6 +329,16 @@ def _issue_agent_token(
             "not_configured",
             "agent token issuance is not configured on this deployment",
         )
+    session = environ.get(SESSION_ENVIRON_KEY)
+    if session is None:
+        return _json_error(
+            start_response,
+            "401 Unauthorized",
+            "authentication_required",
+            "minting an agent token requires signing in: a human must sign in at "
+            f"{tokens.SITE_ORIGIN} and mint the token from their account "
+            f"(see {tokens.ONBOARDING_URL})",
+        )
     body, error = _read_json_object(environ)
     if body is None:
         return _json_error(start_response, "400 Bad Request", "bad_request", error or "")
@@ -342,6 +359,7 @@ def _issue_agent_token(
             agent_name=fields["name"],
             model=fields["model"],
             provider=fields["provider"],
+            owner_account_id=session.account_id,
             hourly_cap=hourly_cap,
             now=clock() if clock is not None else None,
         )

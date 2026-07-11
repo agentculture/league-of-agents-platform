@@ -64,6 +64,13 @@ def resolve_identity(environ: dict[str, Any], token_store: TokenStore) -> Reques
     Checks the human session first (cheap: already resolved by
     ``with_auth``), then the ``Authorization`` bearer token against
     *token_store*.
+
+    Propagates :class:`league_site.auth.tokens.AnonymousTokenError` unchanged
+    if the presented bearer token resolves to a pre-account (anonymous-era)
+    record — task t6's hard cutoff. It is *not* flattened to ``None`` here so
+    the failure stays distinguishable; :func:`league_site.api.wsgi.with_api`
+    catches it at the dispatch boundary and renders a ``401 anonymous_token``
+    naming the onboarding path.
     """
     session = environ.get(SESSION_ENVIRON_KEY)
     if session is not None:
