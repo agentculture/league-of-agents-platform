@@ -43,10 +43,39 @@ Parameters:
     Description: >-
       HMAC signing secret for session tokens (league_site.auth.sessions,
       SESSION_SECRET_ENV=LEAGUE_SESSION_SECRET). Empty by default, which
-      leaves sessions disabled — there is no OAuth login flow deployed yet
-      for a secret to protect. NoEcho so CloudFormation never surfaces the
-      value in the console/CLI/DescribeStacks output once an operator sets
-      it at deploy time.
+      leaves sessions disabled — and, since league_site.auth.oauth's
+      OAuth `state` CSRF token (STATE_SECRET_ENV) reuses this same
+      secret, leaves GitHub sign-in disabled too, regardless of whether
+      the two GitHub OAuth parameters below are set. NoEcho so
+      CloudFormation never surfaces the value in the console/CLI/
+      DescribeStacks output once an operator sets it at deploy time. See
+      docs/runbooks/github-oauth-app.md for how to generate a real value
+      and provision it at deploy time.
+  GithubOauthClientId:
+    Type: String
+    Default: ""
+    Description: >-
+      GitHub OAuth App client id (league_site.auth.oauth,
+      LEAGUE_OAUTH_GITHUB_CLIENT_ID). Not NoEcho: a GitHub OAuth App's
+      client id is not a secret — it is embedded in the browser-visible
+      authorize-URL redirect on every sign-in attempt — unlike the client
+      secret below. Empty by default, which leaves GitHub sign-in
+      disabled (league_site.auth.oauth.OAuthConfigError) until an
+      operator provisions a real value alongside SessionSecretValue and
+      GithubOauthClientSecret; see docs/runbooks/github-oauth-app.md for
+      registration and provisioning steps.
+  GithubOauthClientSecret:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: >-
+      GitHub OAuth App client secret (league_site.auth.oauth,
+      LEAGUE_OAUTH_GITHUB_CLIENT_SECRET). NoEcho so CloudFormation never
+      surfaces the value in the console/CLI/DescribeStacks output once an
+      operator sets it at deploy time. Empty by default, alongside
+      GithubOauthClientId and SessionSecretValue above — all three must
+      be provisioned together before GitHub sign-in actually works; see
+      docs/runbooks/github-oauth-app.md.
 
   # The four capacity caps below default to exactly
   # league_site.capacity.config.CapacityConfig.default()'s values —
@@ -181,10 +210,25 @@ Resources:
             Ref: RatingsTable
           # Empty string (SessionSecretValue's default) means sessions are
           # disabled — league_site.auth.sessions.verify/issue require a
-          # non-empty secret; see that parameter's own comment above for why
-          # an empty default is fine pre-OAuth.
+          # non-empty secret. The same emptiness also disables GitHub
+          # sign-in, since league_site.auth.oauth's `state` CSRF token
+          # reuses this same secret; see that parameter's own comment
+          # above and docs/runbooks/github-oauth-app.md for how an
+          # operator provisions a real value at deploy time.
           LEAGUE_SESSION_SECRET:
             Ref: SessionSecretValue
+          # GitHub OAuth App credentials (league_site.auth.oauth.PROVIDERS
+          # ["github"].client_id_env/client_secret_env). Empty defaults
+          # (GithubOauthClientId/GithubOauthClientSecret above) mean
+          # league_site.auth.oauth raises OAuthConfigError before any
+          # provider call is attempted — the same "disabled by omission"
+          # posture as LEAGUE_SESSION_SECRET above, not a separate failure
+          # mode. See docs/runbooks/github-oauth-app.md for registration
+          # and provisioning steps.
+          LEAGUE_OAUTH_GITHUB_CLIENT_ID:
+            Ref: GithubOauthClientId
+          LEAGUE_OAUTH_GITHUB_CLIENT_SECRET:
+            Ref: GithubOauthClientSecret
           # Same "provisioned ahead of the wiring task" reasoning as the
           # variables above: the match-create path will call
           # league_site.capacity.guard.check_capacity, built from
