@@ -295,12 +295,13 @@ def render_plan_panel(
         parts.append(f'<ul class="play-plan">{"".join(chips)}</ul>')
     else:
         parts.append(
-            "<p>No orders planned yet — tap a glowing unit on the board to start " "your plan.</p>"
+            "<p>No orders planned yet — tap a glowing unit on the board to start your plan.</p>"
         )
 
     if staged:
         held = len(plannable) - len(staged_units)
-        note = f" ({held} unit{'s' if held != 1 else ''} will hold)" if held > 0 else ""
+        plural = "s" if held != 1 else ""
+        note = f" ({held} unit{plural} will hold)" if held > 0 else ""
         hidden = "".join(
             f'<input type="hidden" name="order" value="{html.escape(choice.value)}">'
             for choice in staged

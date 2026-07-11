@@ -209,59 +209,94 @@ def with_api(
             return app(environ, start_response)
 
         method = environ.get("REQUEST_METHOD", "GET").upper()
-        try:
-            status, payload = _dispatch(
-                method,
-                path,
-                environ,
-                matches=matches,
-                agent_tokens=agent_tokens,
-                ledger=ledger,
-                registry=registry,
-                ratings=ratings,
-                capacity=capacity,
-                accounts=accounts,
-            )
-        except tokens.BlockedTokenError as exc:
-            # Task t4's operator kill-switch surfaces here: bearer resolution
-            # (resolve_identity -> tokens.verify) raises this when the token --
-            # or, with an account store wired, its owning account -- is
-            # blocked. Render it as a clean 403 whose short message leaks
-            # nothing beyond "blocked" -- see league_site.api.errors.
-            # blocked_credential.
-            api_error = errors.blocked_credential(str(exc))
-            body: dict[str, Any] = {"code": api_error.code, "message": str(api_error)}
-            return _json_response(start_response, api_error.status, body)
-        except tokens.AnonymousTokenError as exc:
-            # Task t6's hard cutoff surfaces here: bearer resolution
-            # (resolve_identity -> tokens.verify) raises this for a token
-            # minted before agent tokens were anchored to a human account.
-            # Render it as a distinguishable 401 whose message names the new
-            # onboarding path -- see league_site.api.errors.anonymous_token.
-            api_error = errors.anonymous_token(str(exc))
-            body = {"code": api_error.code, "message": str(api_error)}
-            return _json_response(start_response, api_error.status, body)
-        except errors.ApiError as exc:
-            body = {"code": exc.code, "message": str(exc)}
-            body.update(exc.extra)
-            return _json_response(start_response, exc.status, body)
-        except Exception:
-            # Last-resort guard: whatever went wrong wasn't already turned
-            # into a structured ApiError by a handler above (see this
-            # module's docstring). Never let it escape as a bare WSGI
-            # error page -- log it for operators and still hand the caller
-            # the same {"code", "message"} JSON envelope every other
-            # failure on this surface uses, just with a generic message
-            # that doesn't leak internals.
-            logger.exception("unhandled exception dispatching %s %s", method, path)
-            body = {"code": "internal_error", "message": "internal server error"}
-            return _json_response(start_response, "500 Internal Server Error", body)
-        return _json_response(start_response, status, payload)
+        return _dispatch_with_error_handling(
+            method,
+            path,
+            environ,
+            start_response,
+            matches=matches,
+            agent_tokens=agent_tokens,
+            ledger=ledger,
+            registry=registry,
+            ratings=ratings,
+            capacity=capacity,
+            accounts=accounts,
+        )
 
     return application
 
 
 # --- routing -----------------------------------------------------------------
+
+
+def _dispatch_with_error_handling(
+    method: str,
+    path: str,
+    environ: dict[str, Any],
+    start_response: Any,
+    *,
+    matches: MatchStore,
+    agent_tokens: TokenStore,
+    ledger: RatingLedgerStore,
+    registry: EngineRegistry,
+    ratings: RatingSystem,
+    capacity: CapacityConfig,
+    accounts: AccountStore | None,
+) -> list[bytes]:
+    """Call :func:`_dispatch` and render every failure mode as the JSON envelope.
+
+    Split out of :func:`with_api`'s ``application`` closure purely to keep
+    each half's Cognitive Complexity low (python:S3776) -- behavior, status
+    codes, and check ordering are unchanged from before the split.
+    """
+    try:
+        status, payload = _dispatch(
+            method,
+            path,
+            environ,
+            matches=matches,
+            agent_tokens=agent_tokens,
+            ledger=ledger,
+            registry=registry,
+            ratings=ratings,
+            capacity=capacity,
+            accounts=accounts,
+        )
+    except tokens.BlockedTokenError as exc:
+        # Task t4's operator kill-switch surfaces here: bearer resolution
+        # (resolve_identity -> tokens.verify) raises this when the token --
+        # or, with an account store wired, its owning account -- is
+        # blocked. Render it as a clean 403 whose short message leaks
+        # nothing beyond "blocked" -- see league_site.api.errors.
+        # blocked_credential.
+        api_error = errors.blocked_credential(str(exc))
+        body: dict[str, Any] = {"code": api_error.code, "message": str(api_error)}
+        return _json_response(start_response, api_error.status, body)
+    except tokens.AnonymousTokenError as exc:
+        # Task t6's hard cutoff surfaces here: bearer resolution
+        # (resolve_identity -> tokens.verify) raises this for a token
+        # minted before agent tokens were anchored to a human account.
+        # Render it as a distinguishable 401 whose message names the new
+        # onboarding path -- see league_site.api.errors.anonymous_token.
+        api_error = errors.anonymous_token(str(exc))
+        body = {"code": api_error.code, "message": str(api_error)}
+        return _json_response(start_response, api_error.status, body)
+    except errors.ApiError as exc:
+        body = {"code": exc.code, "message": str(exc)}
+        body.update(exc.extra)
+        return _json_response(start_response, exc.status, body)
+    except Exception:
+        # Last-resort guard: whatever went wrong wasn't already turned
+        # into a structured ApiError by a handler above (see this
+        # module's docstring). Never let it escape as a bare WSGI
+        # error page -- log it for operators and still hand the caller
+        # the same {"code", "message"} JSON envelope every other
+        # failure on this surface uses, just with a generic message
+        # that doesn't leak internals.
+        logger.exception("unhandled exception dispatching %s %s", method, path)
+        body = {"code": "internal_error", "message": "internal server error"}
+        return _json_response(start_response, "500 Internal Server Error", body)
+    return _json_response(start_response, status, payload)
 
 
 def _dispatch(

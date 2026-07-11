@@ -64,6 +64,12 @@ TOKENS_EPHEMERAL_NOTE = (
     "state does not persist across CLI invocations"
 )
 
+#: Remediation hint surfaced whenever a boto3-backed adapter can't be built —
+#: the import failed or its own boto3 guard fired. Collapsed to one constant
+#: since the same instruction repeats across every store/archive constructor
+#: below.
+_BOTO3_INSTALL_HINT = "install boto3 with `uv sync --extra aws`"
+
 _T = TypeVar("_T")
 
 
@@ -114,7 +120,7 @@ def _dynamodb_store(table_name: str) -> MatchStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=f"cannot import the DynamoDB match store adapter: {exc}",
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
     try:
         return DynamoDBMatchStore(table_name)
@@ -124,7 +130,7 @@ def _dynamodb_store(table_name: str) -> MatchStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=str(exc),
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
 
 
@@ -135,7 +141,7 @@ def _dynamodb_token_store(table_name: str) -> TokenStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=f"cannot import the DynamoDB token store adapter: {exc}",
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
     try:
         return DynamoDBTokenStore(table_name)
@@ -143,7 +149,7 @@ def _dynamodb_token_store(table_name: str) -> TokenStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=str(exc),
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
 
 
@@ -154,7 +160,7 @@ def _dynamodb_account_store(table_name: str) -> AccountStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=f"cannot import the DynamoDB account store adapter: {exc}",
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
     try:
         return DynamoDBAccountStore(table_name)
@@ -162,7 +168,7 @@ def _dynamodb_account_store(table_name: str) -> AccountStore:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=str(exc),
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
 
 
@@ -189,7 +195,7 @@ def resolve_archive(bucket_name: str) -> Any:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=f"cannot import the S3 archive adapter: {exc}",
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
     try:
         return S3MatchArchive(bucket_name)
@@ -197,7 +203,7 @@ def resolve_archive(bucket_name: str) -> Any:
         raise CliError(
             code=EXIT_ENV_ERROR,
             message=str(exc),
-            remediation="install boto3 with `uv sync --extra aws`",
+            remediation=_BOTO3_INSTALL_HINT,
         ) from exc
 
 

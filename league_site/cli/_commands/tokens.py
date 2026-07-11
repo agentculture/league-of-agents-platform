@@ -30,6 +30,9 @@ from league_site.cli._commands import _stores
 from league_site.cli._errors import EXIT_USER_ERROR, CliError
 from league_site.cli._output import emit_result
 
+#: Shared ``--json`` argparse help string, repeated across the noun and every verb.
+_JSON_HELP = "Emit structured JSON."
+
 # --- list --------------------------------------------------------------------
 
 
@@ -169,24 +172,24 @@ def register(sub: Any) -> None:
     p = sub.add_parser(
         "tokens", help="Operator agent-credential administration (see 'league-site tokens list')."
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="tokens_command", parser_class=type(p))
 
     list_p = noun_sub.add_parser("list", help="Read-only summary of every agent token.")
-    list_p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    list_p.add_argument("--json", action="store_true", help=_JSON_HELP)
     list_p.set_defaults(func=cmd_tokens_list)
 
     block_p = noun_sub.add_parser(
         "block", help="Block one agent token by token id or agent name (effective next request)."
     )
     block_p.add_argument("selector", help="A token id or an agent name.")
-    block_p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    block_p.add_argument("--json", action="store_true", help=_JSON_HELP)
     block_p.set_defaults(func=cmd_tokens_block)
 
     unblock_p = noun_sub.add_parser(
         "unblock", help="Lift a block on one agent token by token id or agent name."
     )
     unblock_p.add_argument("selector", help="A token id or an agent name.")
-    unblock_p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    unblock_p.add_argument("--json", action="store_true", help=_JSON_HELP)
     unblock_p.set_defaults(func=cmd_tokens_unblock)

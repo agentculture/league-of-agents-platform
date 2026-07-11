@@ -25,6 +25,7 @@ from league_site.matches.aws import DynamoDBMatchStore
 from league_site.ratings.aws import DynamoDBRatingLedgerStore
 from league_site.web.http import site_app
 from tests._api_support import bearer, call
+from tests._dynamo_fake import apply_set_expression
 
 FULL_ENV = {
     "MATCHES_TABLE_NAME": "league-matches",
@@ -58,7 +59,9 @@ class FakeTable:
             raise AssertionError(f"conditional put would overwrite {key}")
         self.items[key] = Item
 
-    def get_item(self, *, Key: dict[str, str]) -> dict[str, Any]:  # noqa: N803
+    def get_item(
+        self, *, Key: dict[str, str], ConsistentRead: bool = False  # noqa: N803
+    ) -> dict[str, Any]:
         item = self.items.get((Key["PK"], Key["SK"]))
         return {"Item": item} if item is not None else {}
 
@@ -80,6 +83,7 @@ class FakeTable:
         Key: dict[str, str],  # noqa: N803
         UpdateExpression: str,  # noqa: N803
         ExpressionAttributeValues: dict[str, Any],  # noqa: N803
+        ConditionExpression: str | None = None,  # noqa: N803
         ReturnValues: str = "NONE",  # noqa: N803
     ) -> dict[str, Any]:
         key = (Key["PK"], Key["SK"])
@@ -91,10 +95,13 @@ class FakeTable:
             if ReturnValues == "UPDATED_NEW":
                 return {"Attributes": {attr: item[attr]}}
             return {}
-        assigned = re.fullmatch(r"SET (\w+) = (:\w+)", UpdateExpression)
-        assert assigned is not None, f"fake cannot apply {UpdateExpression!r}"
-        self.items[key][assigned.group(1)] = ExpressionAttributeValues[assigned.group(2)]
-        return {}
+        # SET expressions (the account store's upsert): may carry multiple
+        # clauses, plain or insert-only if_not_exists — delegate to the
+        # shared applier so this fake tracks the real semantics.
+        item = dict(self.items.get(key, {"PK": Key["PK"], "SK": Key["SK"]}))
+        apply_set_expression(item, UpdateExpression, ExpressionAttributeValues)
+        self.items[key] = item
+        return {"Attributes": dict(item)} if ReturnValues == "ALL_NEW" else {}
 
 
 class FakeDynamoDBServiceResource:

@@ -41,6 +41,7 @@ import html
 import logging
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import parse_qs
 
@@ -116,6 +117,11 @@ _SIGN_IN_LINKS: tuple[tuple[str, str], ...] = (("/auth/login/github", "Sign in w
 
 #: Match statuses the hub lists as "yours to resume".
 _LIVE_STATUSES = (MatchStatus.ACTIVE, MatchStatus.PAUSED)
+
+#: HTTP status lines reused across handlers — defined once so every
+#: redirect/error site says the identical string.
+_SEE_OTHER = "303 See Other"
+_FORBIDDEN = "403 Forbidden"
 
 
 def with_play(
@@ -295,7 +301,7 @@ def _create(
         mode=mode,
         opponent_spec=None,
     )
-    return _redirect(start_response, "303 See Other", f"/play/matches/{match.match_id}")
+    return _redirect(start_response, _SEE_OTHER, f"/play/matches/{match.match_id}")
 
 
 def _play_view(
@@ -316,69 +322,41 @@ def _play_view(
 
     state = match.game_state
     query = parse_qs(environ.get("QUERY_STRING", ""), keep_blank_values=True)
-    orders: tuple[OrderChoice, ...] = ()
-    choices: tuple[ActionChoice, ...] = ()
-    waiting = False
-    if match.status is MatchStatus.ACTIVE:
-        orders = unit_orders(state, identity.key)
-        if not orders:
-            choices = action_choices(state, identity.key)
-        waiting = is_waiting(state, identity.key)
-    planning = match.status is MatchStatus.ACTIVE and bool(orders) and not waiting
-    legacy_form = match.status is MatchStatus.ACTIVE and bool(choices) and not waiting
-    staged = _staged_orders(query, orders) if planning else ()
+    turn = _resolve_turn_state(match, identity.key, state, query)
 
     model = build_page_model(match, ledger)
     play_path = f"/play/matches/{match.match_id}"
-    board_html, overlay = _board_section(
-        match, identity.key, orders, staged, planning, query, play_path
+    board_html, _overlay = _board_section(
+        match, identity.key, turn.orders, turn.staged, turn.planning, query, play_path
     )
-    if planning:
+    if turn.planning:
         panel = render_plan_panel(
             match,
-            orders=orders,
-            staged=staged,
+            orders=turn.orders,
+            staged=turn.staged,
             turn=state.get("turn") if isinstance(state, Mapping) else None,
             play_path=play_path,
         )
     else:
         panel = render_play_panel(
             match,
-            choices=choices,
-            show_form=legacy_form,
-            waiting=waiting,
+            choices=turn.choices,
+            show_form=turn.legacy_form,
+            waiting=turn.waiting,
             watch_href=watch_href,
             collapse_form=False,
         )
 
-    parts = [render_notice(_first(query, "notice"))]
-    if isinstance(state, Mapping):
-        parts.append(
-            render_events(
-                describe_events(
-                    state.get("last_turn_events") or (),
-                    list(state.get("last_turn_rejections") or ())
-                    + list(state.get("last_turn_platform_rejections") or ()),
-                    _team_labels(match, identity.key),
-                )
-            )
-        )
-        parts.append(_status_strip(match, identity.key))
-    if board_html:
-        parts.append(board_html)
-    parts.append(panel)
-    if planning or waiting:
-        rules = state.get("scenario_rules") if isinstance(state, Mapping) else None
-        first_turn = isinstance(state, Mapping) and state.get("turn") == 0
-        parts.append(render_how_to(rules, open_by_default=bool(first_turn)))
-    slot = "\n".join(part for part in parts if part)
+    slot = _play_view_slot(match, identity.key, state, query, board_html, panel, turn)
     body = render_page_body(model, board_html=slot)
 
     # Refresh exactly when someone else's move could change the page under
     # us: live match, no plan/form on screen. When it's the human's turn the
     # page holds still under their hands (a refresh would drop an in-flight
     # plan); a finished match never refreshes.
-    refresh_meta = _REFRESH_META if model.is_live and not (planning or legacy_form) else ""
+    refresh_meta = (
+        _REFRESH_META if model.is_live and not (turn.planning or turn.legacy_form) else ""
+    )
     match_id_html = html.escape(match.match_id)
     page = page_shell(
         title=f"Play match {match_id_html} — {_SITE_TITLE}",
@@ -388,6 +366,96 @@ def _play_view(
         session=session,
     )
     return _html_response(start_response, "200 OK", page)
+
+
+@dataclass(frozen=True)
+class _TurnState:
+    """The human's turn-taking state for one ``_play_view`` render.
+
+    Bundles the values :func:`_play_view` used to derive one at a time —
+    computed once here so every branch that reads them (which panel
+    renders, whether the page refreshes, whether "How to play" shows)
+    agrees on the same match/status/waiting snapshot.
+    """
+
+    orders: tuple[OrderChoice, ...]
+    choices: tuple[ActionChoice, ...]
+    waiting: bool
+    planning: bool
+    legacy_form: bool
+    staged: tuple[OrderChoice, ...]
+
+
+def _resolve_turn_state(
+    match: Match,
+    identity_key: str,
+    state: Any,
+    query: Mapping[str, list[str]],
+) -> _TurnState:
+    """Derive orders/choices/waiting/planning/legacy_form/staged for *match*.
+
+    Only an active match has anything to plan or choose; a paused or
+    finished match leaves every field at its empty default, which is what
+    routes :func:`_play_view` straight to :func:`render_play_panel`'s
+    paused/final branches instead of the plan panel.
+    """
+    orders: tuple[OrderChoice, ...] = ()
+    choices: tuple[ActionChoice, ...] = ()
+    waiting = False
+    if match.status is MatchStatus.ACTIVE:
+        orders = unit_orders(state, identity_key)
+        if not orders:
+            choices = action_choices(state, identity_key)
+        waiting = is_waiting(state, identity_key)
+    planning = match.status is MatchStatus.ACTIVE and bool(orders) and not waiting
+    legacy_form = match.status is MatchStatus.ACTIVE and bool(choices) and not waiting
+    staged = _staged_orders(query, orders) if planning else ()
+    return _TurnState(
+        orders=orders,
+        choices=choices,
+        waiting=waiting,
+        planning=planning,
+        legacy_form=legacy_form,
+        staged=staged,
+    )
+
+
+def _play_view_slot(
+    match: Match,
+    identity_key: str,
+    state: Any,
+    query: Mapping[str, list[str]],
+    board_html: str | None,
+    panel: str,
+    turn: _TurnState,
+) -> str:
+    """The play view's body slot: notice + events + status strip + board + panel + how-to.
+
+    Fixed top-to-bottom order; each part renders ``""`` when it has nothing
+    to show (no last-turn events, no board for a non-grid game) and empty
+    parts are dropped rather than rendered as blank lines.
+    """
+    parts = [render_notice(_first(query, "notice"))]
+    if isinstance(state, Mapping):
+        parts.append(
+            render_events(
+                describe_events(
+                    state.get("last_turn_events") or (),
+                    list(state.get("last_turn_rejections") or ())
+                    + list(state.get("last_turn_platform_rejections") or ()),
+                    _team_labels(match, identity_key),
+                )
+            )
+        )
+        parts.append(_status_strip(match, identity_key))
+    if board_html:
+        parts.append(board_html)
+    parts.append(panel)
+    if turn.planning or turn.waiting:
+        rules = state.get("scenario_rules") if isinstance(state, Mapping) else None
+        first_turn = isinstance(state, Mapping) and state.get("turn") == 0
+        parts.append(render_how_to(rules, open_by_default=bool(first_turn)))
+    return "\n".join(part for part in parts if part)
 
 
 def _board_section(
@@ -558,19 +626,17 @@ def _submit_turn(
     identity = identity_for_session(session)
     if not _is_participant(match, identity.key):
         body = render_error_body(
-            "403 Forbidden",
+            _FORBIDDEN,
             "you are not a participant of this match — you can watch it, though",
             links=((f"/matches/{match.match_id}/watch", "Watch this match"),),
         )
-        return _html_response(
-            start_response, "403 Forbidden", _error_shell("403 Forbidden", body, session)
-        )
+        return _html_response(start_response, _FORBIDDEN, _error_shell(_FORBIDDEN, body, session))
     if match.status is not MatchStatus.ACTIVE:
         # Most commonly a double-tap on the final turn: the first submit
         # finished the match, this one has nothing left to play. The play
         # view (final score, replay link) is the honest answer — a raw
         # conflict page would read as "your move broke something".
-        return _redirect(start_response, "303 See Other", play_path)
+        return _redirect(start_response, _SEE_OTHER, play_path)
 
     form = _read_form_multi(environ)
     if form.get("order"):
@@ -593,7 +659,7 @@ def _submit_turn(
         # the current legal actions, so no engine ever sees it. Redirect,
         # don't error: the usual cause is a double-tap racing the turn it
         # already played (2026-07-11 feedback round).
-        return _redirect(start_response, "303 See Other", f"{play_path}?notice=illegal")
+        return _redirect(start_response, _SEE_OTHER, f"{play_path}?notice=illegal")
 
     matchops.take_turn(
         match,
@@ -605,7 +671,7 @@ def _submit_turn(
         ratings=ratings,
     )
     # POST-redirect-GET: a refresh of the landing page can never re-submit.
-    return _redirect(start_response, "303 See Other", play_path)
+    return _redirect(start_response, _SEE_OTHER, play_path)
 
 
 def _submit_plan(
@@ -634,7 +700,7 @@ def _submit_plan(
     if turn_field is None or str(current_turn) != turn_field:
         # The plan was made against a turn that has already resolved — the
         # signature of a double-submit (the first press played it).
-        return _redirect(start_response, "303 See Other", f"{play_path}?notice=stale")
+        return _redirect(start_response, _SEE_OTHER, f"{play_path}?notice=stale")
 
     orders = unit_orders(state, identity_key)
     plan: list[OrderChoice] = []
@@ -642,11 +708,11 @@ def _submit_plan(
     for value in form.get("order", []):
         choice = match_order(orders, value)
         if choice is None or choice.unit_id in seen:
-            return _redirect(start_response, "303 See Other", f"{play_path}?notice=illegal")
+            return _redirect(start_response, _SEE_OTHER, f"{play_path}?notice=illegal")
         plan.append(choice)
         seen.add(choice.unit_id)
     if not plan:
-        return _redirect(start_response, "303 See Other", f"{play_path}?notice=empty")
+        return _redirect(start_response, _SEE_OTHER, f"{play_path}?notice=empty")
 
     matchops.take_turn(
         match,
@@ -658,7 +724,7 @@ def _submit_plan(
         ratings=ratings,
     )
     # POST-redirect-GET: a refresh of the landing page can never re-submit.
-    return _redirect(start_response, "303 See Other", play_path)
+    return _redirect(start_response, _SEE_OTHER, play_path)
 
 
 # --- shared handler helpers ------------------------------------------------

@@ -23,6 +23,9 @@ from league_site.cli._commands import _stores
 from league_site.cli._errors import EXIT_USER_ERROR, CliError
 from league_site.cli._output import emit_result
 
+#: Shared ``--json`` argparse help string, repeated across the noun and every verb.
+_JSON_HELP = "Emit structured JSON."
+
 # --- list --------------------------------------------------------------------
 
 
@@ -128,12 +131,12 @@ def register(sub: Any) -> None:
         "accounts",
         help="Operator human-account administration (see 'league-site accounts list').",
     )
-    p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    p.add_argument("--json", action="store_true", help=_JSON_HELP)
     p.set_defaults(func=_no_verb, json=False)
     noun_sub = p.add_subparsers(dest="accounts_command", parser_class=type(p))
 
     list_p = noun_sub.add_parser("list", help="Read-only summary of every human account.")
-    list_p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    list_p.add_argument("--json", action="store_true", help=_JSON_HELP)
     list_p.set_defaults(func=cmd_accounts_list)
 
     block_p = noun_sub.add_parser(
@@ -141,10 +144,10 @@ def register(sub: Any) -> None:
         help="Block an account and every agent token it minted (effective next request).",
     )
     block_p.add_argument("account_id", help="The account id, e.g. 'github:12345'.")
-    block_p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    block_p.add_argument("--json", action="store_true", help=_JSON_HELP)
     block_p.set_defaults(func=cmd_accounts_block)
 
     unblock_p = noun_sub.add_parser("unblock", help="Lift a block on one human account.")
     unblock_p.add_argument("account_id", help="The account id, e.g. 'github:12345'.")
-    unblock_p.add_argument("--json", action="store_true", help="Emit structured JSON.")
+    unblock_p.add_argument("--json", action="store_true", help=_JSON_HELP)
     unblock_p.set_defaults(func=cmd_accounts_unblock)

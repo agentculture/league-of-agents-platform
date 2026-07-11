@@ -311,6 +311,34 @@ def _read_json_object(environ: dict[str, Any]) -> tuple[dict[str, Any] | None, s
     return data, None
 
 
+def _blocked_account_error(
+    account_store: AccountStore | None, session: sessions.Session, start_response: Any
+) -> list[bytes] | None:
+    """Render a ``403 account_blocked`` if *session*'s account is operator-blocked.
+
+    Task t4: a blocked human account cannot mint new tokens. The session is
+    valid (authenticated) but the account is kill-switched, so this is a 403,
+    not the 401 raised for no session at all. Cheap: one account-store ``get``
+    on the already-known ``session.account_id``, and only when an account
+    store is wired -- the same single store the OAuth callback writes to and
+    the operator CLI (``league-site accounts block``) flips, so a block takes
+    effect on the next mint attempt with no restart. Nothing is minted on
+    refusal. Returns ``None`` (mint may proceed) when there is no account
+    store wired, no matching account, or the account isn't blocked.
+    """
+    if account_store is None:
+        return None
+    account = account_store.get(session.account_id)
+    if account is not None and account.blocked:
+        return _json_error(
+            start_response,
+            "403 Forbidden",
+            "account_blocked",
+            "this account is blocked and cannot mint agent tokens",
+        )
+    return None
+
+
 def _issue_agent_token(
     environ: dict[str, Any],
     start_response: Any,
@@ -345,22 +373,9 @@ def _issue_agent_token(
             f"{tokens.SITE_ORIGIN} and mint the token from their account "
             f"(see {tokens.ONBOARDING_URL})",
         )
-    # Task t4: a blocked human account cannot mint new tokens. The session is
-    # valid (authenticated) but the account is kill-switched, so this is a 403,
-    # not the 401 above. Cheap: one account-store ``get`` on the already-known
-    # ``session.account_id``, and only when an account store is wired -- the
-    # same single store the OAuth callback writes to and the operator CLI
-    # (``league-site accounts block``) flips, so a block takes effect on the
-    # next mint attempt with no restart. Nothing is minted on refusal.
-    if account_store is not None:
-        account = account_store.get(session.account_id)
-        if account is not None and account.blocked:
-            return _json_error(
-                start_response,
-                "403 Forbidden",
-                "account_blocked",
-                "this account is blocked and cannot mint agent tokens",
-            )
+    blocked_response = _blocked_account_error(account_store, session, start_response)
+    if blocked_response is not None:
+        return blocked_response
     body, error = _read_json_object(environ)
     if body is None:
         return _json_error(start_response, "400 Bad Request", "bad_request", error or "")

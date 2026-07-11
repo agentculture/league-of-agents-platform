@@ -18,10 +18,18 @@ from typing import Any
 from league_site.accounts.aws import DynamoDBAccountStore
 from league_site.accounts.store import AccountRecord, InMemoryAccountStore, account_id_for
 from league_site.aws_lambda import wiring
+from tests._dynamo_fake import apply_set_expression
 
 
 class FakeTable:
-    """Stand-in for a boto3 DynamoDB Table: just enough for account items."""
+    """Stand-in for a boto3 DynamoDB Table: just enough for account items.
+
+    ``upsert`` now writes through ``update_item`` (SET with insert-only
+    ``if_not_exists`` clauses) rather than a full ``put_item`` overwrite, and
+    the request-time reads pass ``ConsistentRead=True`` — so this fake models
+    both (delegating the SET semantics to :func:`tests._dynamo_fake.
+    apply_set_expression`).
+    """
 
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, Any]] = {}
@@ -29,9 +37,26 @@ class FakeTable:
     def put_item(self, *, Item: dict[str, Any]) -> None:  # noqa: N803
         self.items[(Item["PK"], Item["SK"])] = Item
 
-    def get_item(self, *, Key: dict[str, str]) -> dict[str, Any]:  # noqa: N803
+    def get_item(
+        self, *, Key: dict[str, str], ConsistentRead: bool = False  # noqa: N803
+    ) -> dict[str, Any]:
         item = self.items.get((Key["PK"], Key["SK"]))
         return {"Item": item} if item is not None else {}
+
+    def update_item(
+        self,
+        *,
+        Key: dict[str, str],  # noqa: N803
+        UpdateExpression: str,  # noqa: N803
+        ExpressionAttributeValues: dict[str, Any],  # noqa: N803
+        ConditionExpression: str | None = None,  # noqa: N803
+        ReturnValues: str | None = None,  # noqa: N803
+    ) -> dict[str, Any]:
+        key = (Key["PK"], Key["SK"])
+        item = dict(self.items.get(key, {"PK": Key["PK"], "SK": Key["SK"]}))
+        apply_set_expression(item, UpdateExpression, ExpressionAttributeValues)
+        self.items[key] = item
+        return {"Attributes": dict(item)} if ReturnValues == "ALL_NEW" else {}
 
 
 class FakeDynamoDBResource:

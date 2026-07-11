@@ -141,7 +141,16 @@ class DynamoDBTokenStore(TokenStore):
         self._table.put_item(Item=_to_item(record))
 
     def get_by_hash(self, token_hash: str) -> TokenRecord | None:
-        response = self._table.get_item(Key={"PK": f"TOKEN#{token_hash}", "SK": "METADATA"})
+        # Strongly consistent: this is the per-request lookup
+        # league_site.auth.tokens.verify() calls on every bearer-token check.
+        # DynamoDB's get_item defaults to eventually consistent reads, which
+        # could return a just-blocked/revoked token's stale row for a short
+        # window after an operator's write — breaking verify()'s documented
+        # "the flag is read fresh every call ... honoured on the very next
+        # request" guarantee. ConsistentRead=True closes that window.
+        response = self._table.get_item(
+            Key={"PK": f"TOKEN#{token_hash}", "SK": "METADATA"}, ConsistentRead=True
+        )
         item = response.get("Item")
         if item is None:
             return None

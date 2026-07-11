@@ -49,6 +49,11 @@ from league_site.auth._signing import read_secret, sign_payload, verify_payload
 STATE_SECRET_ENV = "LEAGUE_SESSION_SECRET"  # nosec B105 - an env var *name*, not a credential
 _STATE_TTL_SECONDS = 600  # 10 minutes: long enough for a human OAuth round trip
 
+#: The ``Accept`` header value every outbound provider request sends, since
+#: every endpoint this module talks to (token exchange, userinfo, GitHub's
+#: emails list) replies in JSON.
+_CONTENT_TYPE_JSON = "application/json"
+
 
 class OAuthError(Exception):
     """Base class for OAuth flow errors (unknown provider, failed exchange, ...)."""
@@ -318,7 +323,7 @@ def exchange_code(
         method="POST",
         url=provider.token_url,
         headers={
-            "Accept": "application/json",
+            "Accept": _CONTENT_TYPE_JSON,
             "Content-Type": "application/x-www-form-urlencoded",
         },
         body=body,
@@ -343,7 +348,7 @@ def _fetch_github_primary_email(access_token: str, *, transport: Transport) -> s
     request = HttpRequest(
         method="GET",
         url=_GITHUB_EMAILS_URL,
-        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        headers={"Authorization": f"Bearer {access_token}", "Accept": _CONTENT_TYPE_JSON},
     )
     try:
         # OSError covers urllib's URLError/HTTPError/timeouts from the real
@@ -384,7 +389,7 @@ def fetch_identity(
     request = HttpRequest(
         method="GET",
         url=provider.userinfo_url,
-        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        headers={"Authorization": f"Bearer {access_token}", "Accept": _CONTENT_TYPE_JSON},
     )
     data = _parse_json_body(transport(request), provider_name=provider_name, what="userinfo")
     try:

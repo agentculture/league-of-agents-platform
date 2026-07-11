@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-07-11
+
+### Changed
+
+- Code-quality pass resolving SonarCloud findings with no behavior change: extracted repeated string literals into named constants (HTTP status strings, CLI help text, the boto3 install hint, the JSON content type), reduced the cognitive complexity of the API and auth request dispatchers and the play view (extracted cohesive helpers), and cleaned up minor smells (implicit string concatenation, a nested conditional, an unused binding).
+
+### Fixed
+
+- Favicon now appears on every page. The `<link rel="icon">` was only in the main `with_shell` head, so pages rendered through `page_shell` (browser play at `/play`, the `/matches/*/watch` spectate pages, `/leaderboard`, and the 404) served no tab icon. Added it to `page_shell` and the 404 head.
+- Account blocking is now race-safe and immediate on the DynamoDB backend. DynamoDBAccountStore.upsert() and set_blocked() were read-then-full-overwrite, so a normal OAuth re-sign-in could clobber a just-set blocked flag (lost update). They now use conditional UpdateExpressions: upsert never writes the blocked attribute, and set_blocked is a conditional update. Request-time token and account reads (get_by_hash, account get) are now strongly consistent (ConsistentRead=True), so a just-blocked credential can no longer authenticate on the very next request.
+
 ## [0.10.0] - 2026-07-11
 
 ### Added

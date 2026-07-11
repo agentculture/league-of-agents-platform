@@ -37,13 +37,17 @@ class FakeTable:
 
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, object]] = {}
+        self.get_item_calls: list[dict[str, object]] = []
 
     def put_item(
         self, *, Item: dict[str, object]
     ) -> None:  # noqa: N803 - matches boto3's kwarg casing
         self.items[(Item["PK"], Item["SK"])] = Item
 
-    def get_item(self, *, Key: dict[str, str]) -> dict[str, object]:  # noqa: N803
+    def get_item(
+        self, *, Key: dict[str, str], ConsistentRead: bool = False
+    ) -> dict[str, object]:  # noqa: N803
+        self.get_item_calls.append({"Key": Key, "ConsistentRead": ConsistentRead})
         item = self.items.get((Key["PK"], Key["SK"]))
         return {"Item": item} if item is not None else {}
 
@@ -132,6 +136,20 @@ def test_dynamodb_token_store_save_and_get_by_hash_round_trip_via_fake_resource(
 def test_dynamodb_token_store_get_by_hash_missing_returns_none() -> None:
     store = DynamoDBTokenStore("league-agent-tokens", resource=FakeDynamoDBResource())
     assert store.get_by_hash("does-not-exist") is None
+
+
+def test_dynamodb_token_store_get_by_hash_issues_a_strongly_consistent_read() -> None:
+    """Bug 2: this is the per-request lookup tokens.verify() calls on every bearer
+    check — it must not use DynamoDB's default eventually-consistent read, or a
+    just-blocked/revoked token could still authenticate for a short window."""
+    resource = FakeDynamoDBResource()
+    store = DynamoDBTokenStore("league-agent-tokens", resource=resource)
+    record = _record(token_hash="9" * 64)
+    store.save(record)
+
+    store.get_by_hash(record.token_hash)
+
+    assert resource.table.get_item_calls[-1]["ConsistentRead"] is True
 
 
 class _RecordingStore:
