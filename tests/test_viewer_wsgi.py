@@ -317,3 +317,14 @@ def test_viewer_pages_carry_the_full_dazzle_shell() -> None:
     assert f'<script defer src="{asset_url("site.js")}"></script>' in text
     assert '<a class="skip-link" href="#main">' in text
     assert 'id="main"' in text
+
+
+def test_viewer_pages_render_the_anonymous_sign_in_entry_github_only() -> None:
+    """The viewer is dispatched ahead of ``with_auth`` (no session plumbing),
+    so it carries the shared header's anonymous state: a GitHub sign-in entry
+    and never a Google login link (t8)."""
+    app = viewer_app(InMemoryMatchStore(), InMemoryRatingLedgerStore())
+    _, _, body = _get(app, "/leaderboard")
+    text = body.decode("utf-8")
+    assert 'href="/auth/login/github"' in text
+    assert "/auth/login/google" not in text

@@ -551,6 +551,31 @@ nav[aria-label="Primary"] a {{ color: var(--text-muted); text-decoration: none; 
 nav[aria-label="Primary"] a:hover,
 nav[aria-label="Primary"] a:focus-visible {{ color: var(--accent); }}
 
+/* Sign-in / signed-in account entry — sits between the nav and the theme
+   toggle, so at desktop widths it rides the same auto-margin group to the
+   header's right edge. Only shared design tokens, so both palettes hold. */
+.header-account {{
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 0.95rem;
+  font-weight: 500;
+}}
+.account-name {{
+  color: var(--text);
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}}
+.header-auth {{
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+}}
+.header-auth:hover, .header-auth:focus-visible {{ color: var(--accent); }}
+
 /* One row up from mobile the header stops floating mid-strip: the
    wordmark anchors hard left, and the auto margin sends nav + theme
    toggle hard right, to the shell's edges. Below this the row wraps and

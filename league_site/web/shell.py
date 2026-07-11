@@ -91,6 +91,8 @@ import re
 from pathlib import Path
 from typing import Any, Callable
 
+from league_site.auth import sessions
+from league_site.auth.wsgi import SESSION_ENVIRON_KEY
 from league_site.web import fonts, hero, scripts, theme
 from league_site.web._markdown import extract_title, render
 
@@ -197,28 +199,81 @@ _THEME_TOGGLE_HTML = (
 )
 
 
-def header_html() -> str:
-    """The canonical site header: wordmark + primary nav + theme toggle.
+def header_html(session: sessions.Session | None = None) -> str:
+    """The canonical site header: wordmark + primary nav + account entry + theme toggle.
 
-    Public so standalone page shells that render *ahead of* ``with_shell``
-    (:mod:`league_site.viewer.wsgi` today) carry the same header — same
-    nav, same toggle — instead of a drifting hand copy. One source, every
-    page.
+    The account entry reflects auth state per request. Anonymous callers get a
+    "Sign in" entry linking ``/auth/login/github`` — GitHub is the *only*
+    provider the UI ever links (the OAuth code in
+    :mod:`league_site.auth.oauth` still supports others; no page anywhere
+    links ``/auth/login/google``). A caller with a verified *session* gets the
+    human's display name and a "Sign out" entry linking ``/auth/logout``, and
+    no sign-in link at all.
+
+    *session* is the verified :class:`~league_site.auth.sessions.Session` that
+    :func:`league_site.auth.wsgi.with_auth` resolves into ``environ`` (under
+    :data:`~league_site.auth.wsgi.SESSION_ENVIRON_KEY`) on every request;
+    :func:`with_shell` reads it back after delegating and passes it here.
+    ``None`` — the default, and the value the standalone shells that render
+    *ahead of* ``with_auth`` (:mod:`league_site.viewer.wsgi`,
+    :mod:`league_site.profiles.wsgi`) always pass, since no session is
+    resolved into their requests — renders the anonymous header.
+
+    Public so those standalone shells carry the same header — same nav, same
+    toggle, same sign-in entry — instead of a drifting hand copy. One source,
+    every page.
     """
-    return _HEADER_HTML
+    if session is None:
+        return _HEADER_HTML
+    return _header_with_account(_signed_in_account_html(session))
 
 
 _NAV_HTML = "".join(f'<a href="{href}">{label}</a>' for label, href in _NAV_ITEMS)
 
-#: Built once at import — every piece is a fixed module constant, so the
-#: per-request work is a plain attribute read.
-_HEADER_HTML = f"""<header class="site-header">
+#: The anonymous account entry — a single GitHub sign-in link. GitHub is the
+#: ONLY provider the UI links anywhere; the disabled/enabled behavior of the
+#: flow itself lives in :func:`league_site.auth.wsgi._login` (unchanged here).
+_SIGN_IN_HTML = '<a class="header-auth" href="/auth/login/github">Sign in</a>'
+
+
+def _signed_in_account_html(session: sessions.Session) -> str:
+    """The signed-in account entry: the human's display name + a sign-out link.
+
+    ``session.display`` originates from an OAuth provider's profile
+    (user-controlled), so it is HTML-escaped — never trusted as raw markup —
+    exactly like every other user-derived string the shell renders.
+    """
+    return (
+        '<span class="header-account">'
+        f'<span class="account-name">{html.escape(session.display)}</span>'
+        '<a class="header-auth" href="/auth/logout">Sign out</a>'
+        "</span>"
+    )
+
+
+def _header_with_account(account_html: str) -> str:
+    """Assemble the header around an already-rendered *account_html* fragment.
+
+    Every piece but the account fragment is a fixed module constant, so the
+    anonymous header (:data:`_HEADER_HTML`) is built once at import and the
+    common per-request path stays a plain attribute read. The account entry
+    sits between the nav and the theme toggle: at desktop widths t7's
+    ``nav[aria-label="Primary"] { margin-left: auto }`` sends the nav and
+    everything after it (this entry, then the toggle) to the shell's right
+    edge as one group.
+    """
+    return f"""<header class="site-header">
 <div class="wrap">
 {_WORDMARK_HTML}
 <nav aria-label="Primary">{_NAV_HTML}</nav>
+{account_html}
 {_THEME_TOGGLE_HTML}
 </div>
 </header>"""
+
+
+#: The anonymous header, built once at import (see :func:`_header_with_account`).
+_HEADER_HTML = _header_with_account(_SIGN_IN_HTML)
 
 
 class FooterSlotRegistry:
@@ -353,7 +408,16 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
             start_response(captured["status"], captured["headers"])
             return [body]
 
-        page = _render_page(body.decode("utf-8"), slots, path=path)
+        # ``with_auth`` — mounted *inside* this middleware (see
+        # league_site.web.http.site_app's composition order) — resolves the
+        # session cookie into the shared ``environ`` on every request before
+        # control reaches the wrapped app, so the verified Session (or None)
+        # is present by the time it returns here. Absent that layer (a bare
+        # ``with_shell`` in a test, or the standalone viewer/profiles
+        # dispatch that never passes through ``with_auth``) the key is simply
+        # missing and the header renders anonymous.
+        session = environ.get(SESSION_ENVIRON_KEY)
+        page = _render_page(body.decode("utf-8"), slots, path=path, session=session)
         page_bytes = page.encode("utf-8")
         start_response(
             captured["status"],
@@ -518,7 +582,13 @@ def _serve_static(
 _LANDING_H1_RE = re.compile(r"\A<h1>.*?</h1>\n?", re.S)
 
 
-def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) -> str:
+def _render_page(
+    markdown_text: str,
+    slots: FooterSlotRegistry,
+    *,
+    path: str,
+    session: sessions.Session | None = None,
+) -> str:
     is_landing = path in _LANDING_PATHS
     title = _SITE_TITLE if is_landing else extract_title(markdown_text) or _SITE_TITLE
     page_title = title if title == _SITE_TITLE else f"{title} — {_SITE_TITLE}"
@@ -559,7 +629,7 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-{header_html()}
+{header_html(session)}
 <main id="main" class="wrap">
 {body_html}
 </main>

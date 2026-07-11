@@ -5,10 +5,14 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import pytest
+
+from league_site.auth import sessions
+from league_site.auth.wsgi import SESSION_COOKIE_NAME, with_auth
 from league_site.web import theme
 from league_site.web.app import build_app
 from league_site.web.http import WSGIApp, http_app
-from league_site.web.shell import FooterSlotRegistry, asset_url, with_shell
+from league_site.web.shell import FooterSlotRegistry, asset_url, header_html, with_shell
 
 _TITLE_RE = re.compile(r"<title>(.*?)</title>")
 
@@ -224,6 +228,110 @@ def test_missing_content_type_header_is_treated_as_raw_passthrough() -> None:
     assert status == "200 OK"
     assert body == b"no content-type header"
     assert "Content-Type" not in headers
+
+
+# --- Session-aware header: sign-in entry + signed-in state (t8) --------------
+
+
+def _session(display: str = "Ada Lovelace") -> sessions.Session:
+    """A verified :class:`~league_site.auth.sessions.Session` for header tests.
+
+    Constructed directly (never minted), so these unit tests need no
+    ``LEAGUE_SESSION_SECRET`` — they exercise rendering, not verification.
+    ``expiry`` is far in the future so ``is_expired`` is never a factor.
+    """
+    return sessions.Session(
+        subject="42", provider="github", display=display, issued_at=0, expiry=4102444800
+    )
+
+
+def _get_cookie(app: WSGIApp, path: str, cookie: str) -> tuple[str, dict[str, str], bytes]:
+    """Minimal WSGI test client that presents an ``HTTP_COOKIE`` header."""
+    captured: dict[str, Any] = {}
+
+    def start_response(status: str, headers: list[tuple[str, str]]) -> None:
+        captured["status"] = status
+        captured["headers"] = dict(headers)
+
+    environ = {"REQUEST_METHOD": "GET", "PATH_INFO": path, "HTTP_COOKIE": cookie}
+    body = b"".join(app(environ, start_response))
+    return captured["status"], captured["headers"], body
+
+
+def test_header_html_anonymous_shows_a_github_sign_in_entry() -> None:
+    markup = header_html()
+    assert 'href="/auth/login/github"' in markup
+    assert "Sign in" in markup
+    assert "Sign out" not in markup
+    # GitHub only — no Google login link on any header state (site-wide invariant).
+    assert "/auth/login/google" not in markup
+
+
+def test_header_html_default_argument_is_the_anonymous_header() -> None:
+    assert header_html(None) == header_html()
+
+
+def test_header_html_signed_in_shows_display_name_and_a_sign_out_link() -> None:
+    markup = header_html(_session(display="Ada Lovelace"))
+    assert "Ada Lovelace" in markup
+    assert 'href="/auth/logout"' in markup
+    assert "Sign out" in markup
+    # No sign-in affordance once a session exists — neither link nor label.
+    assert 'href="/auth/login/github"' not in markup
+    assert "/auth/login/google" not in markup
+
+
+def test_header_html_escapes_a_hostile_display_name() -> None:
+    markup = header_html(_session(display='<script>alert("x")</script>'))
+    assert "<script>alert" not in markup
+    assert "&lt;script&gt;" in markup
+
+
+def test_shelled_anonymous_request_carries_the_github_sign_in_entry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The session reaches the shell through ``with_auth``: it stashes the
+    verified session (``None`` here — no cookie) into the shared ``environ``
+    the shell reads after delegating."""
+    monkeypatch.setenv("LEAGUE_SESSION_SECRET", "test-session-secret")
+    app = with_shell(with_auth(http_app()), footer_slots=FooterSlotRegistry())
+    _, _, body = _get(app, "/index")
+    text = body.decode("utf-8")
+    assert 'href="/auth/login/github"' in text
+    assert 'href="/auth/logout"' not in text
+
+
+def test_shelled_request_with_a_valid_session_cookie_shows_the_signed_in_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("LEAGUE_SESSION_SECRET", "test-session-secret")
+    token = sessions.issue({"subject": "42", "provider": "github", "display_name": "Ada Lovelace"})
+    app = with_shell(with_auth(http_app()), footer_slots=FooterSlotRegistry())
+    _, _, body = _get_cookie(app, "/index", f"{SESSION_COOKIE_NAME}={token}")
+    text = body.decode("utf-8")
+    assert "Ada Lovelace" in text
+    assert 'href="/auth/logout"' in text
+    assert "Sign out" in text
+    # The anonymous sign-in link is gone once a session verifies.
+    assert 'href="/auth/login/github"' not in text
+
+
+def test_no_google_login_link_anywhere_in_the_rendered_site() -> None:
+    """Site-wide GitHub-only invariant: no rendered page *links* /auth/login/google.
+
+    Scans the anchor form (``href="/auth/login/google"``) rather than the
+    bare path substring, since authored docs (this plan itself) legitimately
+    *mention* the path in prose while linking it nowhere.
+    """
+    google_link = 'href="/auth/login/google"'
+    app = _shelled()
+    registry = build_app()
+    for entry in registry.list_docs():
+        _, _, body = _get(app, f"/{entry.slug}")
+        assert google_link not in body.decode("utf-8"), entry.slug
+    # Both header states, directly — headers link Google nowhere, ever.
+    assert "/auth/login/google" not in header_html()
+    assert "/auth/login/google" not in header_html(_session())
 
 
 def test_every_registered_doc_page_renders_through_the_shell_without_crashing() -> None:

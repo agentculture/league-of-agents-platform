@@ -189,6 +189,11 @@ def test_without_a_session_secret_a_stale_session_cookie_stays_anonymous(
 
     assert status == "200 OK"
     assert headers["Content-Type"] == "text/html; charset=utf-8"
+    # Pre-OAuth prod still shows the sign-in entry — the flow itself keeps its
+    # existing disabled behavior, but the header link is present (t8).
+    text = body.decode("utf-8")
+    assert 'href="/auth/login/github"' in text
+    assert "/auth/login/google" not in text
 
 
 def test_without_a_session_secret_other_cookies_pass_through(
