@@ -267,9 +267,10 @@ The fix has two legs, and this section documents only the first:
 2. **(code, durable)** Ship versioned asset URLs (`/theme.css?v=<version>`
    or a content-hashed path) so a deploy can never again strand new HTML
    against an old stylesheet at any caching layer. See the closing
-   paragraph below — that leg is tracked as a separate task and, once it
-   ships, this purge procedure stops being part of the routine deploy
-   path.
+   paragraph below — **this leg shipped in platform t4**: every
+   `/theme.css`, `/site.js`, and `/fonts/*.woff2` reference the shell
+   emits now carries `?v=<content-hash>`, and this purge procedure is no
+   longer part of the routine deploy path.
 
 ### Purge-by-URL API call
 
@@ -360,24 +361,25 @@ should also confirm with a hard refresh (or a private/incognito window,
 which starts with no cache at all) that the browser layer isn't masking
 either a real fix or a real remaining bug.
 
-### When purging stops being necessary
+### Why purging is no longer necessary for routine deploys
 
-This procedure exists because `/theme.css` and `/site.js` are currently
-served at fixed, unversioned URLs — a deploy changes the bytes behind
+This procedure originally existed because `/theme.css` and `/site.js` were
+served at fixed, unversioned URLs — a deploy changed the bytes behind
 `/theme.css` without changing its name, so anything that cached the old
-name (Cloudflare's edge, a visitor's browser) keeps serving stale bytes
-until it expires or is told to forget. Once versioned asset URLs ship
-(`/theme.css?v=<version>` or a content-hashed path — tracked as a
-separate task in this plan), that stops being true: each deploy's shelled
-HTML references a *new* URL for its build, so there is nothing stale to
-purge — the new URL was never cached by anyone, and the old URL's cached
-copy is simply never requested again. At that point routine purges leave
-the deploy path entirely. This procedure remains useful only for genuine
-emergencies after that point: if a bug ships that is bad enough to need
-pulling *the currently-referenced* versioned URL's content out of cache
-before its natural TTL expires (rather than shipping a fix forward under
-a newer version), the same purge-by-URL call above still works — it
-purges whatever URL is named, versioned or not.
+name (Cloudflare's edge, a visitor's browser) kept serving stale bytes
+until it expired or was told to forget. **Platform t4 shipped versioned
+asset URLs** (`/theme.css?v=<hash>`, `/site.js?v=<hash>`, and every
+`/fonts/*.woff2` reference — a content hash of the served bytes, computed
+once at import by `league_site.web.shell.asset_url`), so that is no
+longer true: each deploy's shelled HTML references a *new* URL for its
+build, so there is nothing stale to purge — the new URL was never cached
+by anyone, and the old URL's cached copy is simply never requested again.
+Routine purges are no longer part of the deploy path. This procedure
+remains useful only for genuine emergencies: if a bug ships that is bad
+enough to need pulling *the currently-referenced* versioned URL's content
+out of cache before its natural TTL expires (rather than shipping a fix
+forward under a newer version), the same purge-by-URL call above still
+works — it purges whatever URL is named, versioned or not.
 
 ## How this satisfies honesty condition h4
 

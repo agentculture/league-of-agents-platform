@@ -42,7 +42,7 @@ import pytest
 
 from league_site.web import theme
 from league_site.web.http import WSGIApp, http_app, site_app
-from league_site.web.shell import FooterSlotRegistry, with_shell
+from league_site.web.shell import FooterSlotRegistry, asset_url, with_shell
 
 # The two vendored files, by served name, with the exact byte sizes of the
 # agentculture.org-served originals. The Fraunces size (121_016) pins that
@@ -275,11 +275,16 @@ def _head_html(text: str) -> str:
 
 @pytest.mark.parametrize("path", ("/", "/index"))
 def test_shell_head_preloads_both_fonts_before_the_stylesheet(path: str) -> None:
+    """Preload/stylesheet hrefs are versioned (platform t4,
+    :func:`league_site.web.shell.asset_url`) -- built from the same helper
+    the shell itself uses, so this stays correct across a deploy without
+    hand-computing the hash here."""
     head = _head_html(_get(_shelled(), path)[2].decode("utf-8"))
-    stylesheet_at = head.index('<link rel="stylesheet" href="/theme.css">')
+    stylesheet_at = head.index(f'<link rel="stylesheet" href="{asset_url("theme.css")}">')
     for name in (_FRAUNCES_NAME, _ALBERT_NAME):
         preload = (
-            f'<link rel="preload" as="font" type="font/woff2" ' f'href="/fonts/{name}" crossorigin>'
+            f'<link rel="preload" as="font" type="font/woff2" '
+            f'href="{asset_url(name)}" crossorigin>'
         )
         assert preload in head, f"{path}: missing preload for {name}"
         assert head.index(preload) < stylesheet_at, f"{path}: preload for {name} after stylesheet"

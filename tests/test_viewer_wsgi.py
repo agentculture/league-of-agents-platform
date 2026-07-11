@@ -32,6 +32,7 @@ from league_site.ratings import (
     RatingIdentity,
 )
 from league_site.viewer.wsgi import WSGIApp, viewer_app
+from league_site.web.shell import asset_url
 from tests._viewer_support import start_match
 
 HOSTILE = """<script>alert('x')</script>"""
@@ -313,6 +314,6 @@ def test_viewer_pages_carry_the_full_dazzle_shell() -> None:
     assert 'nav aria-label="Primary"' in text
     assert 'id="theme-toggle"' in text
     assert "dataset.js" in text  # the pre-paint snippet, before first paint
-    assert '<script defer src="/site.js"></script>' in text
+    assert f'<script defer src="{asset_url("site.js")}"></script>' in text
     assert '<a class="skip-link" href="#main">' in text
     assert 'id="main"' in text

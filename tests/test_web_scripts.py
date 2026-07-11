@@ -39,7 +39,7 @@ import pytest
 
 from league_site.web import scripts, theme
 from league_site.web.http import WSGIApp, http_app
-from league_site.web.shell import FooterSlotRegistry, with_shell
+from league_site.web.shell import FooterSlotRegistry, asset_url, with_shell
 
 
 def _get(app: WSGIApp, path: str) -> tuple[str, dict[str, str], bytes]:
@@ -93,7 +93,7 @@ def test_head_carries_the_pre_paint_snippet_before_the_stylesheet_link() -> None
     text = _page()
     head = text.split("</head>")[0]
     snippet_at = head.find(f"<script>{scripts.PRE_PAINT_JS}</script>")
-    link_at = head.find('<link rel="stylesheet" href="/theme.css">')
+    link_at = head.find(f'<link rel="stylesheet" href="{asset_url("theme.css")}">')
     assert snippet_at != -1, "pre-paint snippet missing from <head>"
     assert link_at != -1, "stylesheet link missing from <head>"
     assert snippet_at < link_at, "pre-paint snippet must come before the stylesheet link"
@@ -109,7 +109,7 @@ def test_pre_paint_snippet_reads_localstorage_and_stamps_data_js() -> None:
 def test_head_carries_the_deferred_first_party_script_tag() -> None:
     text = _page()
     head = text.split("</head>")[0]
-    assert '<script defer src="/site.js"></script>' in head
+    assert f'<script defer src="{asset_url("site.js")}"></script>' in head
 
 
 def test_the_only_script_srcs_anywhere_are_first_party() -> None:
