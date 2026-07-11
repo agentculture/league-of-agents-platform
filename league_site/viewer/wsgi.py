@@ -529,6 +529,7 @@ def page_shell(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="{description}">
 {refresh_meta}<title>{title}</title>
+<link rel="icon" type="image/svg+xml" href="{asset_url('favicon.svg')}">
 <script>{scripts.PRE_PAINT_JS}</script>
 <style>{theme.STYLESHEET}{_EXTRA_STYLE}</style>
 <script defer src="{asset_url('site.js')}"></script>
@@ -550,6 +551,7 @@ def _not_found(start_response: Any, message: str) -> list[bytes]:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="{asset_url('favicon.svg')}">
 <title>Not found — {_PAGE_TITLE_SITE}</title>
 </head>
 <body>
