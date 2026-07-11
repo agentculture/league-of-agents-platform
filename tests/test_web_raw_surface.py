@@ -24,8 +24,10 @@ passthrough assertions already spread across ``tests/test_web_theme_shell.py``,
   purpose -- a link *to* an external site is content the visitor chooses to
   follow, not a resource the page fetches on their behalf (the platform's
   own ``/about`` and ``index.md`` content links to AWS/GitHub/AgentCulture
-  exactly this way). ``/theme.css`` gets its own narrower check (no
-  ``url(`` token at all today, and ``@import`` banned outright) and
+  exactly this way). ``/theme.css`` gets its own narrower check (the only
+  ``url(`` tokens allowed are the two same-origin ``@font-face`` sources
+  for the vendored variable fonts — spec h1's USER DECISION, t5's
+  ``@font-face`` rules — and ``@import`` stays banned outright) and
   ``/site.js`` gets the request-API denylist plus the protocol-relative
   case ``test_web_scripts.py``'s string-level check doesn't cover.
 * A **guard test** on the two ``shell.py`` module constants
@@ -156,13 +158,19 @@ def test_other_public_pages_fetch_nothing_off_origin(path: str) -> None:
     _assert_no_externally_fetched_resources(body.decode("utf-8"), context=path)
 
 
-def test_theme_css_has_no_url_or_import_at_all() -> None:
-    """The stylesheet uses zero image/font assets today -- no CDN, no
-    webfonts (see the module docstring's performance-budget section) -- so
-    hold it to a stricter bar than the generic same-origin check: no
-    ``url(`` token at all, and ``@import`` banned outright regardless of
-    origin (it is always a second blocking request)."""
-    assert "url(" not in theme.STYLESHEET
+def test_theme_css_urls_are_exactly_the_two_vendored_font_sources() -> None:
+    """The successor to the pre-font "no ``url(`` token at all" bar, which
+    documented the system-stack baseline the font budget was renegotiated
+    *from*. t5's ``@font-face`` rules now spend that allowance, so the bar
+    evolves with the contract: the ONLY ``url(`` tokens permitted in the
+    stylesheet are the two same-origin ``/fonts/*.woff2`` sources t3
+    vendored — nothing else, never off-origin, and ``@import`` stays banned
+    outright regardless of origin (it is always a second blocking
+    request)."""
+    urls = _URL_FN_RE.findall(theme.STYLESHEET)
+    assert sorted(urls) == ["/fonts/albert-sans-var.woff2", "/fonts/fraunces-var.woff2"]
+    for url in urls:
+        assert _is_same_origin(url), url
     assert "@import" not in theme.STYLESHEET
 
 

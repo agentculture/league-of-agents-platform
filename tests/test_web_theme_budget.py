@@ -36,7 +36,9 @@ def test_js_budget_constant_matches_the_renegotiated_sixteen_kilobyte_ceiling() 
     assert theme.JS_BUDGET_BYTES == 16 * 1024
 
 
-def test_font_budget_constant_matches_the_renegotiated_three_hundred_twenty_kilobyte_ceiling() -> None:
+def test_font_budget_constant_matches_the_renegotiated_three_hundred_twenty_kilobyte_ceiling() -> (
+    None
+):
     """Pins the new FONT allowance: two self-hosted variable woff2 files
     (Fraunces Variable + Albert Sans Variable, per the sibling-of-
     agentculture.org spec's USER DECISION). No font file is vendored by
@@ -114,4 +116,4 @@ def test_both_dark_paths_interpolate_the_same_token_block() -> None:
     selectors — this drift alarm pins that both interpolations landed (the
     glow value is unique to the dark palette, so exactly two occurrences
     means explicit-choice dark and OS-default dark can never disagree)."""
-    assert theme.STYLESHEET.count("--accent-glow: rgba(255, 138, 61, .22);") == 2
+    assert theme.STYLESHEET.count("--accent-glow: rgba(127, 220, 201, .22);") == 2

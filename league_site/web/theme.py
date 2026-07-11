@@ -5,27 +5,48 @@ doc as raw markdown; it has no HTML/CSS rendering of its own. This module is
 the platform's *only* stylesheet: :mod:`league_site.web.shell` serves its
 :data:`STYLESHEET` at ``/theme.css`` and every shelled page links to it.
 
-Design identity — "arena / strategy", not framework defaults
---------------------------------------------------------------
-League of Agents is a turn-based arena for humans *and* agents: matches are
-benchmarks as much as they are games. The visual language leans on that —
-a scoreboard/terminal feel for structure (headings, wordmark, code) paired
-with a calm, readable sans-serif for prose, plus one committed accent color
-(a "flare" orange, evoking a marked square on a game board / a lit signal)
-rather than a generic blue-link template look.
+Design identity — a sibling of agentculture.org: "first light over the mesh"
+-----------------------------------------------------------------------------
+League of Agents is a turn-based arena for humans *and* agents, and it is a
+member of the agentculture.org family. This pass (spec h1) adopts that
+site's visual identity wholesale — the *dawn palette* (one scene at two
+hours: light is ten minutes after sunrise, dark is the hour before it), the
+Fraunces/Albert Sans type voice, and motion that moves at breathing pace.
+Someone who knows agentculture.org, shown this site cold, should name the
+kinship unprompted — in both color schemes. The league keeps exactly one
+signature of its own on top of the family baseline: the turn-tick (the
+wordmark glyph's discrete blink, the board's step-and-settle) — motion that
+encodes turn-based play rather than continuous drift.
 
-Type: a deliberate monospace-accented pairing
-    * Body text, links, list/table content → ``--font-sans`` (the OS UI
-      stack) for comfortable long-form reading.
-    * Headings, the wordmark, and code → ``--font-mono`` (the OS monospace
-      stack) for a "scoreboard/benchmark" identity — no font is downloaded;
-      both stacks resolve entirely to fonts already on the device.
+Token names are league's, values are the family's
+    Consumers (the hero, the match viewer, profile pages) reference tokens
+    by NAME (``--bg``, ``--surface``, ``--accent``, …), so the palette swap
+    happens here once and every surface re-skins automatically. The dawn
+    values map onto the existing names; the decorative sky-wash and mesh
+    tokens are additive.
+
+Type: the family voice, served first-party
+    * Display (headings, the wordmark) → ``--font-display``: **Fraunces
+      Variable**, the full variable file (it carries the SOFT/WONK axes),
+      rendered with ``font-variation-settings: "SOFT" 75, "WONK" 0`` at
+      gentle weights (h1 400, other headings ~440–500, wordmark 520).
+    * Body → ``--font-body``: **Albert Sans Variable** at 1.0625rem /
+      line-height 1.7, ``text-wrap: pretty`` on paragraphs and ``balance``
+      on headings.
+    * Code and the score/toggle glyphs → ``--font-mono`` (the OS monospace
+      stack), unchanged.
+    Both variable fonts are vendored in :mod:`league_site.web.fonts` (t3)
+    and served at ``/fonts/*.woff2``; the ``@font-face`` rules below are
+    the only place those URLs are consumed. ``font-display: swap`` keeps
+    text readable on the system fallbacks while the files arrive.
 
 Wordmark: pure CSS + one Unicode glyph
-    A crossed-swords glyph (``⚔``, U+2694 CROSSED SWORDS — plain
-    text, not a color emoji) in the accent color, followed by
-    "LEAGUE OF AGENTS" set in the monospace stack, uppercase, wide
-    letter-spacing. No image, no icon font, no SVG asset.
+    A crossed-swords glyph (``⚔``, U+2694 CROSSED SWORDS — plain text, not
+    a color emoji) in the accent color, followed by the site name set in
+    Fraunces at weight 520. The old mono/uppercase/wide-tracking scoreboard
+    styling is gone; the markup's own text remains uppercase until the
+    shell's wordmark spans are re-authored (a shell.py change outside this
+    module's ownership).
 
 Palette: light AND dark via ``prefers-color-scheme``
     Every token below is defined once per scheme as a CSS custom property
@@ -37,89 +58,104 @@ Palette: light AND dark via ``prefers-color-scheme``
     re-checks this — it is verified by hand and re-stated here so a future
     edit can be checked against the same numbers):
 
-    Light scheme
-        --text (#14171c)        on --bg      (#f6f7f9)  -> 16.76:1
-        --text (#14171c)        on --surface (#ffffff)  -> 17.96:1
-        --text-muted (#475569)  on --bg      (#f6f7f9)  ->  7.07:1
-        --text-muted (#475569)  on --surface (#ffffff)  ->  7.58:1
-        --accent (#c2410c)      on --surface (#ffffff)  ->  5.18:1
-        --accent (#c2410c)      on --bg      (#f6f7f9)  ->  4.83:1
-        --accent-ink (#ffffff)  on --accent  (#c2410c)  ->  5.18:1  (buttons/badges)
-        --border-strong (#828a9a) on --bg    (#f6f7f9)  ->  3.24:1  (non-text UI, WCAG 1.4.11)
+    Light scheme — dawn, ten minutes after sunrise
+        --text (#232a4d)        on --bg        (#f4f5fb) -> 12.78:1
+        --text (#232a4d)        on --surface   (#ffffff) -> 13.91:1
+        --text (#232a4d)        on --surface-2 (#e9ebf5) -> 11.70:1
+        --text-muted (#4d546f)  on --bg        (#f4f5fb) ->  6.86:1
+        --text-muted (#4d546f)  on --surface   (#ffffff) ->  7.46:1
+        --text-muted (#4d546f)  on --surface-2 (#e9ebf5) ->  6.28:1
+        --accent (#0b655c)      on --bg        (#f4f5fb) ->  6.37:1
+        --accent (#0b655c)      on --surface   (#ffffff) ->  6.93:1
+        --accent-ink (#ffffff)  on --accent-strong (#0c5a53) -> 8.07:1  (buttons/badges)
+        --accent-ink (#ffffff)  on --accent    (#0b655c) ->  6.93:1
+        --border-strong (#767e9d) on --bg      (#f4f5fb) ->  3.68:1  (non-text UI, WCAG 1.4.11)
 
-    Dark scheme
-        --text (#e6e9ef)        on --bg      (#12151a)  -> 15.04:1
-        --text (#e6e9ef)        on --surface (#1b1f27)  -> 13.58:1
-        --text-muted (#a3adc2)  on --bg      (#12151a)  ->  8.11:1
-        --text-muted (#a3adc2)  on --surface (#1b1f27)  ->  7.32:1
-        --accent (#ff8a3d)      on --bg      (#12151a)  ->  7.80:1
-        --accent (#ff8a3d)      on --surface (#1b1f27)  ->  7.04:1
-        --accent-ink (#14171c)  on --accent  (#ff8a3d)  ->  7.66:1  (buttons/badges)
-        --border-strong (#5b6478) on --bg    (#12151a)  ->  3.08:1  (non-text UI)
+    Dark scheme — the hour before dawn
+        --text (#e9ecf8)        on --bg        (#0b0f20) -> 16.15:1
+        --text (#e9ecf8)        on --surface   (#161b36) -> 14.32:1
+        --text (#e9ecf8)        on --surface-2 (#1b2140) -> 13.32:1
+        --text-muted (#a9b0cf)  on --bg        (#0b0f20) ->  8.88:1
+        --text-muted (#a9b0cf)  on --surface   (#161b36) ->  7.88:1
+        --text-muted (#a9b0cf)  on --surface-2 (#1b2140) ->  7.32:1
+        --accent (#7fdcc9)      on --bg        (#0b0f20) -> 11.77:1
+        --accent (#7fdcc9)      on --surface   (#161b36) -> 10.44:1
+        --accent-ink (#0b0f20)  on --accent    (#7fdcc9) -> 11.77:1  (buttons/badges)
+        --border-strong (#5d6689) on --bg      (#0b0f20) ->  3.38:1  (non-text UI)
 
-    ``--border`` (light ``#d8dce3``, dark ``#2b313d``) is a decorative
-    hairline divider only (never carries text or meaning on its own), so it
-    is not held to the 3:1 non-text-contrast bar; ``--border-strong`` is the
-    token used wherever a border *is* the only cue (focus rings, table
-    rules) and it clears 3:1 in both schemes as shown above.
+    ``--border`` / ``--border-soft`` (indigo/starlight hairlines at .14 /
+    .08–.07 alpha, agentculture's ``--line`` / ``--line-soft``) are
+    decorative dividers only (never carrying text or meaning on their own),
+    so they are not held to the 3:1 non-text-contrast bar;
+    ``--border-strong`` is the token used wherever a border *is* the only
+    cue (focus rings, table rules) and it clears 3:1 in both schemes as
+    shown above. ``--surface-2`` (#e9ebf5 light / #1b2140 dark) is derived
+    from the dawn values — a slightly-lifted periwinkle for code blocks and
+    table headers. The sky-wash tokens (``--sky-upper``, ``--sky-horizon``,
+    ``--sky-mist``, ``--sky-glow``) and mesh tokens (``--mesh-node`` =
+    the accent, ``--mesh-thread``, ``--mesh-halo``, ``--mesh-halo-alt``)
+    are decorative only and never carry text alone. ``body::before``
+    paints the page-wide dawn wash from the sky tokens — the single
+    strongest family signal — behind all content (``z-index: -1``,
+    ``pointer-events: none``; the page background lives on ``html`` so the
+    negative z-index sits above it).
 
     Manual theme toggle: an explicit choice beats the OS
-        A later task (the header toggle) sets ``data-theme="dark"`` or
+        The header toggle sets ``data-theme="dark"`` or
         ``data-theme="light"`` on ``<html>``; no attribute at all means "no
         explicit choice yet", which keeps first-visit behavior exactly as
-        before (the OS decides via ``prefers-color-scheme``). The dark
-        token *values* are unchanged from the table above — this only adds
-        a second way to reach them. ``:root[data-theme="dark"]`` carries
-        the dark tokens unconditionally, so it wins even when the OS is
-        light. The ``@media (prefers-color-scheme: dark)`` block is scoped
-        to ``:root:not([data-theme="light"])`` so an explicit light choice
+        before (the OS decides via ``prefers-color-scheme``).
+        ``:root[data-theme="dark"]`` carries the dark tokens
+        unconditionally, so it wins even when the OS is light. The
+        ``@media (prefers-color-scheme: dark)`` block is scoped to
+        ``:root:not([data-theme="light"])`` so an explicit light choice
         keeps the OS's dark preference from clobbering it; that scoped
         selector still matches ``data-theme="dark"`` and the no-attribute
         case, which is exactly the desired fallthrough. ``color-scheme`` is
         set to match on every path (``dark`` under both the media-query
         block and ``[data-theme="dark"]``; ``light`` under
         ``[data-theme="light"]``) so native form controls and scrollbars
-        follow the same decision as the rest of the palette.
+        follow the same decision as the rest of the palette. These
+        mechanics predate the dawn palette (t2) and survive it unchanged.
 
-Spacing and type scale
+Spacing, type scale, and rhythm
     An 8px-based spacing scale (``--space-1`` .. ``--space-8``) and a type
     scale from 0.875rem to 2.75rem keep rhythm consistent without a CSS
-    framework.
+    framework; headings themselves size fluidly via ``clamp()``. Section
+    breathing room comes from ``--section-pad: clamp(4.5rem, 10vh, 8rem)``
+    (applied to ``main``), and corners round at the family radius
+    ``--radius: 1.25rem`` (cards, pre blocks, the hero board) with a
+    derived ``--radius-sm`` for inline code and pill (999px) forms for
+    buttons, the toggle, and the skip link.
 
 Performance budget (documented here per the design brief; renegotiated,
 not abandoned, twice now — first for the dazzle pass (spec c11), again
 for the sibling-of-agentculture.org pass (spec h1) — see the note below)
-    * CSS: this stylesheet is still the *only* CSS on the site — no
+    * CSS: this stylesheet is still the *only* site-wide CSS — no
       framework, no per-page overrides — served under 32KB
       (:data:`CSS_BUDGET_BYTES`; measured by
       ``tests/test_web_theme_budget.py``; keep new rules within that band).
     * First-party JS: up to 16KB total (:data:`JS_BUDGET_BYTES`) across any
       inline pre-paint snippet the shell emits plus
       :mod:`league_site.web.scripts`'s ``SITE_JS`` served at ``/site.js``
-      (also measured by ``tests/test_web_theme_budget.py``, which
-      auto-activates that check once :mod:`league_site.web.scripts`
-      exists). Every byte of that allowance still has to earn its place.
+      (also measured by ``tests/test_web_theme_budget.py``). Every byte of
+      that allowance still has to earn its place.
     * Self-hosted fonts: up to 320KB total (:data:`FONT_BUDGET_BYTES`) for
-      two variable woff2 files — Fraunces Variable (display) and Albert
-      Sans Variable (body) — per the sibling-of-agentculture.org spec's
-      USER DECISION to adopt agentculture.org's type voice wholesale. This
-      task (t2) only pins the ceiling; the font files themselves, the
-      ``/fonts/*`` routes, and the ``<head>`` preload links are a later
-      task (t3) — until that lands there is no font module and nothing in
-      :data:`STYLESHEET` references a ``@font-face`` yet.
+      the two variable woff2 files — Fraunces Variable (display) and
+      Albert Sans Variable (body) — per the sibling-of-agentculture.org
+      spec's USER DECISION to adopt agentculture.org's type voice
+      wholesale. t3 vendored them (~153KB combined, well inside the
+      ceiling); this module's ``@font-face`` rules are what finally spend
+      the allowance.
     * Total first-party asset weight (CSS + JS + FONTS) stays under 368KB
       (:data:`TOTAL_ASSET_BUDGET_BYTES`) — the sum of the three ceilings
       above, so a change to any one constant keeps this one honest too.
     * No external requests, before or after either renegotiation: no
       third-party webfont CDN, no other CDN, no third-party scripts, no
-      images — CSS, JS, and (once t3 lands) fonts alike stay first-party,
-      served by this platform. The wordmark glyph is a Unicode character,
-      not an asset fetch.
-    * Fonts are 100% system stacks today (:data:`_FONT_SANS`,
-      :data:`_FONT_MONO`) — no font-download cost, no
-      flash-of-unstyled-text. :data:`FONT_BUDGET_BYTES` reserves room for
-      t3 to replace that with the two self-hosted variable fonts above;
-      until t3 lands, the font allowance is agreed but unspent.
+      images — CSS, JS, and fonts alike stay first-party, served by this
+      platform. The wordmark glyph is a Unicode character, not an asset
+      fetch, and both ``@font-face`` ``src`` URLs are same-origin
+      ``/fonts/*`` paths.
     These are exactly the levers Lighthouse performance scores reward
     (payload size, request count, main-thread JS), which is why the budget
     is stated here next to the styles/scripts that have to stay inside it.
@@ -139,43 +175,52 @@ for the sibling-of-agentculture.org pass (spec h1) — see the note below)
     two self-hosted variable fonts USER-DECIDED for family alignment with
     agentculture.org — so CSS rose to 32KB, JS rose to 16KB, and a new 320KB
     FONT allowance was introduced, again ahead of the font files or the
-    dawn-palette CSS landing, with this file's tests updated first (this
-    task, t2) to enforce the new numbers before t3 vendors the fonts. The
-    budget evolved under negotiation both times — it was not quietly
-    dropped either time.
+    dawn-palette CSS landing, with this file's tests updated first (t2) to
+    enforce the new numbers before t3 vendored the fonts and this task (t5)
+    spent them. The budget evolved under negotiation both times — it was
+    not quietly dropped either time.
 
-Motion system (t4): one orchestrated moment, quiet reveals everywhere else
-    Per ``docs/design/dazzle-direction.md``: the landing page-load sequence
-    (a later task) is the one orchestrated motion moment; everywhere else on
-    the site gets quiet scroll reveals and small hovers only. The site's
-    signature rhythm is turn-based — step and settle, not continuous drift.
+Motion system: breathing pace, one turn-tick signature, quiet reveals
+    The family feel (agentculture.org's global.css): nothing snaps —
+    everything settles. Two easing tokens carry it: ``--ease-out``
+    (``cubic-bezier(0.22, 1, 0.36, 1)`` — long, settling; reveals) and
+    ``--ease-gentle`` (``cubic-bezier(0.45, 0, 0.25, 1)`` — breathing;
+    hovers). On top of that baseline the league keeps its one signature:
+    the wordmark glyph's discrete blink (turn-tick), and the hero board's
+    step-and-settle (owned by :mod:`league_site.web.hero`).
 
-    * ``--accent-glow``: a new token (the accent at low alpha — light
-      ``rgba(194, 65, 12, .18)``, dark ``rgba(255, 138, 61, .22)``) added to
-      all three token blocks (``:root``, ``:root[data-theme="dark"]``, and
-      the ``@media (prefers-color-scheme: dark)`` block), kept in sync the
-      same way the rest of that block's tokens are (see the palette section
-      above). Used for hover glows only — decorative, never the sole cue.
+    * ``--accent-glow``: the accent at low alpha — now a teal glow (light
+      ``rgba(11, 101, 92, .18)``, dark ``rgba(127, 220, 201, .22)``) —
+      defined in all three token blocks (``:root``,
+      ``:root[data-theme="dark"]``, and the ``@media
+      (prefers-color-scheme: dark)`` block), kept in sync the same way the
+      rest of that block's tokens are. Used for hover glows only —
+      decorative, never the sole cue.
     * ``.reveal`` / ``.revealed``: the scroll-reveal primitive. The hidden
-      initial state (``opacity: 0``, ``transform: translateY(8px)``) only
-      applies under ``html[data-js]`` — set by a later task's pre-paint
+      initial state (``opacity: 0``, ``transform: translateY(1.4rem)``)
+      only applies under ``html[data-js]`` — set by the shell's pre-paint
       inline snippet before first paint — so an element is never hidden
-      with JS off. ``.revealed`` (toggled by that task's ``/site.js`` via
+      with JS off. ``.revealed`` (toggled by ``/site.js`` via
       IntersectionObserver — a class toggle only, no scroll-linked layout
-      reads) transitions it to fully visible. Staggerable per-element via
-      ``transition-delay: var(--reveal-delay, 0s)``.
-    * Hover micro-interactions: ``.button`` lifts (``translateY(-1px)``)
-      with an ``--accent-glow`` box-shadow; ``.card`` lifts
-      (``translateY(-2px)``) and its border-color change stays a static,
-      unguarded rule (nav links and the wordmark were already color-only).
+      reads) settles it in over 0.9s on ``var(--ease-out)``. Staggerable
+      per-element via ``transition-delay: var(--reveal-delay, 0s)`` —
+      the 60ms-per-element stagger in :mod:`league_site.web.scripts` is
+      unchanged.
+    * Hover micro-interactions are gentle lifts on ``var(--ease-gentle)``
+      over 0.4s: ``.card`` rises ``translateY(-4px)`` under
+      ``var(--shadow-lift)``; ``.button`` rises ``translateY(-2px)`` with
+      the lifted shadow plus an ``--accent-glow`` ring; the card's
+      border-color change stays a static, unguarded rule (nav links and
+      the wordmark were already color-only).
     * ``@view-transition { navigation: auto; }`` plus a ~180ms
       ``::view-transition-old(root)``/``::view-transition-new(root)``
       crossfade, nested inside the guard below so the browser never starts
       the view-transition machinery at all when motion is reduced —
       navigation becomes an instant swap, not a suppressed animation.
-    * ``.wordmark-glyph`` gets a "lit signal" pulse — a ``@keyframes`` rule
-      animating only ``opacity`` (1 <-> 0.75) with a long hold and a short
-      dip, so it reads as a discrete blink rather than a smooth fade cycle.
+    * ``.wordmark-glyph`` keeps the "lit signal" pulse — a ``@keyframes``
+      rule animating only ``opacity`` (1 <-> 0.75) with a long hold and a
+      short dip, so it reads as a discrete blink (the turn-based rhythm)
+      rather than a smooth fade cycle.
 
     The reduced-motion guarantee: every rule above — every ``transition:``,
     ``animation:``, ``@keyframes``, and the view-transition rules — lives
@@ -189,10 +234,8 @@ Motion system (t4): one orchestrated moment, quiet reveals everywhere else
 
 from __future__ import annotations
 
-_FONT_SANS = (
-    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, '
-    'sans-serif, "Apple Color Emoji", "Segoe UI Emoji"'
-)
+_FONT_DISPLAY = '"Fraunces Variable", "Iowan Old Style", Georgia, serif'
+_FONT_BODY = '"Albert Sans Variable", -apple-system, "Segoe UI", system-ui, sans-serif'
 _FONT_MONO = (
     'ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, '
     '"Liberation Mono", monospace'
@@ -203,12 +246,13 @@ _FONT_MONO = (
 #
 # Renegotiated twice now. Dazzle pass (spec c11): CSS 10KB -> 24KB, and a
 # new first-party JS allowance (JS_BUDGET_BYTES) where there was previously
-# none at all. Sibling-of-agentculture.org pass (spec h1, this task — t2):
+# none at all. Sibling-of-agentculture.org pass (spec h1, task t2):
 # CSS 24KB -> 32KB, JS 8KB -> 16KB, and a new FONT_BUDGET_BYTES allowance
-# (320KB, for two self-hosted variable woff2 fonts a later task vendors).
-# See the "Renegotiation note" entries at the end of the docstring's
-# Performance budget section for why each change happened — every ceiling
-# here has been deliberately evolved, never quietly dropped.
+# (320KB, for the two self-hosted variable woff2 fonts t3 vendored and the
+# @font-face rules below now consume). See the "Renegotiation note" entries
+# at the end of the docstring's Performance budget section for why each
+# change happened — every ceiling here has been deliberately evolved, never
+# quietly dropped.
 CSS_BUDGET_BYTES = 32 * 1024
 
 #: First-party JS ceiling in bytes — covers any inline pre-paint snippet
@@ -218,13 +262,12 @@ CSS_BUDGET_BYTES = 32 * 1024
 #: :data:`CSS_BUDGET_BYTES`'s comment above.
 JS_BUDGET_BYTES = 16 * 1024
 
-#: Self-hosted font ceiling in bytes — reserved for two variable woff2
-#: files (Fraunces Variable + Albert Sans Variable) a later task (t3)
-#: vendors and serves first-party at ``/fonts/*``. Zero before this
+#: Self-hosted font ceiling in bytes — spent on the two variable woff2
+#: files (Fraunces Variable + Albert Sans Variable) t3 vendored and serves
+#: first-party at ``/fonts/*`` (~153KB combined), consumed by the
+#: ``@font-face`` rules in :data:`STYLESHEET`. Zero before the spec-h1
 #: renegotiation (fonts were 100% system stacks); see
-#: :data:`CSS_BUDGET_BYTES`'s comment above. This task only pins the
-#: ceiling — no font file is required to exist yet for this constant or
-#: its tests to be meaningful.
+#: :data:`CSS_BUDGET_BYTES`'s comment above.
 FONT_BUDGET_BYTES = 320 * 1024
 
 #: Combined first-party asset weight ceiling (CSS + JS + FONTS). Derived
@@ -232,47 +275,105 @@ FONT_BUDGET_BYTES = 320 * 1024
 #: drift out of sync with them.
 TOTAL_ASSET_BUDGET_BYTES = CSS_BUDGET_BYTES + JS_BUDGET_BYTES + FONT_BUDGET_BYTES
 
-#: The dark palette, written ONCE and interpolated into both selectors that
-#: need it (:root[data-theme="dark"] and the prefers-color-scheme media
-#: block). Plain CSS cannot reuse a custom-property block across selectors,
-#: but this file is Python — generating both blocks from one constant makes
-#: drift between explicit-choice dark and OS-default dark structurally
-#: impossible instead of comment-policed.
+#: The dark palette — the hour before dawn — written ONCE and interpolated
+#: into both selectors that need it (:root[data-theme="dark"] and the
+#: prefers-color-scheme media block). Plain CSS cannot reuse a
+#: custom-property block across selectors, but this file is Python —
+#: generating both blocks from one constant makes drift between
+#: explicit-choice dark and OS-default dark structurally impossible instead
+#: of comment-policed. ``--mesh-node`` is absent on purpose: it is defined
+#: once on :root as ``var(--accent)`` and re-skins with the accent.
 _DARK_TOKENS = """\
   color-scheme: dark;
 
-  --bg: #12151a;
-  --surface: #1b1f27;
-  --surface-2: #232833;
-  --text: #e6e9ef;
-  --text-muted: #a3adc2;
-  --border: #2b313d;
-  --border-strong: #5b6478;
-  --accent: #ff8a3d;
-  --accent-ink: #14171c;
-  --accent-glow: rgba(255, 138, 61, .22);"""
+  --bg: #0b0f20;
+  --surface: #161b36;
+  --surface-2: #1b2140;
+  --text: #e9ecf8;
+  --text-muted: #a9b0cf;
+  --border: rgba(233, 236, 248, .14);
+  --border-soft: rgba(233, 236, 248, .07);
+  --border-strong: #5d6689;
+  --accent: #7fdcc9;
+  --accent-strong: #7fdcc9;
+  --accent-ink: #0b0f20;
+  --accent-glow: rgba(127, 220, 201, .22);
+
+  --sky-upper: rgba(64, 92, 181, .25);
+  --sky-horizon: rgba(255, 159, 102, .1);
+  --sky-mist: rgba(88, 214, 181, .14);
+  --sky-glow: rgba(96, 226, 189, .14);
+
+  --mesh-thread: rgba(233, 236, 248, .28);
+  --mesh-halo: rgba(96, 226, 189, .4);
+  --mesh-halo-alt: rgba(255, 170, 120, .28);
+
+  --shadow: 0 4px 24px rgba(2, 4, 12, .5), 0 1px 4px rgba(2, 4, 12, .4);
+  --shadow-lift: 0 14px 40px rgba(2, 4, 12, .6), 0 2px 8px rgba(2, 4, 12, .4);"""
 
 STYLESHEET = f"""\
 /* League of Agents — design tokens + stylesheet. See league_site/web/theme.py
-   for the palette rationale and the WCAG contrast ratios these tokens hold. */
+   for the palette rationale and the WCAG contrast ratios these tokens hold.
+   The identity is agentculture.org's dawn — "first light over the mesh" —
+   worn by the arena: same sky, same type voice, plus the league's own
+   turn-tick. */
+
+@font-face {{
+  font-family: "Fraunces Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(/fonts/fraunces-var.woff2) format("woff2-variations");
+}}
+
+@font-face {{
+  font-family: "Albert Sans Variable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url(/fonts/albert-sans-var.woff2) format("woff2-variations");
+}}
 
 :root {{
   color-scheme: light dark;
 
-  --bg: #f6f7f9;
+  /* dawn, ten minutes after sunrise */
+  --bg: #f4f5fb;
   --surface: #ffffff;
-  --surface-2: #eef0f4;
-  --text: #14171c;
-  --text-muted: #475569;
-  --border: #d8dce3;
-  --border-strong: #828a9a;
-  --accent: #c2410c;
+  --surface-2: #e9ebf5;
+  --text: #232a4d;
+  --text-muted: #4d546f;
+  --border: rgba(35, 42, 77, .14);
+  --border-soft: rgba(35, 42, 77, .08);
+  --border-strong: #767e9d;
+  --accent: #0b655c;
+  --accent-strong: #0c5a53;
   --accent-ink: #ffffff;
-  --accent-glow: rgba(194, 65, 12, .18);
+  --accent-glow: rgba(11, 101, 92, .18);
   --link: var(--accent);
 
-  --font-sans: {_FONT_SANS};
+  /* sky washes (decorative only — never carry text alone) */
+  --sky-upper: rgba(198, 210, 248, .55);
+  --sky-horizon: rgba(255, 205, 166, .5);
+  --sky-mist: rgba(167, 216, 205, .35);
+  --sky-glow: rgba(255, 178, 125, .5);
+
+  /* the mesh */
+  --mesh-node: var(--accent);
+  --mesh-thread: rgba(35, 42, 77, .32);
+  --mesh-halo: rgba(255, 170, 110, .55);
+  --mesh-halo-alt: rgba(122, 158, 245, .5);
+
+  --shadow: 0 4px 24px rgba(35, 42, 77, .07), 0 1px 4px rgba(35, 42, 77, .05);
+  --shadow-lift: 0 14px 40px rgba(35, 42, 77, .12), 0 2px 8px rgba(35, 42, 77, .06);
+
+  --font-display: {_FONT_DISPLAY};
+  --font-body: {_FONT_BODY};
   --font-mono: {_FONT_MONO};
+
+  /* motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-gentle: cubic-bezier(0.45, 0, 0.25, 1);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -290,7 +391,10 @@ STYLESHEET = f"""\
   --text-xl: 2rem;
   --text-2xl: 2.75rem;
 
-  --radius: 0.375rem;
+  /* rhythm */
+  --section-pad: clamp(4.5rem, 10vh, 8rem);
+  --radius: 1.25rem;
+  --radius-sm: 0.5rem;
   --max-width: 46rem;
 }}
 
@@ -320,26 +424,48 @@ STYLESHEET = f"""\
 
 * {{ box-sizing: border-box; }}
 
-html {{ color-scheme: light dark; }}
+html {{
+  color-scheme: light dark;
+  background: var(--bg);
+}}
 
 body {{
   margin: 0;
-  background: var(--bg);
+  position: relative;
+  background: transparent;
   color: var(--text);
-  font-family: var(--font-sans);
-  font-size: var(--text-base);
-  line-height: 1.6;
+  font-family: var(--font-body);
+  font-size: 1.0625rem;
+  line-height: 1.7;
   -webkit-text-size-adjust: 100%;
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}}
+
+/* The high sky belongs to the page: every page opens under the same dawn
+   and scrolls up out of it into plain air. Decorative only — behind all
+   content (the page background lives on html so the negative z-index sits
+   above it), inert to pointers, invisible to assistive tech. */
+body::before {{
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: min(100%, 115vh, 60rem);
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(95% 70% at 12% -12%, var(--sky-upper), transparent 58%),
+    radial-gradient(85% 62% at 88% -6%, var(--sky-mist), transparent 60%);
 }}
 
 .skip-link {{
   position: absolute;
   left: -999px;
   top: auto;
-  background: var(--accent);
+  background: var(--accent-strong);
   color: var(--accent-ink);
   padding: var(--space-2) var(--space-4);
+  border-radius: 999px;
   z-index: 10;
 }}
 .skip-link:focus {{
@@ -347,9 +473,15 @@ body {{
   top: var(--space-4);
 }}
 
-a {{ color: var(--link); text-decoration-thickness: 0.08em; text-underline-offset: 0.15em; }}
-a:hover, a:focus-visible {{ text-decoration-thickness: 0.16em; }}
-:focus-visible {{ outline: 2px solid var(--border-strong); outline-offset: 2px; }}
+a {{
+  color: var(--link);
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}}
+a:hover, a:focus-visible {{ text-decoration-color: var(--accent); }}
+:focus-visible {{ outline: 2px solid var(--accent); outline-offset: 3px; }}
+::selection {{ background: color-mix(in srgb, var(--accent) 22%, var(--bg)); }}
 
 .wrap {{
   max-width: var(--max-width);
@@ -374,10 +506,10 @@ a:hover, a:focus-visible {{ text-decoration-thickness: 0.16em; }}
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  font-family: var(--font-display);
+  font-variation-settings: "SOFT" 75, "WONK" 0;
+  font-weight: 520;
+  letter-spacing: 0.02em;
   color: var(--text);
   text-decoration: none;
   font-size: var(--text-md);
@@ -390,44 +522,43 @@ nav[aria-label="Primary"] {{
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 0.95rem;
+  font-weight: 500;
 }}
 nav[aria-label="Primary"] a {{ color: var(--text-muted); text-decoration: none; }}
 nav[aria-label="Primary"] a:hover,
 nav[aria-label="Primary"] a:focus-visible {{ color: var(--accent); }}
 
-main {{
-  max-width: 64rem;
-  padding-top: var(--space-7);
-  padding-bottom: var(--space-8);
+/* Every page shell renders <main id="main" class="wrap">; the compound
+   selector outranks .wrap's padding shorthand (a bare `main` rule would
+   lose that cascade and the rhythm would silently never apply). */
+main.wrap {{
+  padding-block: var(--section-pad);
 }}
 main > .wrap {{ padding: 0; }}
 
 h1, h2, h3, h4, h5, h6 {{
-  font-family: var(--font-mono);
-  font-weight: 700;
-  line-height: 1.25;
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: "SOFT" 75, "WONK" 0;
+  font-weight: 440;
+  line-height: 1.14;
+  letter-spacing: -0.012em;
+  text-wrap: balance;
   margin-top: var(--space-7);
   margin-bottom: var(--space-3);
 }}
 h1 {{
-  font-size: var(--text-2xl);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  font-size: clamp(2.4rem, 5.5vw, 3.6rem);
+  font-weight: 400;
   margin-top: 0;
 }}
-h2 {{
-  font-size: var(--text-xl);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-2);
-}}
-h3 {{ font-size: var(--text-lg); }}
-h4, h5, h6 {{ font-size: var(--text-md); }}
+h2 {{ font-size: clamp(1.6rem, 3vw, 2.1rem); }}
+h3 {{ font-size: 1.25rem; font-weight: 500; }}
+h4, h5, h6 {{ font-size: var(--text-md); font-weight: 500; }}
 
 p, ul, ol, table, blockquote, pre {{ margin: 0 0 var(--space-4) 0; }}
+p {{ text-wrap: pretty; }}
 
 ul, ol {{ padding-left: var(--space-6); }}
 li {{ margin-bottom: var(--space-2); }}
@@ -442,9 +573,10 @@ blockquote {{
 
 code {{
   font-family: var(--font-mono);
-  font-size: 0.9em;
+  font-size: 0.85em;
+  letter-spacing: 0.01em;
   background: var(--surface-2);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 0.1em 0.35em;
 }}
 pre {{
@@ -470,12 +602,13 @@ th, td {{
   text-align: left;
   vertical-align: top;
 }}
-th {{ font-family: var(--font-mono); background: var(--surface-2); }}
+th {{ font-weight: 600; background: var(--surface-2); }}
 
 .card {{
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-soft);
   border-radius: var(--radius);
+  box-shadow: var(--shadow);
   padding: var(--space-5);
   margin-bottom: var(--space-4);
 }}
@@ -483,14 +616,12 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 
 .button {{
   display: inline-block;
-  background: var(--accent);
+  background: var(--accent-strong);
   color: var(--accent-ink);
-  font-family: var(--font-mono);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   text-decoration: none;
-  border-radius: var(--radius);
+  border-radius: 999px;
   padding: var(--space-3) var(--space-5);
 }}
 .button:hover, .button:focus-visible {{ text-decoration: none; filter: brightness(1.08); }}
@@ -498,7 +629,7 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 .theme-toggle {{
   background: none;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
+  border-radius: 999px;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: var(--text-base);
@@ -513,39 +644,40 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
 
 .site-footer {{
   border-top: 1px solid var(--border);
-  padding: var(--space-5) 0;
+  padding: var(--space-6) 0;
   color: var(--text-muted);
   font-size: var(--text-sm);
 }}
 .site-footer:empty, .site-footer .wrap:empty {{ display: none; }}
 
 @media (max-width: 40rem) {{
-  main {{ padding-top: var(--space-5); }}
-  h1 {{ font-size: var(--text-xl); }}
+  main.wrap {{ padding-block: var(--space-7); }}
 }}
 
 /* ==========================================================================
-   Motion system (t4) — reveals, micro-interactions, view transitions.
-   Every animated rule in this file lives inside this single guard: with
-   reduced motion requested, none of it applies, and nothing above needed a
-   fallback because none of it ever hides content on its own — see this
-   module's docstring ("Motion system" section) for the full contract.
+   Motion system — reveals, micro-interactions, view transitions, at the
+   family's breathing pace (t4 structure, t5 voice). Every animated rule in
+   this file lives inside this single guard: with reduced motion requested,
+   none of it applies, and nothing above needed a fallback because none of
+   it ever hides content on its own — see this module's docstring ("Motion
+   system" section) for the full contract.
    ========================================================================== */
 @media (prefers-reduced-motion: no-preference) {{
 
   /* --- Reveal primitives: quiet scroll reveals, gated on JS + motion ---
-     t3's pre-paint inline snippet sets html[data-js] before first paint;
-     t3's /site.js adds the .revealed class to .reveal elements via
+     The shell's pre-paint inline snippet sets html[data-js] before first
+     paint; /site.js adds the .revealed class to .reveal elements via
      IntersectionObserver (a class toggle only — no scroll-linked layout
      reads here). Without html[data-js] (JS disabled/blocked) or with
      reduced motion, no rule below applies, so .reveal elements simply keep
      the browser default (fully visible) — content is never hidden behind
-     JS or motion preference. */
+     JS or motion preference. 0.9s on the long settling curve; the 60ms
+     stagger lives in scripts.py, unchanged. */
   html[data-js] .reveal {{
     opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 500ms cubic-bezier(0.2, 0.6, 0.2, 1),
-      transform 500ms cubic-bezier(0.2, 0.6, 0.2, 1);
+    transform: translateY(1.4rem);
+    transition: opacity 0.9s var(--ease-out),
+      transform 0.9s var(--ease-out);
     transition-delay: var(--reveal-delay, 0s);
   }}
   html[data-js] .reveal.revealed {{
@@ -553,26 +685,26 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
     transform: translateY(0);
   }}
 
-  /* --- Micro-interactions: small hovers, the site's turn-based rhythm ---
-     Step and settle, not continuous drift. Color-only hover cues (nav
-     links, the wordmark, .card's border-color above) already work without
-     JS or motion and stay outside this guard; only the transform/box-shadow
-     motion lives here. */
+  /* --- Micro-interactions: gentle lifts, nothing snaps ---
+     Color-only hover cues (nav links, the wordmark, .card's border-color
+     above) already work without JS or motion and stay outside this guard;
+     only the transform/box-shadow motion lives here. */
   .button {{
-    transition: transform 160ms ease, box-shadow 160ms ease;
+    transition: transform 0.4s var(--ease-gentle), box-shadow 0.4s var(--ease-gentle);
   }}
   .button:hover, .button:focus-visible {{
-    transform: translateY(-1px);
-    box-shadow: 0 0 0 6px var(--accent-glow);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift), 0 0 0 5px var(--accent-glow);
   }}
   .card {{
-    transition: transform 160ms ease;
+    transition: transform 0.4s var(--ease-gentle), box-shadow 0.4s var(--ease-gentle);
   }}
   .card:hover {{
-    transform: translateY(-2px);
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lift);
   }}
   .theme-toggle {{
-    transition: box-shadow 160ms ease;
+    transition: box-shadow 0.4s var(--ease-gentle);
   }}
   .theme-toggle:hover, .theme-toggle:focus-visible {{
     box-shadow: 0 0 0 4px var(--accent-glow);
@@ -591,8 +723,8 @@ th {{ font-family: var(--font-mono); background: var(--surface-2); }}
     animation-duration: 180ms;
   }}
 
-  /* --- Wordmark glyph: a lit-signal pulse, not a smooth fade loop ---
-     A long hold followed by a short dip reads as a discrete blink (the
+  /* --- Wordmark glyph: the league's turn-tick atop the family baseline —
+     a long hold followed by a short dip reads as a discrete blink (the
      turn-based rhythm), not a continuous glow cycle. */
   @keyframes wordmark-pulse {{
     0%, 88% {{ opacity: 1; }}
