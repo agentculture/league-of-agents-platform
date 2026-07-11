@@ -1,0 +1,420 @@
+{
+  "slug": "league-of-agents-ai-now-moves-like-a-sibling-of-ag",
+  "title": "league-of-agents.ai now moves like a sibling of agentculture.org \u2014 one shared design language, buttery-smooth experience \u2014 and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter.",
+  "frame_slug": "league-of-agents-ai-now-moves-like-a-sibling-of-ag",
+  "schema_version": 2,
+  "status": "exported",
+  "created": "2026-07-11T01:17:05Z",
+  "updated": "2026-07-11T01:25:55Z",
+  "targets": [
+    {
+      "id": "c1",
+      "kind": "announcement",
+      "text": "league-of-agents.ai now moves like a sibling of agentculture.org \u2014 one shared design language, buttery-smooth experience \u2014 and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter."
+    },
+    {
+      "id": "h5",
+      "kind": "honesty",
+      "text": "The announcement holds only if BOTH legs ship in one pass: the family alignment is visible site-wide AND the hero board demonstrably shows roles, resources, and posts \u2014 shipping one without the other fails the frame."
+    },
+    {
+      "id": "c2",
+      "kind": "after_state",
+      "text": "The site's design, style and experience are aligned with agentculture.org (../org, repo agentculture/org): same design language, same smoothness of experience."
+    },
+    {
+      "id": "h1",
+      "kind": "honesty",
+      "text": "Alignment is verified side-by-side in both color schemes, and any asset-budget growth is renegotiated test-first: the budget constants and their tests change with the spec, never silently."
+    },
+    {
+      "id": "c3",
+      "kind": "after_state",
+      "text": "The demo board reads as an awe-inspiring strategy game: units have roles, and the field has resources and posts."
+    },
+    {
+      "id": "h2",
+      "kind": "honesty",
+      "text": "A first-time visitor watching the hero loop alone (no docs, no caption-reading) can say 'units have roles, they collect resources, they take posts' \u2014 validated by actually watching it, not by intent."
+    },
+    {
+      "id": "c4",
+      "kind": "audience",
+      "text": "Visitors to league-of-agents.ai \u2014 humans and agents sizing up the arena \u2014 plus the AgentCulture community who will recognize the shared brand."
+    },
+    {
+      "id": "h9",
+      "kind": "honesty",
+      "text": "Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (/<slug>.md, /llms.txt, /front, start-agent docs) is untouched and byte-identical."
+    },
+    {
+      "id": "c5",
+      "kind": "why_it_matters",
+      "text": "The demo board is the site's first impression of the game's depth; today it moves but doesn't convey strategy. Brand alignment makes league-of-agents.ai legible as part of the AgentCulture family."
+    },
+    {
+      "id": "h10",
+      "kind": "honesty",
+      "text": "Holds only if the board actually carries the first impression: it remains the first rendered element on / and the redesign never demotes it below the fold."
+    },
+    {
+      "id": "c6",
+      "kind": "before_state",
+      "text": "Today the sites are unrelated: league-of-agents.ai is a scoreboard/terminal identity (system fonts, flare-orange accent, step-and-settle motion) built as Python-string CSS/JS under hard budgets (CSS<=24KB, JS<=8KB, zero external requests); agentculture.org is a dawn-mesh identity (Fraunces + Albert Sans variable webfonts, aurora teal, 'breathing' motion, no theme toggle). The demo board (hero.py) is a hardcoded decorative 12s SVG/CSS loop: 4 abstract pieces, one clash, one score tick \u2014 no roles, resources, or posts."
+    },
+    {
+      "id": "h11",
+      "kind": "honesty",
+      "text": "The before-state is verifiable in git at frame time (theme.py flare-orange tokens, hero.py 12s hardcoded loop, budget constants CSS<=24KB/JS<=8KB) \u2014 the baseline is the repo, not memory."
+    },
+    {
+      "id": "c7",
+      "kind": "requirement",
+      "text": "The upgraded demo board showcases the REAL grid-lane game's concepts, not invented ones: units with visible roles (scout / harvester / defender rendered as distinct glyph shapes), resource nodes that get gathered and delivered, and capturable posts whose control flips during the loop \u2014 with the score readout reflecting the game's actual outcome formula (missions + control + resources)."
+    },
+    {
+      "id": "h3",
+      "kind": "honesty",
+      "text": "Every mechanic the board depicts is checked against docs/game-integration.md and tests/fixtures/grid_match_score.json \u2014 the board never shows a move the real engine cannot make."
+    },
+    {
+      "id": "c8",
+      "kind": "requirement",
+      "text": "Experience alignment adopts agentculture.org's motion QUALITY: its two easing tokens (cubic-bezier(0.22,1,0.36,1) settle, cubic-bezier(0.45,0,0.25,1) breathe), longer staggered reveals (~0.9s), hover lift with shadow-lift, CSS view transitions, generous radius and section rhythm \u2014 tuned so nothing snaps."
+    },
+    {
+      "id": "h4",
+      "kind": "honesty",
+      "text": "All new motion stays inside the single prefers-reduced-motion guard and the html[data-js] gate; with motion inert the board still composes a legible poster frame showing roles, resources, and posts."
+    },
+    {
+      "id": "c10",
+      "kind": "boundary",
+      "text": "Agent-facing raw surfaces (/<slug>.md, /llms.txt, /front) stay byte-identical; no framework rewrite \u2014 the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages."
+    },
+    {
+      "id": "h12",
+      "kind": "honesty",
+      "text": "Proven mechanically: tests/test_web_raw_surface.py and the byte-identity assertions pass unchanged after the redesign; no new framework or build step appears in pyproject/infra."
+    },
+    {
+      "id": "c11",
+      "kind": "boundary",
+      "text": "The hero board remains decorative (aria-hidden), self-contained, and NOT driven by live match data \u2014 a visual board for real matches in the viewer is a parked follow-up, not this frame."
+    },
+    {
+      "id": "h13",
+      "kind": "honesty",
+      "text": "The hero makes zero network requests for match data (static markup + first-party sim only), and the real-match viewer board stays parked as v2 in the exported spec rather than silently absorbed into this pass."
+    },
+    {
+      "id": "c12",
+      "kind": "boundary",
+      "text": "The three-state theme toggle stays (deliberate divergence: agentculture.org has no toggle, OS-only). Alignment means shared family feel, not feature regression."
+    },
+    {
+      "id": "h8",
+      "kind": "honesty",
+      "text": "After the redesign the header toggle still cycles light -> dark -> system on every shelled page, persists across navigation, and visibly reskins the dawn palette both ways \u2014 verified on production."
+    },
+    {
+      "id": "c13",
+      "kind": "success_signal",
+      "text": "Side-by-side, the two sites read as siblings (type voice, motion feel, component vocabulary); a first-time visitor watching one hero loop can name roles, resources, and posts without reading docs; Lighthouse stays >=90 perf / >=95 a11y in both schemes; all budget/motion/hero contract tests updated first and passing."
+    },
+    {
+      "id": "h14",
+      "kind": "honesty",
+      "text": "Each signal is checked as stated, not assumed: side-by-side screenshots in both themes, a naive-viewer read of one hero loop, Lighthouse against production, and the renegotiated contract tests green in CI."
+    },
+    {
+      "id": "c14",
+      "kind": "requirement",
+      "text": "The three-state theme toggle actually works on the live site \u2014 the user tried it and it did nothing. Diagnose and fix as part of this pass."
+    },
+    {
+      "id": "h6",
+      "kind": "honesty",
+      "text": "Verified on production, not locally: after the fix ships, a fresh fetch of / through Cloudflare yields HTML whose referenced stylesheet contains the data-theme blocks, and cycling the toggle visibly reskins the page in both directions."
+    },
+    {
+      "id": "c15",
+      "kind": "before_state",
+      "text": "Toggle-bug root cause (verified 2026-07-11): the origin Lambda serves the current stylesheet (10,604 B, with data-theme blocks \u2014 byte-identical to repo), but Cloudflare's edge cache still serves the pre-dazzle /theme.css (5,863 B, no data-theme rules) under cache-control max-age=14400. New HTML + new JS + stale CSS: the toggle stamps data-theme but no rule reacts. The JS and markup are NOT buggy."
+    },
+    {
+      "id": "h15",
+      "kind": "honesty",
+      "text": "The root cause is reproducible from the recorded 2026-07-11 probes (origin 10,604 B with data-theme blocks vs edge 5,863 B without; cache-control max-age=14400, cf-cache-status HIT); if prod drifts before implementation, re-verify before building."
+    },
+    {
+      "id": "c16",
+      "kind": "requirement",
+      "text": "Asset URLs become versioned (cache-busted) \u2014 e.g. /theme.css?v=<version> or a content-hash path \u2014 so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design."
+    },
+    {
+      "id": "h7",
+      "kind": "honesty",
+      "text": "After the next deploy, curl of prod / shows versioned asset references, and fetching the referenced URL returns the current build's bytes on the FIRST request (no purge step in the deploy runbook)."
+    },
+    {
+      "id": "c21",
+      "kind": "success_signal",
+      "text": "The site feels like part of the AgentCulture.org family, and that membership is OBVIOUS by design and feel alone \u2014 a first-time visitor who knows agentculture.org recognizes the kinship at a glance (palette, type voice, motion, mesh motif) before reading any copy."
+    },
+    {
+      "id": "h16",
+      "kind": "honesty",
+      "text": "Checked cold, not assumed: someone who knows agentculture.org is shown the new league-of-agents.ai landing page with no context and names the family resemblance unprompted, in both color schemes."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "summary": "PROBE \u2014 will delete",
+      "origin": "llm",
+      "status": "rejected",
+      "acceptance_criteria": [],
+      "deps": [],
+      "covers": [],
+      "instruction": ""
+    },
+    {
+      "id": "t2",
+      "summary": "Renegotiate the asset-budget contract, test-first (theme.py constants + tests/test_web_theme_budget.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "New ceilings pinned: CSS<=32KB, JS<=16KB, FONTS<=320KB (two variable woff2), TOTAL<=368KB; constants and tests updated together; the zero-external-request assertion is unchanged and passing",
+        "Budget tests fail red before the new constants land and pass green after \u2014 contract-first discipline preserved"
+      ],
+      "deps": [],
+      "covers": [
+        "h1"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t3",
+      "summary": "Vendor and serve Fraunces Variable + Albert Sans Variable first-party (font files, fonts module, shell.py routes, Lambda binary responses, preload links)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "GET /fonts/fraunces-var.woff2 and /fonts/albert-sans-var.woff2 return 200 font/woff2, byte-identical to the vendored files, via site_app AND through the Lambda handler's isBase64Encoded binary path \u2014 new tests/test_web_fonts.py proves all of it",
+        "Shell <head> preloads both woff2 (crossorigin) before the stylesheet link; no external font requests anywhere \u2014 budget test still green"
+      ],
+      "deps": [
+        "t2"
+      ],
+      "covers": [
+        "c2"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t4",
+      "summary": "Versioned asset URLs \u2014 shelled HTML always references the exact build it shipped with (shell.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Every stylesheet/script/font URL the shell emits carries the build version (?v=<version> or hashed path); bumping the version changes every reference; tests assert the referenced URL returns current-build bytes on the FIRST fetch",
+        "Asset responses carry long-lived immutable cache headers, and the deploy docs drop any asset-purge step"
+      ],
+      "deps": [
+        "t3"
+      ],
+      "covers": [
+        "c16",
+        "h7",
+        "c14"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t5",
+      "summary": "Full-adoption design system: dawn palette, family type voice, breathing motion (theme.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "All tokens swap to the agentculture.org dawn palette in BOTH schemes (bg #f4f5fb/#0b0f20, ink #232a4d/#e9ecf8, accent #0b655c/#7fdcc9, sky-wash + mesh decorative tokens); the :root[data-theme] blocks and 3-state toggle mechanics survive unchanged; test_web_theme_tokens.py updated first and green",
+        "@font-face declares both variable fonts; headings render Fraunces (SOFT 75 / WONK 0) and body Albert Sans; WCAG AA pairs recomputed and documented inline",
+        "Motion adopts --ease-out cubic-bezier(.22,1,.36,1) + --ease-gentle cubic-bezier(.45,0,.25,1), ~0.9s staggered reveals, hover lift with shadow-lift, radius 1.25rem, clamp() section rhythm; every animated rule sits inside the single prefers-reduced-motion guard (test_web_theme_motion.py updated first)"
+      ],
+      "deps": [
+        "t2",
+        "t3"
+      ],
+      "covers": [
+        "c2",
+        "c8",
+        "c12",
+        "h8"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t6",
+      "summary": "The strategy-game board scene: roles, resources, posts, score, ticker (hero.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "The SVG scene shows role-distinct unit glyphs (scout/harvester/defender), resource nodes, at least two capturable control posts with team-ownership rings, a missions+control+resources score readout, and a one-line message-ticker slot \u2014 every color via var(--*) tokens, zero literals",
+        "With JS off or reduced motion, the unmodified markup composes a legible mid-game poster frame: roles, a gather in progress, a held post, the score, and one ticker line all visible (test_web_hero.py contract rewritten first)",
+        "Board stays the first child of <main> on / only, aria-hidden decorative, zero network requests; every depicted mechanic exists in the real game per docs/game-integration.md + tests/fixtures/grid_match_score.json"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c3",
+        "c5",
+        "c7",
+        "c11",
+        "h2",
+        "h3",
+        "h10",
+        "h13",
+        "h4"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t7",
+      "summary": "First-party sim engine driving the board (scripts.py)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A sim module in SITE_JS stages per-team orders and resolves turns against the scene: moves, gather->deliver, post captures flipping ownership, the score ticking by the real formula, the ticker posting terse role-flavored lines; consecutive loops differ (seeded variation) \u2014 test_web_scripts.py contract updated first",
+        "The sim activates only under html[data-js] AND prefers-reduced-motion: no-preference; with either absent the poster frame stands; theme toggle + reveal behaviors keep working unchanged; combined JS stays within the t2 ceiling"
+      ],
+      "deps": [
+        "t2",
+        "t6"
+      ],
+      "covers": [
+        "c3",
+        "h4"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t8",
+      "summary": "Ops: purge the stale edge cache, verify the toggle on production, document purge in the runbook",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Cloudflare cache purged for /theme.css and /site.js (operator action with the zone token); a fresh prod fetch returns the current 10,604-byte stylesheet with data-theme blocks, and cycling the toggle visibly reskins the page both ways",
+        "docs/runbooks/cloudflare-league-of-agents-ai.md gains a cache-purge section: the purge-by-URL API call, required token scope, and when purging is (and is no longer) needed once versioned asset URLs ship"
+      ],
+      "deps": [],
+      "covers": [
+        "c14",
+        "c15",
+        "h6",
+        "h15"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t9",
+      "summary": "Design docs + release: rewrite the design direction for the dawn-arena identity; changelog + version bump",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "docs/design/dazzle-direction.md rewritten for full adoption: the dawn palette rationale, the family bar (membership obvious by design and feel), the board-as-game direction \u2014 with the retired flare-orange baseline recorded so the before-state stays verifiable against git history",
+        "CHANGELOG entry + minor version bump (0.8.0) via /version-bump; stale references to the old identity in README/docs updated"
+      ],
+      "deps": [
+        "t5",
+        "t6",
+        "t7"
+      ],
+      "covers": [
+        "c6",
+        "h11"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t10",
+      "summary": "Verification sweep + deploy: the family is obvious and the game is nameable",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "Deployed to prod; side-by-side with agentculture.org in BOTH themes, a cold viewer who knows agentculture.org names the kinship unprompted (the c21/h16 family bar); a naive viewer watching one board loop names roles, resources, and posts unaided",
+        "Lighthouse on prod >=90 perf / >=95 a11y in both schemes; full internal link crawl green; raw agent surfaces byte-identical (existing tests unchanged and passing); human and agent paths both first-class",
+        "Post-deploy curl of / shows versioned asset references whose first fetch returns current-build bytes \u2014 no purge step in the deploy path"
+      ],
+      "deps": [
+        "t4",
+        "t7",
+        "t8",
+        "t9",
+        "t11"
+      ],
+      "covers": [
+        "c1",
+        "c4",
+        "c10",
+        "c13",
+        "h2",
+        "h5",
+        "h9",
+        "h12",
+        "h14",
+        "c21",
+        "h16"
+      ],
+      "instruction": ""
+    },
+    {
+      "id": "t11",
+      "summary": "Dawn-identity favicon + og:image (user-approved scope pull)",
+      "origin": "llm",
+      "status": "confirmed",
+      "acceptance_criteria": [
+        "A dawn-palette favicon ships with a prefers-color-scheme dark variant (inline SVG style, like agentculture.org's) and is linked from the shell; the old orange asset is gone",
+        "A refreshed og:image carries the new identity; link-preview meta on shelled pages points at it; raw agent surfaces remain byte-identical"
+      ],
+      "deps": [
+        "t5"
+      ],
+      "covers": [
+        "c2"
+      ],
+      "instruction": ""
+    }
+  ],
+  "risks": [
+    {
+      "id": "r1",
+      "text": "Vendored variable-font byte sizes vs the pinned ceilings \u2014 measure at vendoring; t2 sets ceilings with headroom",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r2",
+      "text": "API Gateway HTTP API binary (base64) response path for woff2 through the Lambda adapter \u2014 believed supported; prove it in t3's Lambda-path test before building on it",
+      "kind": "unknown_nonblocking",
+      "task_id": "t3"
+    },
+    {
+      "id": "r3",
+      "text": "The cache purge needs the Cloudflare zone token on the operator side \u2014 the agent was (correctly) denied scraping it from editor history; the user runs the purge or exports the token into the shell",
+      "kind": "unknown_nonblocking",
+      "task_id": "t8"
+    },
+    {
+      "id": "r4",
+      "text": "A visual grid board for REAL matches in the viewer \u2014 the frame's parked v2 follow-up, deliberately out of this pass",
+      "kind": "follow_up",
+      "task_id": null
+    },
+    {
+      "id": "r5",
+      "text": "Favicon + og:image still carry the retired orange identity \u2014 frame's parked v3; tension with c21's at-a-glance family bar, may deserve pulling in-scope",
+      "kind": "follow_up",
+      "task_id": null
+    }
+  ]
+}

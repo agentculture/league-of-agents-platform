@@ -1,4 +1,4 @@
-# league-of-agents.ai now moves like a sibling of agentculture.org — one shared design language, buttery-smooth experience — and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter.
+# league-of-agents.ai now moves like a sibling of agentculture.org — one shared design language, buttery-smooth experience — and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter
 
 > league-of-agents.ai now moves like a sibling of agentculture.org — one shared design language, buttery-smooth experience — and its demo board has grown into an awe-inspiring living strategy game: units with roles, resources on the field, and posts that matter.
 > instruction: Verify by loading league-of-agents.ai and agentculture.org side by side (both themes) and by watching one full hero loop: family resemblance + nameable game concepts.
@@ -29,7 +29,7 @@
 - The three-state theme toggle actually works on the live site — the user tried it and it did nothing. Diagnose and fix as part of this pass.
   - instruction: Two legs: (ops, immediate) purge Cloudflare cache for /theme.css and /site.js — operator action with the zone token, or wait out the 4h TTL; (code, durable) versioned asset URLs per the cache-busting requirement, shipped with this pass.
   - honesty: Verified on production, not locally: after the fix ships, a fresh fetch of / through Cloudflare yields HTML whose referenced stylesheet contains the data-theme blocks, and cycling the toggle visibly reskins the page in both directions.
-- Asset URLs become versioned (cache-busted) — e.g. /theme.css?v=<version> or a content-hash path — so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design.
+- Asset URLs become versioned (cache-busted) — e.g. `/theme.css?v=<version>` or a content-hash path — so shelled HTML always references the exact CSS/JS build it shipped with. A deploy can then never strand a stale stylesheet against new markup, for CDN and browser caches alike; long-lived cache headers become safe by design.
   - honesty: After the next deploy, curl of prod / shows versioned asset references, and fetching the referenced URL returns the current build's bytes on the FIRST request (no purge step in the deploy runbook).
 
 ## Honesty conditions
@@ -37,7 +37,7 @@
 - The announcement holds only if BOTH legs ship in one pass: the family alignment is visible site-wide AND the hero board demonstrably shows roles, resources, and posts — shipping one without the other fails the frame.
 - Alignment is verified side-by-side in both color schemes, and any asset-budget growth is renegotiated test-first: the budget constants and their tests change with the spec, never silently.
 - A first-time visitor watching the hero loop alone (no docs, no caption-reading) can say 'units have roles, they collect resources, they take posts' — validated by actually watching it, not by intent.
-- Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (/<slug>.md, /llms.txt, /front, start-agent docs) is untouched and byte-identical.
+- Both named audiences stay first-class after the redesign: the human path (shelled pages) gets the new experience while the agent path (`/<slug>.md`, `/llms.txt`, /front, start-agent docs) is untouched and byte-identical.
 - Holds only if the board actually carries the first impression: it remains the first rendered element on / and the redesign never demotes it below the fold.
 - The before-state is verifiable in git at frame time (theme.py flare-orange tokens, hero.py 12s hardcoded loop, budget constants CSS<=24KB/JS<=8KB) — the baseline is the repo, not memory.
 - Proven mechanically: tests/test_web_raw_surface.py and the byte-identity assertions pass unchanged after the redesign; no new framework or build step appears in pyproject/infra.
@@ -55,7 +55,7 @@
 
 ## Scope / boundaries
 
-- Agent-facing raw surfaces (/<slug>.md, /llms.txt, /front) stay byte-identical; no framework rewrite — the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages.
+- Agent-facing raw surfaces (`/<slug>.md`, `/llms.txt`, /front) stay byte-identical; no framework rewrite — the site remains a Python WSGI app with string-constant assets; dazzle scope stays on with_shell pages.
 - The hero board remains decorative (aria-hidden), self-contained, and NOT driven by live match data — a visual board for real matches in the viewer is a parked follow-up, not this frame.
 - The three-state theme toggle stays (deliberate divergence: agentculture.org has no toggle, OS-only). Alignment means shared family feel, not feature regression.
   - instruction: Keep #theme-toggle + PRE_PAINT_JS + localStorage 'theme' mechanics; port the :root[data-theme] token blocks to the new dawn palette; verify on prod post-deploy (ties to c14/c16).
@@ -70,5 +70,5 @@
 
 ## Open / follow-up
 
-- A visual grid board for REAL matches in the match viewer (/matches/<id>/watch) — the dazzle spec's own open follow-up; this frame only upgrades the decorative hero
+- A visual grid board for REAL matches in the match viewer (`/matches/<id>/watch`) — the dazzle spec's own open follow-up; this frame only upgrades the decorative hero
 - Favicon + og:image refresh to match whatever palette direction is chosen
