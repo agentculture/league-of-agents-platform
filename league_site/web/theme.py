@@ -711,6 +711,45 @@ th {{ font-weight: 600; background: var(--surface-2); }}
 }}
 .button:hover, .button:focus-visible {{ text-decoration: none; filter: brightness(1.08); }}
 
+/* --- Play surface (t9): the start-a-match and your-move forms ---
+   /play's pages reach these rules the same two ways the viewer's do: the
+   standalone page shell (league_site.viewer.wsgi.page_shell) inlines this
+   whole stylesheet, and shelled pages load it as /theme.css. `.button` was
+   authored for <a>; a real <button class="button"> (the forms' submit)
+   needs the element defaults neutralized to render identically. The select
+   keeps the pill vocabulary (999px) the buttons/toggle already speak; the
+   global :focus-visible rule above covers its focus ring. */
+button.button {{
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}}
+.play-form {{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+}}
+.play-form label {{
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}}
+.play-form select {{
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: var(--space-2) var(--space-3);
+  max-width: 100%;
+}}
+.play-match-list {{ list-style: none; padding-left: 0; margin: 0 0 var(--space-4) 0; }}
+.play-match-list li {{ margin: 0 0 var(--space-2) 0; }}
+
 .theme-toggle {{
   background: none;
   border: 1px solid var(--border-strong);

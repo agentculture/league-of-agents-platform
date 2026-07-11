@@ -99,25 +99,19 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import parse_qs
 
-from league_site.api import errors
+from league_site.api import errors, matchops
 from league_site.api.engines import DEFAULT_MODE
-from league_site.api.identity import (
-    RequestIdentity,
-    participant_for_identity,
-    participant_for_opponent_spec,
-    resolve_identity,
-)
+from league_site.api.identity import RequestIdentity, resolve_identity
+from league_site.api.matchops import EngineRegistry
 from league_site.api.registry import default_engine_registry
 from league_site.auth import tokens
 from league_site.auth.token_store import InMemoryTokenStore, TokenStore
 from league_site.capacity.config import CapacityConfig
-from league_site.capacity.guard import Refusal, check_capacity
 from league_site.matches import (
-    GameEngine,
     InMemoryMatchStore,
     InvalidTransitionError,
     Match,
@@ -130,10 +124,9 @@ from league_site.matches import (
 )
 from league_site.ratings.leaderboard import LeaderboardRow, leaderboard
 from league_site.ratings.ledger import InMemoryRatingLedgerStore, RatingLedgerStore
-from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem, outcome_from_match
+from league_site.ratings.system import IntegerEloRatingSystem, RatingSystem
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
-EngineRegistry = Mapping[str, Callable[[], GameEngine]]
 
 logger = logging.getLogger(__name__)
 
@@ -306,37 +299,15 @@ def _handle_create_match(
     capacity: CapacityConfig,
 ) -> tuple[str, Any]:
     identity = _require_identity(environ, agent_tokens)
-    decision = check_capacity(matches, capacity)
-    if isinstance(decision, Refusal):
-        raise errors.capacity_exceeded(
-            f"cannot create match: {decision.reason} limit reached "
-            f"({decision.current}/{decision.limit})",
-            reason=decision.reason,
-            current=decision.current,
-            limit=decision.limit,
-        )
+    matchops.check_create_capacity(matches, capacity)
     body = _read_json_body(environ)
-
-    mode = body.get("mode", DEFAULT_MODE)
-    if not isinstance(mode, str) or not mode:
-        raise errors.bad_request("mode must be a non-empty string")
-    engine = _engine_for(registry, mode)
-
-    creator = participant_for_identity(identity)
-    participants = [creator]
-    opponent_spec = body.get("opponent")
-    if opponent_spec is not None:
-        try:
-            opponent = participant_for_opponent_spec(opponent_spec)
-        except ValueError as exc:
-            raise errors.bad_request(str(exc)) from exc
-        if opponent.participant_id == creator.participant_id:
-            raise errors.bad_request("opponent must be a different identity than the creator")
-        participants.append(opponent)
-
-    match = Match.create(game_id=mode, participants=participants)
-    match.start(engine)
-    matches.save(match)
+    match = matchops.create_match(
+        identity,
+        matches=matches,
+        registry=registry,
+        mode=body.get("mode", DEFAULT_MODE),
+        opponent_spec=body.get("opponent"),
+    )
     return "201 Created", _match_view(match)
 
 
@@ -358,30 +329,18 @@ def _handle_take_turn(
     identity = _require_participant(environ, agent_tokens, match)
 
     body = _read_json_body(environ)
-    action = body.get("action")
-    engine = _engine_for(registry, match.game_id)
-
-    try:
-        match.take_turn(engine, identity.key, action)
-    except InvalidTransitionError as exc:
-        raise errors.conflict(str(exc), code="invalid_transition") from exc
-    except ValueError as exc:
-        raise errors.bad_request(str(exc), code="illegal_action") from exc
-    except TypeError as exc:
-        # An engine (e.g. GridLaneEngine.apply_turn) raises TypeError for a
-        # structurally malformed action -- a body that isn't shaped like an
-        # order at all (wrong JSON type, a missing wrapper key), as opposed
-        # to ValueError's "well-shaped but illegal" -- see this module's
-        # docstring and league_site.game.adapter. Both are the caller's
-        # fault, so both become a 400; the engine's own message is kept
-        # verbatim since it already names the expected shape.
-        raise errors.bad_request(str(exc), code="malformed_action") from exc
-
-    if engine.is_over(match.game_state):
-        match.complete(engine)
-        _record_rating(match, ledger, ratings)
-
-    matches.save(match)
+    # Engine failures (InvalidTransitionError / ValueError / TypeError --
+    # see this module's docstring) translate to the same 409/400s as ever
+    # inside the shared flow, which the browser play surface drives too.
+    match = matchops.take_turn(
+        match,
+        identity.key,
+        body.get("action"),
+        matches=matches,
+        registry=registry,
+        ledger=ledger,
+        ratings=ratings,
+    )
     return "200 OK", _match_view(match)
 
 
@@ -439,7 +398,7 @@ def _score_extras_view(match: Match, registry: EngineRegistry) -> dict[str, Any]
     """
     from league_site.game import normalize
 
-    engine = _engine_for(registry, match.game_id)
+    engine = matchops.engine_for(registry, match.game_id)
     extras = normalize.score_breakdown(engine, match.game_state)
     return dict(extras) if extras is not None else {}
 
@@ -483,27 +442,6 @@ def _require_participant(
     if identity is None or identity.key not in participant_ids:
         raise errors.forbidden()
     return identity
-
-
-def _engine_for(registry: EngineRegistry, mode: str) -> GameEngine:
-    factory = registry.get(mode)
-    if factory is None:
-        raise errors.bad_request(f"unknown game mode {mode!r}", code="unknown_mode")
-    return factory()
-
-
-def _record_rating(match: Match, ledger: RatingLedgerStore, ratings: RatingSystem) -> None:
-    """Apply a rating update for a just-completed *match*, if it can be rated.
-
-    A match needs at least two scored participants to be rated (see
-    :meth:`~league_site.ratings.system.IntegerEloRatingSystem.compute_deltas`);
-    a solo "practice" match (opponent omitted at creation) never reaches
-    that bar and is silently left off the leaderboard.
-    """
-    outcome = outcome_from_match(match)
-    if len(outcome.entries) < 2:
-        return
-    ledger.record_match(outcome, ratings)
 
 
 def _parse_limit(query_string: str) -> int | None:
