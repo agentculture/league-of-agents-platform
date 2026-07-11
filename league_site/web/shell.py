@@ -70,7 +70,7 @@ import html
 import re
 from typing import Any, Callable
 
-from league_site.web import hero, scripts, theme
+from league_site.web import fonts, hero, scripts, theme
 from league_site.web._markdown import extract_title, render
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
@@ -80,6 +80,11 @@ _UNSHELLED_PATHS = frozenset({"/llms.txt", "/front"})
 _CT_MARKDOWN = "text/markdown"
 _THEME_PATH = "/theme.css"
 _SITE_JS_PATH = "/site.js"
+#: URL prefix the shell serves vendored fonts under. A GET/HEAD whose path
+#: is ``_FONTS_PREFIX + <name>`` for a name in :data:`league_site.web.fonts.
+#: FONTS` is answered directly with the font bytes; anything else under the
+#: prefix falls through to the wrapped app (a 404).
+_FONTS_PREFIX = "/fonts/"
 
 #: The landing page is reachable at two URLs — the canonical ``/`` (see
 #: :func:`league_site.web.http._with_root_landing`, which rewrites
@@ -231,11 +236,28 @@ def with_shell(app: WSGIApp, *, footer_slots: FooterSlotRegistry | None = None) 
         method = environ.get("REQUEST_METHOD", "GET")
         if method in ("GET", "HEAD"):
             if path == _THEME_PATH:
-                return _serve_static(start_response, _STYLESHEET_BYTES, "text/css", method)
+                return _serve_static(
+                    start_response, _STYLESHEET_BYTES, "text/css; charset=utf-8", method
+                )
             if path == _SITE_JS_PATH:
                 return _serve_static(
-                    start_response, _SITE_JS_BYTES, "application/javascript", method
+                    start_response,
+                    _SITE_JS_BYTES,
+                    "application/javascript; charset=utf-8",
+                    method,
                 )
+            if path.startswith(_FONTS_PREFIX):
+                font_bytes = fonts.FONTS.get(path[len(_FONTS_PREFIX) :])
+                if font_bytes is not None:
+                    return _serve_static(
+                        start_response,
+                        font_bytes,
+                        fonts.MEDIA_TYPE,
+                        method,
+                        extra_headers=(("Cache-Control", fonts.CACHE_CONTROL),),
+                    )
+                # An unknown /fonts/* name falls through to the wrapped app,
+                # which 404s it — the same as any other unregistered path.
 
         captured: dict[str, Any] = {}
 
@@ -295,21 +317,50 @@ def _header(headers: list[tuple[str, str]], name: str) -> str:
 _STYLESHEET_BYTES = theme.STYLESHEET.encode("utf-8")
 _SITE_JS_BYTES = scripts.SITE_JS.encode("utf-8")
 
+#: ``<head>`` preload links for both self-hosted fonts — one per file in
+#: :data:`league_site.web.fonts.FONTS` (display before body), built once at
+#: import. ``crossorigin`` is REQUIRED on a font preload even for a
+#: same-origin font: fonts are always fetched in CORS ("anonymous") mode, so
+#: a preload without it opens a second connection the actual fetch can't
+#: reuse. Emitted in ``<head>`` *before* the stylesheet ``<link>`` (see
+#: :func:`_render_page`), mirroring agentculture.org's Layout, so the browser
+#: starts fetching the fonts as early as possible. The ``@font-face`` rules
+#: that consume these URLs live in :mod:`league_site.web.theme` (a later
+#: task); a preload with no matching ``@font-face`` is a harmless no-op until
+#: then.
+_FONT_PRELOAD_HTML = "\n".join(
+    f'<link rel="preload" as="font" type="{fonts.MEDIA_TYPE}"'
+    f' href="{_FONTS_PREFIX}{name}" crossorigin>'
+    for name in fonts.FONTS
+)
 
-def _serve_static(start_response: Any, body: bytes, mime: str, method: str) -> list[bytes]:
+
+def _serve_static(
+    start_response: Any,
+    body: bytes,
+    content_type: str,
+    method: str,
+    *,
+    extra_headers: tuple[tuple[str, str], ...] = (),
+) -> list[bytes]:
     """Serve one immutable asset for GET or HEAD.
+
+    *content_type* is sent verbatim (text assets pass their full
+    ``…; charset=utf-8``; binary assets like fonts pass a bare
+    ``font/woff2`` — a charset on a binary type is meaningless). Any
+    *extra_headers* are appended after ``Content-Type``/``Content-Length``
+    (the fonts use this for their long-lived ``Cache-Control``).
 
     HEAD gets the exact same headers — including the ``Content-Length`` of
     the would-be body — but an empty body, per HTTP semantics; many WSGI
     servers do not strip the body for you.
     """
-    start_response(
-        "200 OK",
-        [
-            ("Content-Type", f"{mime}; charset=utf-8"),
-            ("Content-Length", str(len(body))),
-        ],
-    )
+    headers = [
+        ("Content-Type", content_type),
+        ("Content-Length", str(len(body))),
+    ]
+    headers.extend(extra_headers)
+    start_response("200 OK", headers)
     return [] if method == "HEAD" else [body]
 
 
@@ -344,6 +395,7 @@ def _render_page(markdown_text: str, slots: FooterSlotRegistry, *, path: str) ->
 <meta name="description" content="{html.escape(_SITE_DESCRIPTION)}">
 <title>{html.escape(page_title)}</title>
 <script>{scripts.PRE_PAINT_JS}</script>
+{_FONT_PRELOAD_HTML}
 <link rel="stylesheet" href="{_THEME_PATH}">
 <script defer src="{_SITE_JS_PATH}"></script>
 </head>
