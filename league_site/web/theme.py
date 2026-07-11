@@ -87,39 +87,62 @@ Spacing and type scale
     framework.
 
 Performance budget (documented here per the design brief; renegotiated,
-not abandoned, for the dazzle pass — spec c11 — see the note below)
+not abandoned, twice now — first for the dazzle pass (spec c11), again
+for the sibling-of-agentculture.org pass (spec h1) — see the note below)
     * CSS: this stylesheet is still the *only* CSS on the site — no
-      framework, no per-page overrides — served under 24KB
+      framework, no per-page overrides — served under 32KB
       (:data:`CSS_BUDGET_BYTES`; measured by
       ``tests/test_web_theme_budget.py``; keep new rules within that band).
-    * First-party JS: up to 8KB total (:data:`JS_BUDGET_BYTES`) across any
+    * First-party JS: up to 16KB total (:data:`JS_BUDGET_BYTES`) across any
       inline pre-paint snippet the shell emits plus
       :mod:`league_site.web.scripts`'s ``SITE_JS`` served at ``/site.js``
       (also measured by ``tests/test_web_theme_budget.py``, which
       auto-activates that check once :mod:`league_site.web.scripts`
       exists). Every byte of that allowance still has to earn its place.
-    * Total first-party asset weight (CSS + JS) stays under 32KB
-      (:data:`TOTAL_ASSET_BUDGET_BYTES`) — the sum of the two ceilings
-      above, so a change to either constant keeps this one honest too.
-    * No external requests, before or after the renegotiation: no
-      webfonts, no CDN, no third-party scripts, no images — CSS and JS
-      alike stay first-party, served by this platform. The wordmark glyph
-      is a Unicode character, not an asset fetch.
-    * Fonts are 100% system stacks (:data:`_FONT_SANS`, :data:`_FONT_MONO`)
-      so there is no font-download cost and no flash-of-unstyled-text.
+    * Self-hosted fonts: up to 320KB total (:data:`FONT_BUDGET_BYTES`) for
+      two variable woff2 files — Fraunces Variable (display) and Albert
+      Sans Variable (body) — per the sibling-of-agentculture.org spec's
+      USER DECISION to adopt agentculture.org's type voice wholesale. This
+      task (t2) only pins the ceiling; the font files themselves, the
+      ``/fonts/*`` routes, and the ``<head>`` preload links are a later
+      task (t3) — until that lands there is no font module and nothing in
+      :data:`STYLESHEET` references a ``@font-face`` yet.
+    * Total first-party asset weight (CSS + JS + FONTS) stays under 368KB
+      (:data:`TOTAL_ASSET_BUDGET_BYTES`) — the sum of the three ceilings
+      above, so a change to any one constant keeps this one honest too.
+    * No external requests, before or after either renegotiation: no
+      third-party webfont CDN, no other CDN, no third-party scripts, no
+      images — CSS, JS, and (once t3 lands) fonts alike stay first-party,
+      served by this platform. The wordmark glyph is a Unicode character,
+      not an asset fetch.
+    * Fonts are 100% system stacks today (:data:`_FONT_SANS`,
+      :data:`_FONT_MONO`) — no font-download cost, no
+      flash-of-unstyled-text. :data:`FONT_BUDGET_BYTES` reserves room for
+      t3 to replace that with the two self-hosted variable fonts above;
+      until t3 lands, the font allowance is agreed but unspent.
     These are exactly the levers Lighthouse performance scores reward
     (payload size, request count, main-thread JS), which is why the budget
     is stated here next to the styles/scripts that have to stay inside it.
 
-    Renegotiation note: the pre-dazzle-pass budget was CSS <= 10KB and
-    *zero* JS — :mod:`league_site.web.shell` emitted no ``<script>`` tag
-    at all, a baseline re-verified against this repo (not recalled from
-    memory) before renegotiating it. The dazzle pass (this module's spec
-    calls it out as requirement c11) needs room for motion and a manual
-    theme toggle, so the ceilings above were deliberately raised ahead of
-    any dazzle code landing, with ``tests/test_web_theme_budget.py``
-    written/updated first to enforce the new numbers — the budget evolved
-    under negotiation, it was not quietly dropped.
+    Renegotiation note (dazzle pass, spec c11): the pre-dazzle-pass budget
+    was CSS <= 10KB and *zero* JS — :mod:`league_site.web.shell` emitted no
+    ``<script>`` tag at all, a baseline re-verified against this repo (not
+    recalled from memory) before renegotiating it. The dazzle pass needed
+    room for motion and a manual theme toggle, so CSS rose to 24KB and a
+    JS allowance of 8KB was introduced, ahead of any dazzle code landing,
+    with ``tests/test_web_theme_budget.py`` written/updated first to
+    enforce the new numbers.
+
+    Renegotiation note (sibling-of-agentculture.org pass, spec h1): the
+    dazzle-pass budget (CSS <= 24KB, JS <= 8KB, no FONT allowance) is not
+    enough room for the dawn-palette rework this pass brings (h1) plus the
+    two self-hosted variable fonts USER-DECIDED for family alignment with
+    agentculture.org — so CSS rose to 32KB, JS rose to 16KB, and a new 320KB
+    FONT allowance was introduced, again ahead of the font files or the
+    dawn-palette CSS landing, with this file's tests updated first (this
+    task, t2) to enforce the new numbers before t3 vendors the fonts. The
+    budget evolved under negotiation both times — it was not quietly
+    dropped either time.
 
 Motion system (t4): one orchestrated moment, quiet reveals everywhere else
     Per ``docs/design/dazzle-direction.md``: the landing page-load sequence
@@ -178,24 +201,36 @@ _FONT_MONO = (
 # Kept in sync with the numbers documented in this module's docstring above —
 # change a ceiling there and here together.
 #
-# Renegotiated for the dazzle pass (spec c11): CSS 10KB -> 24KB, and a new
-# first-party JS allowance (JS_BUDGET_BYTES) where there was previously
-# none at all. See the "Renegotiation note" at the end of the docstring's
-# Performance budget section for why — the old zero-JS budget was
-# deliberately evolved, not abandoned.
-CSS_BUDGET_BYTES = 24 * 1024
+# Renegotiated twice now. Dazzle pass (spec c11): CSS 10KB -> 24KB, and a
+# new first-party JS allowance (JS_BUDGET_BYTES) where there was previously
+# none at all. Sibling-of-agentculture.org pass (spec h1, this task — t2):
+# CSS 24KB -> 32KB, JS 8KB -> 16KB, and a new FONT_BUDGET_BYTES allowance
+# (320KB, for two self-hosted variable woff2 fonts a later task vendors).
+# See the "Renegotiation note" entries at the end of the docstring's
+# Performance budget section for why each change happened — every ceiling
+# here has been deliberately evolved, never quietly dropped.
+CSS_BUDGET_BYTES = 32 * 1024
 
 #: First-party JS ceiling in bytes — covers any inline pre-paint snippet
 #: emitted by :mod:`league_site.web.shell` plus
 #: :mod:`league_site.web.scripts`'s ``SITE_JS`` served at ``/site.js``,
-#: combined. Zero before this renegotiation; see :data:`CSS_BUDGET_BYTES`'s
-#: comment above.
-JS_BUDGET_BYTES = 8 * 1024
+#: combined. Zero before the dazzle-pass renegotiation; see
+#: :data:`CSS_BUDGET_BYTES`'s comment above.
+JS_BUDGET_BYTES = 16 * 1024
 
-#: Combined first-party asset weight ceiling (CSS + JS). Derived from the
-#: two ceilings above rather than restated, so it can never drift out of
-#: sync with them.
-TOTAL_ASSET_BUDGET_BYTES = CSS_BUDGET_BYTES + JS_BUDGET_BYTES
+#: Self-hosted font ceiling in bytes — reserved for two variable woff2
+#: files (Fraunces Variable + Albert Sans Variable) a later task (t3)
+#: vendors and serves first-party at ``/fonts/*``. Zero before this
+#: renegotiation (fonts were 100% system stacks); see
+#: :data:`CSS_BUDGET_BYTES`'s comment above. This task only pins the
+#: ceiling — no font file is required to exist yet for this constant or
+#: its tests to be meaningful.
+FONT_BUDGET_BYTES = 320 * 1024
+
+#: Combined first-party asset weight ceiling (CSS + JS + FONTS). Derived
+#: from the three ceilings above rather than restated, so it can never
+#: drift out of sync with them.
+TOTAL_ASSET_BUDGET_BYTES = CSS_BUDGET_BYTES + JS_BUDGET_BYTES + FONT_BUDGET_BYTES
 
 #: The dark palette, written ONCE and interpolated into both selectors that
 #: need it (:root[data-theme="dark"] and the prefers-color-scheme media

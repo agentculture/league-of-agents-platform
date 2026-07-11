@@ -2,14 +2,18 @@
 
 The contract itself — what each ceiling is, and why — is documented in that
 module's docstring (its "Performance budget" section); this file is where
-the numbers are enforced in code. It is the *first* artifact of the dazzle
-pass (spec c11): the budget was renegotiated here, before any dazzle code
-landed, so every later task lands inside numbers that were already agreed
-and already tested — CSS <= 24KB, first-party JS <= 8KB, combined <= 32KB,
-zero external requests. The pre-dazzle contract (CSS <= 10KB, zero JS,
-:mod:`league_site.web.shell` emitting no ``<script>`` tag at all) was
-re-verified against this repo, not recalled from memory, before the new
-ceilings below were chosen.
+the numbers are enforced in code. It is the *first* artifact of the
+sibling-of-agentculture.org pass (spec h1): the budget was renegotiated
+here, before any font-vendoring or dawn-palette code landed, so every later
+task lands inside numbers that were already agreed and already tested —
+CSS <= 32KB, first-party JS <= 16KB, self-hosted fonts <= 320KB (two
+variable woff2 files: Fraunces Variable + Albert Sans Variable), combined
+<= 368KB, zero external requests. The pre-renegotiation contract (CSS <=
+24KB, JS <= 8KB, no FONT allowance at all — the site's fonts were 100%
+system stacks) was re-verified against this repo, not recalled from memory,
+before the new ceilings below were chosen. Fonts themselves are not vendored
+by this task — that is a later task (t3) — so this file only pins the
+ceiling; it does not require any font file to exist yet.
 """
 
 from __future__ import annotations
@@ -19,8 +23,8 @@ import pytest
 from league_site.web import theme
 
 
-def test_css_budget_constant_matches_the_renegotiated_twenty_four_kilobyte_ceiling() -> None:
-    assert theme.CSS_BUDGET_BYTES == 24 * 1024
+def test_css_budget_constant_matches_the_renegotiated_thirty_two_kilobyte_ceiling() -> None:
+    assert theme.CSS_BUDGET_BYTES == 32 * 1024
 
 
 def test_stylesheet_payload_is_within_the_css_budget() -> None:
@@ -28,13 +32,24 @@ def test_stylesheet_payload_is_within_the_css_budget() -> None:
     assert len(payload) <= theme.CSS_BUDGET_BYTES
 
 
-def test_js_budget_constant_matches_the_renegotiated_eight_kilobyte_ceiling() -> None:
-    assert theme.JS_BUDGET_BYTES == 8 * 1024
+def test_js_budget_constant_matches_the_renegotiated_sixteen_kilobyte_ceiling() -> None:
+    assert theme.JS_BUDGET_BYTES == 16 * 1024
 
 
-def test_total_asset_budget_is_the_sum_of_the_css_and_js_ceilings() -> None:
-    assert theme.TOTAL_ASSET_BUDGET_BYTES == theme.CSS_BUDGET_BYTES + theme.JS_BUDGET_BYTES
-    assert theme.TOTAL_ASSET_BUDGET_BYTES == 32 * 1024
+def test_font_budget_constant_matches_the_renegotiated_three_hundred_twenty_kilobyte_ceiling() -> None:
+    """Pins the new FONT allowance: two self-hosted variable woff2 files
+    (Fraunces Variable + Albert Sans Variable, per the sibling-of-
+    agentculture.org spec's USER DECISION). No font file is vendored by
+    this task — that lands in t3 — so this only asserts the constant."""
+    assert theme.FONT_BUDGET_BYTES == 320 * 1024
+
+
+def test_total_asset_budget_is_the_sum_of_the_css_js_and_font_ceilings() -> None:
+    assert (
+        theme.TOTAL_ASSET_BUDGET_BYTES
+        == theme.CSS_BUDGET_BYTES + theme.JS_BUDGET_BYTES + theme.FONT_BUDGET_BYTES
+    )
+    assert theme.TOTAL_ASSET_BUDGET_BYTES == 368 * 1024
 
 
 def test_site_js_payload_is_within_the_js_budget() -> None:

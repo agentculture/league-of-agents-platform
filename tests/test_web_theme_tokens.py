@@ -54,10 +54,12 @@ def test_stylesheet_payload_is_within_the_documented_budget() -> None:
 
 
 def test_css_budget_constant_matches_the_documented_budget() -> None:
-    # Renegotiated from 10KB to 24KB ahead of the dazzle pass (spec c11);
-    # see tests/test_web_theme_budget.py for the full budget contract
-    # (CSS + first-party JS + total asset weight) this constant is part of.
-    assert theme.CSS_BUDGET_BYTES == 24 * 1024
+    # Renegotiated twice: 10KB -> 24KB ahead of the dazzle pass (spec c11),
+    # then 24KB -> 32KB ahead of the sibling-of-agentculture.org pass
+    # (spec h1, task t2); see tests/test_web_theme_budget.py for the full
+    # budget contract (CSS + first-party JS + fonts + total asset weight)
+    # this constant is part of.
+    assert theme.CSS_BUDGET_BYTES == 32 * 1024
 
 
 # --- data-theme manual toggle (t2): explicit choice beats the OS default ---
