@@ -14,7 +14,10 @@ process.
 ``game_version``), the ``snapshot`` (the game's own ``.league/`` tree,
 byte-exact), read projections mirrored straight from the last
 ``league match show --json`` (``status``, ``turn``, ``turn_limit``,
-``winner``, ``legal_actions``, ``last_turn_rejections``, ``staged_teams``),
+``winner``, ``legal_actions``, ``last_turn_rejections``, ``staged_teams``,
+plus the board projections the play/viewer board renders —
+``grid_width``, ``grid_height``, ``units``, ``control_points``,
+``resource_nodes``, ``missions``; see :mod:`league_site.viewer.board`),
 this adapter's own mode-fairness refusals for the turn just played
 (``last_turn_platform_rejections`` — see :mod:`league_site.game.modes`),
 which game bot policy plays each house team (``bot_policies``,
@@ -346,6 +349,17 @@ class GridLaneEngine(GameEngine):
                 "turn": game_state["turn"],
                 "turn_limit": game_state["turn_limit"],
                 "winner": game_state["winner"],
+                # Board projections (t9b), mirrored verbatim like the fields
+                # above — what the play/viewer board renders
+                # (league_site.viewer.board). ``.get`` keeps a show payload
+                # without them (older CLI, scripted fakes) building fine;
+                # the board then simply doesn't render.
+                "grid_width": game_state.get("grid_width"),
+                "grid_height": game_state.get("grid_height"),
+                "units": list(game_state.get("units", [])),
+                "control_points": list(game_state.get("control_points", [])),
+                "resource_nodes": list(game_state.get("resource_nodes", [])),
+                "missions": list(game_state.get("missions", [])),
                 "legal_actions": show.get("legal_actions", {}),
                 "last_turn_rejections": list(show.get("last_turn_rejections", [])),
                 "last_turn_platform_rejections": [r.to_dict() for r in platform_rejections],

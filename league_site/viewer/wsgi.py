@@ -5,8 +5,12 @@ Two routes, ``GET`` only, zero auth:
 * ``/matches/<id>/watch`` — a self-contained HTML page (inline
   ``<style>{theme.STYLESHEET}</style>``, same convention as
   :mod:`league_site.profiles.wsgi`) showing a match's header (game,
-  participants with model/provider chips, status, scores once completed)
-  and its full turn-by-turn transcript (:mod:`league_site.viewer.render`).
+  participants with model/provider chips, status, scores once completed),
+  the live match board when the game publishes one (grid-shaped state —
+  :mod:`league_site.viewer.board`; rendered *statically* here: a spectate
+  page never carries unit links or move forms, that interaction layer is
+  the play surface's alone), and its full turn-by-turn transcript
+  (:mod:`league_site.viewer.render`).
 * ``/leaderboard`` — the public standings page (platform#11): rank,
   identity (linked to ``/profiles/<slug>``, with model/provider chips for
   agents), rating, and matches played, ordered exactly like
@@ -64,6 +68,7 @@ from league_site.auth import sessions
 from league_site.matches.errors import MatchNotFoundError
 from league_site.matches.store import MatchStore
 from league_site.ratings.ledger import RatingLedgerStore
+from league_site.viewer.board import build_board_model, render_board
 from league_site.viewer.leaderboard import build_leaderboard_rows, render_leaderboard_body
 from league_site.viewer.render import build_page_model, render_page_body
 from league_site.web import scripts, theme
@@ -106,6 +111,163 @@ _EXTRA_STYLE = """
 }
 .chip-winner { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .transcript { list-style: none; padding-left: 0; }
+/* The match id in the page heading is one long unbreakable token; without
+   this it forces page-wide horizontal scroll on phones (which would fight
+   the board's own sideways scroll below). */
+h1 code { overflow-wrap: anywhere; }
+
+/* --- The match board (league_site.viewer.board) — shared by the spectate
+   watch page and the play surface (both render through page_shell). Static
+   markup everywhere; only the play surface's overlay adds the interaction
+   classes below (unit-selection links, per-cell target forms), so on a
+   watch page those rules simply never match. Cell size is the one knob:
+   clamped so tap targets stay >= 40px on phones — the wrap scrolls
+   sideways rather than shrinking cells below a finger — and the board
+   never towers on desktop. No motion: every affordance is a static
+   color/border cue, hover included, nothing here needs the reduced-motion
+   guard. */
+.board-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: 0 0 var(--space-4);
+  padding-bottom: var(--space-2);
+}
+.board {
+  --cell: clamp(2.5rem, 6.5vw, 3.25rem);
+  display: grid;
+  grid-template-columns: repeat(var(--bw), var(--cell));
+  grid-auto-rows: var(--cell);
+  width: max-content;
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: var(--cell) var(--cell);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+}
+.board-post, .board-res, .board-mission, .board-unit {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 0;
+}
+.board-post, .board-res, .board-mission { z-index: 1; }
+.board-mark { width: 78%; height: 78%; display: block; }
+.board-res .board-mark { fill: var(--mesh-halo); stroke: var(--border-strong); stroke-width: 1; }
+.board-mission .board-mark {
+  fill: var(--mesh-halo-alt);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+.board-post-ring { fill: none; stroke: var(--border-strong); stroke-width: 2; }
+.board-post[data-owner="none"] .board-post-ring { stroke-dasharray: 4 3; }
+.board-post[data-owner="accent"] .board-post-ring { stroke: var(--accent); }
+.board-post[data-owner="ink"] .board-post-ring { stroke: var(--text); }
+.board-post-base { fill: var(--surface-2); stroke: var(--border-strong); stroke-width: 1; }
+.board-unit { z-index: 2; text-decoration: none; }
+.board-glyph { width: 64%; height: 64%; display: block; position: relative; }
+.board-team-accent .board-glyph { fill: var(--accent); }
+.board-team-ink .board-glyph { fill: var(--surface); stroke: var(--text); stroke-width: 2; }
+.board-carry {
+  position: absolute;
+  top: 10%;
+  right: 10%;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--mesh-halo);
+  border: 1px solid var(--border-strong);
+}
+/* Play-only, at rest: a glowing halo + dashed accent ring say "this unit
+   is yours to tap" — dashed is this board's whole tappable grammar (the
+   reachable-cell targets below speak it too); solid ring = chosen. */
+a.board-unit-live::before {
+  content: "";
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  border: 2px dashed var(--accent);
+}
+a.board-unit-live:hover::before,
+a.board-unit-live:focus-visible::before { border-style: solid; }
+/* …and a solid accent ring marks the unit that is selected. */
+.board-unit-selected::before {
+  content: "";
+  position: absolute;
+  inset: 5%;
+  border-radius: 50%;
+  background: var(--accent-glow);
+  border: 2px solid var(--accent);
+}
+/* Play-only targets: one form per legal action, anchored to its cell. */
+.board-target {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  margin: 0;
+  min-width: 0;
+  min-height: 0;
+}
+.board-target-btn {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  cursor: pointer;
+  background: var(--accent-glow);
+  border: 2px dashed var(--accent);
+  border-radius: 22%;
+}
+.board-target-btn:not(.board-verb-btn)::after {
+  content: "";
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.board-target-btn:hover, .board-target-btn:focus-visible {
+  background: var(--accent-glow);
+  border-style: solid;
+}
+.board-target-btn:not(.board-verb-btn):hover::after,
+.board-target-btn:not(.board-verb-btn):focus-visible::after { background: var(--accent-strong); }
+/* Two verbs, one cell: stacked buttons, each named — never one ambiguous
+   control. */
+.board-target-stack {
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px;
+  z-index: 4;
+}
+.board-target-stack form { display: flex; flex: 1; min-height: 0; margin: 0; }
+/* The selected unit's own cell: verb pills anchor to the cell's foot so
+   the unit glyph stays visible above them. */
+.board-target-self { justify-content: flex-end; }
+.board-target-self form { flex: 0 1 34%; }
+.board-verb-btn {
+  font: 700 0.55rem var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  border: 0;
+  border-radius: 999px;
+}
+.board-verb-btn:hover, .board-verb-btn:focus-visible { background: var(--accent); }
+/* The play surface's one-line instruction above the board. */
+.board-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  margin: 0 0 var(--space-2);
+}
 """
 
 
@@ -150,13 +312,19 @@ def viewer_app(match_store: MatchStore, ledger_store: RatingLedgerStore | None =
             return _not_found(start_response, f"no match found with id {match_id!r}")
 
         model = build_page_model(match, ledger_store)
-        body = _render_page(model).encode("utf-8")
+        # The shared match board (league_site.viewer.board): spectators see
+        # the same board the players play on — statically. No overlay is
+        # ever built here, so a watch page never carries unit links or
+        # per-cell forms (the play surface's interaction layer is play-only).
+        board_model = build_board_model(match.game_state)
+        board_html = render_board(board_model) if board_model is not None else None
+        body = _render_page(model, board_html).encode("utf-8")
         return _respond(start_response, "200 OK", "text/html; charset=utf-8", body)
 
     return application
 
 
-def _render_page(model: Any) -> str:
+def _render_page(model: Any, board_html: str | None = None) -> str:
     match_id_html = html.escape(model.match_id)
     title = f"Match {match_id_html} — {_PAGE_TITLE_SITE}"
     refresh_meta = (
@@ -167,7 +335,7 @@ def _render_page(model: Any) -> str:
         if model.is_live
         else f"Finished match {match_id_html} on League of Agents — full transcript."
     )
-    body_html = render_page_body(model)
+    body_html = render_page_body(model, board_html=board_html)
     return page_shell(
         title=title, description=description, body_html=body_html, refresh_meta=refresh_meta
     )

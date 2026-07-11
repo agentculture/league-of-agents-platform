@@ -15,12 +15,22 @@ Routes (see :func:`league_site.play.wsgi.with_play`):
 * ``POST /play/matches`` — create a solo-vs-bot match through the same
   shared creation flow as the JSON API (:mod:`league_site.api.matchops` —
   capacity gate and mode validation included).
-* ``GET /play/matches/<id>`` — the play view: the viewer's board rendering
-  (:mod:`league_site.viewer.render`, reused, not forked) plus — when the
-  match is live and it's the human's turn — a form of the current legal
-  actions. Non-participants (and anonymous visitors) are redirected to the
-  public spectate page.
-* ``POST /play/matches/<id>/turns`` — submit one chosen legal action;
+* ``GET /play/matches/<id>`` — the play view: the viewer's page rendering
+  (:mod:`league_site.viewer.render`, reused, not forked) with the shared
+  match board (:mod:`league_site.viewer.board`) when the game publishes
+  one. On the human's turn **the board is the interface** (t9b), two taps,
+  zero JavaScript: each of your units with a legal action is a selection
+  *link* (``?unit=<id>`` — selection is idempotent, so a GET is the right
+  verb; a plain GET without it clears the selection), and with a unit
+  selected every legal target cell is a tiny per-cell POST form —
+  disambiguated into verb-labeled stacked buttons when several actions
+  share one cell (:mod:`league_site.play.board`). The select-based form of
+  all legal actions stays underneath in a collapsed ``<details>`` —
+  accessibility and fallback, and the primary form for games without a
+  board. Non-participants (and anonymous visitors) are redirected to the
+  public spectate page, whose board never carries these controls.
+* ``POST /play/matches/<id>/turns`` — submit one chosen legal action (from
+  a board cell control or the fallback form — both carry the same payload);
   POST-redirect-GET back to the play view so a refresh never re-submits.
 
 CSRF stance

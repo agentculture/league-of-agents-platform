@@ -58,6 +58,7 @@ class ScriptedRunner:
         mvp_unit: dict[str, str] | None = None,
         lvp_unit: dict[str, str] | None = None,
         units: dict[str, dict[str, Any]] | None = None,
+        board_state: dict[str, Any] | None = None,
     ) -> None:
         self.calls: list[tuple[str, tuple[str, ...]]] = []
         self.harness_configs: list[dict[str, Any]] = []
@@ -74,6 +75,10 @@ class ScriptedRunner:
         self._mvp_unit = mvp_unit
         self._lvp_unit = lvp_unit
         self._units = units or {}
+        #: Extra `match show --json` "state" keys (the board projections a
+        #: real CLI always includes: grid_width/units/...); absent by default
+        #: so pre-board scripted shows keep exercising the degraded path.
+        self._board_state = board_state or {}
 
     def run_text(self, args: list[str], *, cwd: Path, timeout: float | None = None) -> str:
         self.calls.append(("run_text", tuple(args)))
@@ -158,6 +163,7 @@ class ScriptedRunner:
                 "turn": self.turn,
                 "turn_limit": self.turn_limit,
                 "winner": None,
+                **self._board_state,
             },
             "legal_actions": {"fake-unit": {"move": []}},
             "last_turn_rejections": [],
@@ -236,6 +242,44 @@ def test_initial_state_rejects_the_wrong_participant_count() -> None:
     engine = GridLaneEngine("solo-vs-bot", runner=ScriptedRunner(team_ids=["solo", "house"]))
     with pytest.raises(ValueError, match="needs exactly 1"):
         engine.initial_state([_agent("p-1"), _agent("p-2")])
+
+
+# -- board projections: mirrored from `match show --json` for the board UI ----
+
+
+def test_state_mirrors_the_shows_board_projections(tmp_path: Path) -> None:
+    """The board fields (grid dims, unit positions, control points, resource
+    nodes, missions) ride the state verbatim — they are what the play/viewer
+    board (:mod:`league_site.viewer.board`) renders."""
+    board = {
+        "grid_width": 14,
+        "grid_height": 12,
+        "units": [{"id": "solo-u1", "team_id": "solo", "role": "scout", "pos": [0, 0]}],
+        "control_points": [{"id": "cp-relay", "pos": [7, 5], "owner": None}],
+        "resource_nodes": [{"id": "rn-lowland", "pos": [5, 5], "remaining": 12}],
+        "missions": [{"id": "ms-caravan", "kind": "deliver", "pos": [6, 6], "status": "open"}],
+    }
+    scripted = ScriptedRunner(team_ids=["solo", "house"], board_state=board)
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+
+    state = engine.initial_state([_agent("p-1")])
+    for key, value in board.items():
+        assert state[key] == value, key
+
+    state = engine.apply_turn(state, "p-1", {"actions": []})
+    for key, value in board.items():
+        assert state[key] == value, key
+
+
+def test_a_show_without_board_projections_still_builds_a_state(tmp_path: Path) -> None:
+    """Board fields are additive: a `match show` payload without them (or a
+    pre-board persisted state) must not break state construction — the play
+    surface then simply renders without a board."""
+    scripted = ScriptedRunner(team_ids=["solo", "house"])
+    engine = GridLaneEngine("solo-vs-bot", runner=scripted, workdir_root=tmp_path)
+    state = engine.initial_state([_agent("p-1")])
+    assert state["status"] == "active"
+    assert state.get("units") in (None, [])
 
 
 # -- apply_turn: the house/bot side is driven, not force-ticked (platform#9) --

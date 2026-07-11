@@ -749,6 +749,17 @@ button.button {{
 }}
 .play-match-list {{ list-style: none; padding-left: 0; margin: 0 0 var(--space-4) 0; }}
 .play-match-list li {{ margin: 0 0 var(--space-2) 0; }}
+/* The board-first play view folds the select form into a <details> —
+   accessibility + fallback while the board carries the move controls
+   (t9b; the board's own styles ride the viewer page shell's extra
+   stylesheet, league_site/viewer/wsgi.py). */
+.play-fallback summary {{
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}}
+.play-fallback[open] summary {{ margin-bottom: var(--space-3); }}
 
 .theme-toggle {{
   background: none;
