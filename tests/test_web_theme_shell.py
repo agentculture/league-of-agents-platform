@@ -76,8 +76,8 @@ def test_index_page_carries_the_full_shell() -> None:
 def test_header_carries_wordmark_and_nav_placeholders() -> None:
     _, _, body = _get(_shelled(), "/index")
     text = body.decode("utf-8")
-    assert "LEAGUE" in text
-    assert "OF AGENTS" in text
+    assert "League" in text
+    assert "of Agents" in text
     for label, href in (
         ("Home", "/index"),
         ("Docs", "/docs"),

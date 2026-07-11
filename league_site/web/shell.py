@@ -143,8 +143,8 @@ _NAV_ITEMS = (
 _WORDMARK_HTML = (
     '<a class="wordmark" href="/index" aria-label="League of Agents — home">'
     '<span class="wordmark-glyph" aria-hidden="true">⚔</span>'
-    "<span>LEAGUE</span>"
-    '<span class="wordmark-accent">OF AGENTS</span>'
+    "<span>League</span>"
+    '<span class="wordmark-accent">of Agents</span>'
     "</a>"
 )
 
