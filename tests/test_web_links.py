@@ -30,6 +30,12 @@ _HREF_RE = re.compile(r'href="([^"]+)"')
 _CRAWL_CAP = 200
 _NAV_TARGETS = ("/index", "/docs", "/leaderboard", "/about")
 _NO_RECURSE_PATHS = frozenset({"/llms.txt", "/front"})
+#: Auth *action* routes (the header's "Sign in"/"Sign out" entries link
+#: ``/auth/login/github`` / ``/auth/logout``) are provider-gated redirects,
+#: not navigable content pages — collected-but-not-crawled, exactly like the
+#: ``mailto:``/``tel:`` links below. Fetching one hits the OAuth handoff (a
+#: 302, or a 400 when the flow is disabled pre-OAuth), never a 200 HTML page.
+_NON_NAVIGABLE_PREFIXES = ("/auth/",)
 
 
 def _get(app: WSGIApp, path: str) -> tuple[str, dict[str, str], bytes]:
@@ -88,6 +94,8 @@ def _crawl(app: WSGIApp) -> tuple[dict[str, str], set[str]]:
             if href.startswith(("#", "mailto:", "tel:")):
                 continue
             if not href.startswith("/") or href.startswith("//"):
+                continue
+            if href.startswith(_NON_NAVIGABLE_PREFIXES):
                 continue
             target = _normalize(href)
             if target and target not in visited and target not in frontier:
