@@ -1,12 +1,19 @@
-"""Tests for the motion system in :mod:`league_site.web.theme` (t4).
+"""Tests for the motion system in :mod:`league_site.web.theme`.
 
-Design contract (docs/design/dazzle-direction.md + the t4 task brief):
+Design contract (t4's structure, re-voiced by t5 to the agentculture.org
+family feel — breathing pace, nothing snaps):
 
 * Reveal primitives (``.reveal`` / ``.revealed``) only take effect when BOTH
   ``html[data-js]`` is present (t3's pre-paint snippet sets it before first
   paint) AND the visitor has not asked for reduced motion. Content must
   never be hidden with JS off or with reduced motion on — the hidden
-  ``opacity: 0`` state may only exist inside that double guard.
+  ``opacity: 0`` state may only exist inside that double guard. The reveal
+  settles over ~0.9s on ``var(--ease-out)`` (the long, settling family
+  curve); the JS stagger stays 60ms per element.
+* Motion tokens: ``--ease-out: cubic-bezier(0.22, 1, 0.36, 1)`` and
+  ``--ease-gentle: cubic-bezier(0.45, 0, 0.25, 1)``. Hovers are gentle
+  lifts — cards ``translateY(-4px)`` with ``var(--shadow-lift)``, 0.4s on
+  the breathing curve — not snaps.
 * Every motion rule (transitions, keyframes/animations, view-transition
   fades) lives inside a single ``@media (prefers-reduced-motion:
   no-preference)`` block. Static hover changes (color, border-color) may
@@ -14,8 +21,9 @@ Design contract (docs/design/dazzle-direction.md + the t4 task brief):
 * Only ``transform``/``opacity`` are animated continuously; ``box-shadow``
   is allowed on hover-triggered transitions only. No layout properties
   (width/height/margin/top/left/right/bottom) are ever animated.
-* ``--accent-glow`` is defined in all three token blocks (:root, the
-  explicit dark attribute block, and the prefers-color-scheme dark block).
+* ``--accent-glow`` (now a teal glow, derived from the dawn accent) is
+  defined in all three token blocks (:root, the explicit dark attribute
+  block, and the prefers-color-scheme dark block).
 """
 
 from __future__ import annotations
@@ -159,9 +167,15 @@ def test_reveal_is_staggerable_via_a_custom_delay_property() -> None:
 def test_reveal_transition_duration_and_easing() -> None:
     _, block = theme.STYLESHEET.split("html[data-js] .reveal {", 1)
     block = block.split("html[data-js] .reveal.revealed", 1)[0]
-    assert "500ms" in block
-    assert "cubic-bezier(0.2, 0.6, 0.2, 1)" in block
-    assert "translateY(8px)" in block
+    assert "0.9s" in block
+    assert "var(--ease-out)" in block
+    assert "translateY(1.4rem)" in block
+
+
+def test_easing_tokens_carry_the_family_curves() -> None:
+    root_block = theme.STYLESHEET.split(":root {", 1)[1].split("}", 1)[0]
+    assert "--ease-out: cubic-bezier(0.22, 1, 0.36, 1)" in root_block
+    assert "--ease-gentle: cubic-bezier(0.45, 0, 0.25, 1)" in root_block
 
 
 def test_accent_glow_token_defined_in_all_three_token_blocks() -> None:
@@ -169,24 +183,24 @@ def test_accent_glow_token_defined_in_all_three_token_blocks() -> None:
 
     root_block = css.split(":root {", 1)[1].split("}", 1)[0]
     assert "--accent-glow:" in root_block
-    assert "rgba(194, 65, 12, .18)" in root_block or "rgba(194,65,12,.18)" in root_block
+    assert "rgba(11, 101, 92, .18)" in root_block
 
     _, dark_attr = css.split(':root[data-theme="dark"]', 1)
     dark_attr_block = dark_attr.split("}", 1)[0]
     assert "--accent-glow:" in dark_attr_block
-    assert "rgba(255, 138, 61, .22)" in dark_attr_block or "rgba(255,138,61,.22)" in dark_attr_block
+    assert "rgba(127, 220, 201, .22)" in dark_attr_block
 
     _, media_block = css.split("@media (prefers-color-scheme: dark)", 1)
     scoped_block = media_block.split(':root:not([data-theme="light"])', 1)[1]
     scoped_block = scoped_block.split("}", 1)[0]
     assert "--accent-glow:" in scoped_block
-    assert "rgba(255, 138, 61, .22)" in scoped_block or "rgba(255,138,61,.22)" in scoped_block
+    assert "rgba(127, 220, 201, .22)" in scoped_block
 
 
-def test_button_hover_gets_translate_and_accent_glow_box_shadow_inside_guard() -> None:
+def test_button_hover_gets_gentle_lift_and_accent_glow_box_shadow_inside_guard() -> None:
     spans = _reduced_motion_guard_spans(theme.STYLESHEET)
     match = re.search(
-        r"\.button:hover,\s*\.button:focus-visible\s*\{[^}]*transform:\s*translateY\(-1px\)[^}]*\}",
+        r"\.button:hover,\s*\.button:focus-visible\s*\{[^}]*transform:\s*translateY\(-2px\)[^}]*\}",
         theme.STYLESHEET,
     )
     assert match is not None
@@ -195,14 +209,24 @@ def test_button_hover_gets_translate_and_accent_glow_box_shadow_inside_guard() -
     assert "box-shadow" in match.group(0)
 
 
-def test_card_hover_gets_translate_inside_guard_and_border_color_outside() -> None:
+def test_hover_transitions_breathe_on_the_gentle_curve() -> None:
+    spans = _reduced_motion_guard_spans(theme.STYLESHEET)
+    for selector in (r"\n  \.button \{", r"\n  \.card \{"):
+        match = re.search(selector + r"([^}]*)\}", theme.STYLESHEET)
+        assert match is not None, selector
+        assert _inside_any_span(match.start(), spans), selector
+        assert "0.4s var(--ease-gentle)" in match.group(1), selector
+
+
+def test_card_hover_gets_lift_with_shadow_inside_guard_and_border_color_outside() -> None:
     spans = _reduced_motion_guard_spans(theme.STYLESHEET)
 
     transform_match = re.search(
-        r"\.card:hover\s*\{[^}]*transform:\s*translateY\(-2px\)[^}]*\}", theme.STYLESHEET
+        r"\.card:hover\s*\{[^}]*transform:\s*translateY\(-4px\)[^}]*\}", theme.STYLESHEET
     )
     assert transform_match is not None
     assert _inside_any_span(transform_match.start(), spans)
+    assert "var(--shadow-lift)" in transform_match.group(0)
 
     border_match = re.search(
         r"\.card:hover\s*\{[^}]*border-color:\s*var\(--border-strong\)[^}]*\}",
