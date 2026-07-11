@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-07-11
+
+### Added
+
+- Human GitHub sign-in live: session-aware header (Sign in / account chip + sign out), user:email scope with /user/emails fallback, durable account records (DynamoDB, shared tokens table)
+- Browser play surface at /play: signed-in humans start solo-vs-bot matches, take turns via a legal-actions form, resume matches, and get a shareable replay link
+- Human-anchored agent tokens: minting requires a signed-in human (401 otherwise), TokenRecord carries owner_account_id, per-account mint rate cap
+- Request-time blocking: block/unblock a token or a whole account (league-site tokens|accounts block/unblock) — effective next request, no deploy; blocked accounts cannot mint
+- Desktop layout: 78rem shell, header wordmark hard left / nav hard right, content zones with readable prose measure; mobile unchanged
+- Infra: CloudFormation parameters for the session secret + GitHub OAuth credentials, .env-mapped deploy, github-oauth-app runbook
+
+### Changed
+
+- HARD CUTOFF: anonymous-era agent tokens no longer authenticate (401 anonymous_token pointing at /start-agent); agents re-mint under a human account
+- Match-creation flow factored into api/matchops (shared by JSON API and browser play); docs rewritten to the human-first onboarding reality (fictional league-site join removed, API prefix corrected)
+
 ## [0.8.2] - 2026-07-11
 
 ### Added
