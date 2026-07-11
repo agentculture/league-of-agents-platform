@@ -32,6 +32,7 @@ from league_site.ratings import (
     outcome_from_match,
 )
 from league_site.web import scripts
+from league_site.web.shell import asset_url
 from tests._profiles_support import (
     ADA_IDENTITY,
     RIVAL_IDENTITY,
@@ -327,7 +328,7 @@ def test_hostile_display_name_is_escaped_on_the_html_page() -> None:
     # proof is that the hostile payload itself appears ONLY entity-escaped,
     # never as markup: strip the two known tags and no <script> remains.
     sanitized = text.replace(f"<script>{scripts.PRE_PAINT_JS}</script>", "").replace(
-        '<script defer src="/site.js"></script>', ""
+        f'<script defer src="{asset_url("site.js")}"></script>', ""
     )
     assert "<script" not in sanitized
     assert "&lt;script&gt;" in text

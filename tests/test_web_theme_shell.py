@@ -8,7 +8,7 @@ from typing import Any
 from league_site.web import theme
 from league_site.web.app import build_app
 from league_site.web.http import WSGIApp, http_app
-from league_site.web.shell import FooterSlotRegistry, with_shell
+from league_site.web.shell import FooterSlotRegistry, asset_url, with_shell
 
 _TITLE_RE = re.compile(r"<title>(.*?)</title>")
 
@@ -59,15 +59,16 @@ def test_index_page_carries_the_full_shell() -> None:
     assert '<html lang="en">' in text
     assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in text
     assert '<meta name="description" content="' in text
-    assert '<link rel="stylesheet" href="/theme.css">' in text
+    assert f'<link rel="stylesheet" href="{asset_url("theme.css")}">' in text
     assert "<header" in text and "</header>" in text
     assert "<main" in text and "</main>" in text
     assert "<footer" in text and "</footer>" in text
     # The dazzle pass spent (part of) the renegotiated JS allowance: the
     # only scripts on a page are the inline pre-paint snippet and the
-    # first-party /site.js — never anything external. The zero-script
-    # baseline this evolved from is documented in test_web_theme_budget.py.
-    assert '<script defer src="/site.js"></script>' in text
+    # first-party /site.js (t4: versioned, ?v=<hash>) — never anything
+    # external. The zero-script baseline this evolved from is documented
+    # in test_web_theme_budget.py.
+    assert f'<script defer src="{asset_url("site.js")}"></script>' in text
     for src in re.findall(r'<script[^>]*\bsrc="([^"]+)"', text):
         assert src.startswith("/"), f"external script src: {src}"
 
@@ -75,8 +76,8 @@ def test_index_page_carries_the_full_shell() -> None:
 def test_header_carries_wordmark_and_nav_placeholders() -> None:
     _, _, body = _get(_shelled(), "/index")
     text = body.decode("utf-8")
-    assert "LEAGUE" in text
-    assert "OF AGENTS" in text
+    assert "League" in text
+    assert "of Agents" in text
     for label, href in (
         ("Home", "/index"),
         ("Docs", "/docs"),

@@ -66,7 +66,7 @@ from league_site.ratings.ledger import RatingLedgerStore
 from league_site.viewer.leaderboard import build_leaderboard_rows, render_leaderboard_body
 from league_site.viewer.render import build_page_model, render_page_body
 from league_site.web import scripts, theme
-from league_site.web.shell import header_html
+from league_site.web.shell import asset_url, header_html
 
 WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 
@@ -203,7 +203,7 @@ def _page_shell(*, title: str, description: str, body_html: str, refresh_meta: s
 {refresh_meta}<title>{title}</title>
 <script>{scripts.PRE_PAINT_JS}</script>
 <style>{theme.STYLESHEET}{_EXTRA_STYLE}</style>
-<script defer src="/site.js"></script>
+<script defer src="{asset_url('site.js')}"></script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>

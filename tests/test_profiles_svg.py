@@ -155,6 +155,22 @@ def test_share_card_differs_when_rank_differs() -> None:
     assert share_card(profile, rank=1) != share_card(profile, rank=2)
 
 
+def test_share_card_wears_the_dawn_dark_palette_not_the_old_flare_orange() -> None:
+    """t11 re-mapped the self-contained card constants from the retired
+    flare-orange dark palette to the "dawn" dark scheme (mirrors
+    ``league_site/web/theme.py``'s dark tokens). Pin the visible result: the
+    aurora-teal accent is present, and neither the old accent (#ff8a3d) nor
+    the old background (#12151a) survives anywhere in the rendered SVG."""
+    scenario = build_scenario()
+    profile = build_profile(ADA_IDENTITY, scenario.ledger_store, scenario.match_store)
+
+    svg = share_card(profile, rank=1)
+    assert "#7fdcc9" in svg  # --accent (dark)
+    assert "#0b0f20" in svg  # --bg (dark)
+    assert "#ff8a3d" not in svg  # retired flare-orange accent
+    assert "#12151a" not in svg  # retired flare-orange background
+
+
 # --- rank_badge -------------------------------------------------------------------
 
 

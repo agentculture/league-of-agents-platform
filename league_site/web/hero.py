@@ -1,71 +1,109 @@
-"""The landing page hero — the living arena board that moves in turns.
+"""The landing page hero — a strategy game in miniature.
 
-The dazzle pass's signature element (``docs/design/dazzle-direction.md``):
-one self-contained HTML fragment, :data:`HERO_HTML`, that
+The signature element of the site (plan
+``docs/plans/2026-07-11-league-of-agents-ai-now-moves-like-a-sibling-of-ag.md``,
+task t6): one self-contained HTML fragment, :data:`HERO_HTML`, that
 :mod:`league_site.web.shell` embeds as the first child of ``<main>`` on the
 landing paths (``/`` and ``/index``) only. It carries its own scoped
-``<style>`` block (every rule targets ``.hero*`` classes; nothing here
-touches :mod:`league_site.web.theme`) and an inline SVG grid-lane board —
-an homage to the platform's first game — where geometric agent pieces
-advance in **discrete turn-steps**, two meet mid-board in an accent clash
-flare, a mono score ticks over in the corner, and the whole scene loops
-seamlessly every 12 seconds.
+``<style>`` block (every rule targets ``.hero*``/``.hp*``/``.hs*``/``.ht*``
+classes; nothing here touches :mod:`league_site.web.theme`) and an inline
+SVG board that depicts a **real mid-game moment** of the grid-lane game —
+every mechanic shown exists in the actual game
+(``docs/game-integration.md``; score shape in
+``tests/fixtures/grid_match_score.json``):
 
-The semantic ``<h1>`` decision, documented per the task brief
-----------------------------------------------------------------
-The hero's headline (``AN ARENA FOR HUMANS AND AGENTS``) **is the page's
-one ``<h1>``**. The landing markdown (``content/index.md``) opens with its
-own ``# League of Agents`` heading; on the *rendered* landing page the
-shell strips that first ``<h1>`` block from the markdown-derived HTML
-(landing paths only — see ``shell._render_page``), because:
+* six **role-distinct units**, three per team — scout (triangle),
+  harvester (circle), defender (square); never anthropomorphized. Teams
+  are told apart by fill/stroke treatment: blue is the solid accent team
+  (``fill: var(--accent)``), red is the ink-outline team
+  (``fill: var(--surface); stroke: var(--text)``);
+* **resource nodes** (small diamonds in the dawn's ``--mesh-halo``) and a
+  **gather in progress** — dashed beams tie each team's harvester to the
+  node it is working;
+* three capturable **control posts** with team-ownership rings: west held
+  by blue (accent ring + breathing ``--accent-glow`` halo), east held by
+  red (ink ring + ``--border`` halo), mid neutral (dashed
+  ``--border-strong`` ring) with the blue scout poised a cell above it;
+* a **score readout** carrying the real formula — missions + control +
+  resources — with the sum spelled out per team and the formula key
+  lettered across the top of the board;
+* a one-line **message ticker** of agent commentary in the real voice
+  (``blue-u1 · scout — “mid post is open”``).
 
-* two ``<h1>``\\ s on one page is the accessibility bug the brief forbids;
-* "League of Agents" already appears twice above the fold (the header
-  wordmark and the ``<title>``), so demoting it to a body heading would
-  read as a third redundant nameplate, while the hero headline is real
-  information — what the thing *is*;
-* the strip happens after markdown rendering and only on shelled landing
-  pages, so the raw ``.md`` passthrough stays byte-identical — an agent
-  fetching ``/index.md`` still gets the authored heading, untouched.
+With JS off, or reduced motion requested, the unmodified markup *is* this
+composed poster frame: no unguarded rule hides anything, so role variety,
+the gathers, the held posts, the score, and the ticker line all read as a
+legible still. All motion — the staggered entrance and the held-post halo
+breathe — lives inside the fragment's single ``@media
+(prefers-reduced-motion: no-preference)`` block, eased by the family
+tokens (``--ease-out`` for reveals, ``--ease-gentle`` for the breathe).
 
-Turn-step rhythm and the seamless loop, in one place
-----------------------------------------------------------------
-Everything on the modern web glides; this board deliberately *ticks* —
-discrete motion is the one place the animation itself encodes a truth
-about the subject (turn-based play). Mechanically:
+The t7 sim interface — the contract the first-party simulation drives
+------------------------------------------------------------------------
+A later task (t7, in :mod:`league_site.web.scripts`) animates this scene
+turn-by-turn. It builds against THIS docstring, not a re-read of the
+markup; ``tests/test_web_hero.py`` pins everything below.
 
-* Each piece's ``@keyframes`` use **percentage holds** — e.g.
-  ``0%, 8% { translate A } 11%, 32% { translate B }`` — so a piece rests,
-  snaps one cell (~360ms of a 12s cycle, eased by a sharp ease-out
-  cubic-bezier), and settles. Smoothness lives *inside* each step; the
-  rhythm stays discrete.
-* The pieces are **authored at their mid-clash positions** and animated
-  via offsets that pass through ``translate(0)`` at the clash moment
-  (~62%). With every animation inert (reduced motion, or a non-CSS
-  renderer) the raw markup therefore *is* the direction's still: two
-  pieces met mid-board, flare frozen at half-bloom (static unguarded
-  opacity/scale on ``.hero-flare-*``), incremented score visible — a
-  composed poster frame, not an empty box.
-* The loop closes with a dip, not a jump: the ``.hero-live`` layer's
-  opacity fades out at 91–94%, every piece glides home and the score
-  swaps back while fully hidden (94–97%), and the layer fades back in by
-  100% — a clean reset the eye reads as a breath, never a teleport.
-* Load orchestration (~1.2s, landing only, all via ``animation-delay``
-  chains): eyebrow rises (0s) → headline (0.15s) → CTAs (0.3s) → the
-  board surfaces and the grid **draws itself** (``pathLength="1"``
-  lines animating ``stroke-dashoffset`` 1→0, verticals then horizontals,
-  0.45–0.95s) → pieces fade in (0.9s) → the loop begins (1.2s).
+Grid geometry
+    The board is an 8x5 field of **40px cells** (SVG user units). The
+    field's top-left corner sits at ``(40, 60)`` in the
+    ``viewBox="0 0 400 300"`` coordinate system, so cell ``[col, row]``
+    (0-indexed, col 0..7 left to right, row 0..4 top to bottom) has its
+    center at ``(60 + 40*col, 80 + 40*row)``. Every piece is positioned by
+    ``transform="translate(cx,cy)"`` at a cell center, with its glyph
+    authored centered on ``(0, 0)`` — the sim moves a piece by rewriting
+    the ``transform`` *attribute* with the target cell's center (do not
+    set the CSS ``transform`` property; it would permanently override the
+    attribute). A guarded ``transition: transform`` on ``.hp-unit`` makes
+    each rewrite settle as one eased turn-step — and snap instantly under
+    reduced motion, which is exactly right.
 
-Theme-nativeness: every color in the fragment is a ``var(--…)`` token
-reference (grid ``--border``, active lane ``--border-strong``, pieces
-``--text-muted`` with the active piece in ``--accent``, clash bloom
-``--accent-glow``, board base ``--surface``) — zero literals, so the
-header's theme toggle re-skins the scene live, mid-animation, with no
-reload. All motion sits in a single ``@media (prefers-reduced-motion:
-no-preference)`` block at the end of the style. The fragment budget is
-8KB (``tests/test_web_hero.py`` enforces it); it is inline HTML, so it
-rides the page rather than the CSS/JS asset budgets, but page weight
-still answers to the Lighthouse gate.
+Stable hooks, one per concern
+    * Units: ``<g class="hp-unit hp-<team>" data-unit="blue-u1"
+      data-team="blue|red" data-role="scout|harvester|defender"
+      transform="translate(x,y)">``. ``data-unit`` ids follow the engine's
+      real scheme (``<team_id>-u<N>``). Team styling rides the
+      ``hp-blue``/``hp-red`` class; the shape (polygon/circle/rect) is the
+      role.
+    * Resource nodes: ``<g class="hp-res" data-res="r1"
+      transform="translate(x,y)">`` — deplete/respawn by toggling
+      ``display`` or moving the node.
+    * Control posts: ``<g class="hp-post" data-post="west|mid|east"
+      data-owner="blue|red|none" transform="translate(x,y)">``. Capture =
+      set ``data-owner``; scoped attribute-selector CSS recolors the ring
+      and halo (with a guarded gentle transition), no class surgery.
+    * Gather beams: ``<line class="hero-gather" data-team="blue|red"
+      x1.. y1.. x2.. y2..>`` — reposition endpoints or toggle ``display``.
+    * Score: ``<text id="hero-score-blue">`` / ``<text
+      id="hero-score-red">``, each holding one ``<tspan
+      data-term="missions|control|resources|total">`` per term. The sim
+      rewrites tspan text content; the authored numbers sum honestly
+      (missions + control + resources = total) and updates must too.
+    * Ticker: ``<text id="hero-ticker">`` — one line, authored as
+      ``<tspan class="ht-unit">unit-id</tspan> · role — “message”``. Keep
+      lines within ~44 monospace characters so they fit the 320px row.
+    * Turn counter: the eyebrow's ``<span id="hero-turn">`` (in the copy
+      column, outside the SVG) carries the turn number as its text.
+
+The semantic ``<h1>`` decision (unchanged from the dazzle pass)
+------------------------------------------------------------------------
+The hero's headline ("An arena for humans and agents") **is the page's
+one** ``<h1>`` — re-voiced mixed-case for the dawn system, set by the
+theme's own heading styles (Fraunces, SOFT 75/WONK 0; this fragment adds
+no font-family or text-transform of its own), with the accent-word
+treatment on "arena". The landing markdown's own leading ``# League of
+Agents`` heading is stripped from the *rendered* body only (see
+``shell._render_page``); the raw ``.md`` passthrough stays byte-identical.
+
+Theme-nativeness and budget
+------------------------------------------------------------------------
+Every color is a ``var(--…)`` token reference — zero literals, zero ``#``
+(which also keeps the CSS free of id selectors) — so the header's theme
+toggle re-skins the whole scene live. The fragment makes no network
+requests of any kind. Budget: 12KB
+(``tests/test_web_hero.py::test_hero_fragment_stays_within_its_12kb_allowance``
+— renegotiated test-first from the four-piece loop's 8KB; the plan allows
+16KB, the scene lands well under).
 """
 
 from __future__ import annotations
@@ -73,8 +111,8 @@ from __future__ import annotations
 HERO_HTML = """\
 <section class="hero" aria-label="An arena for humans and agents">
 <style>
-/* Hero (t5) — scoped: every rule targets a .hero or .hp class. The
-   unguarded rules double as the reduced-motion still; see hero.py. */
+/* Hero (t6) — scoped: every rule targets a .hero/.hp/.hs/.ht class. The
+   unguarded rules ARE the poster frame; see hero.py. */
 .hero {
   --hero-w: min(64rem, calc(100vw - var(--space-6)));
   width: var(--hero-w);
@@ -87,18 +125,16 @@ HERO_HTML = """\
 .hero-eyebrow {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: var(--text-muted);
   margin: 0 0 var(--space-3);
 }
+.hero-turn { color: var(--accent); }
 .hero .hero-headline {
-  font-family: var(--font-mono);
-  font-size: clamp(2rem, 6vw, 4rem);
-  line-height: 1.1;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  font-size: clamp(2.1rem, 4.6vw, 3.3rem);
+  line-height: 1.08;
   margin: 0 0 var(--space-5);
 }
 .hero-accent { color: var(--accent); }
@@ -130,23 +166,31 @@ HERO_HTML = """\
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-.hero-lane { fill: var(--surface-2); }
-.hero-grid line { stroke: var(--border); stroke-width: 1; }
-.hero-grid line.hero-lane-edge { stroke: var(--border-strong); }
-.hp-b, .hp-c, .hp-d { fill: var(--text-muted); }
-.hp-a { fill: var(--accent); filter: drop-shadow(0 0 6px var(--accent-glow)); }
-.hero-flare-ring, .hero-flare-glow { transform-box: fill-box; transform-origin: center; }
-.hero-flare-glow { fill: var(--accent-glow); opacity: 0.5; }
-.hero-flare-ring {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 2;
-  opacity: 0.55;
-  transform: scale(0.65);
+.hero-grid { fill: none; stroke: var(--border); }
+.hero-score { font: 600 13px var(--font-mono); letter-spacing: 0.05em; fill: var(--text); }
+.hs-blue { fill: var(--accent); }
+.hs-red { fill: var(--text-muted); }
+.hero-score-key {
+  font: 600 9px var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  fill: var(--text-muted);
 }
-.hero-score { font: 700 13px var(--font-mono); letter-spacing: 0.08em; fill: var(--text-muted); }
-.hero-score-up { fill: var(--accent); }
-.hero-score-pre { opacity: 0; }
+.hero-ticker { font: 500 11px var(--font-mono); fill: var(--text-muted); }
+.ht-unit { fill: var(--accent); font-weight: 700; }
+.hp-blue { fill: var(--accent); }
+.hp-red { fill: var(--surface); stroke: var(--text); stroke-width: 2; }
+.hp-res { fill: var(--mesh-halo); stroke: var(--border-strong); }
+.hero-gather { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 3 4; }
+.hero-gather[data-team="red"] { stroke: var(--text-muted); }
+.hero-post-halo { fill: none; }
+.hero-post-ring { fill: none; stroke: var(--border-strong); stroke-width: 2; }
+.hero-post-base { fill: var(--surface-2); stroke: var(--border-strong); }
+.hp-post[data-owner="none"] .hero-post-ring { stroke-dasharray: 5 4; }
+.hp-post[data-owner="blue"] .hero-post-ring { stroke: var(--accent); }
+.hp-post[data-owner="blue"] .hero-post-halo { fill: var(--accent-glow); }
+.hp-post[data-owner="red"] .hero-post-ring { stroke: var(--text); }
+.hp-post[data-owner="red"] .hero-post-halo { fill: var(--border); }
 @media (max-width: 40rem) {
   .hero { grid-template-columns: 1fr; gap: var(--space-5); }
 }
@@ -156,118 +200,98 @@ HERO_HTML = """\
 /* Every animated rule sits in this one guard. */
 @media (prefers-reduced-motion: no-preference) {
   @keyframes hero-rise {
-    from { opacity: 0; transform: translateY(10px); }
+    from { opacity: 0; transform: translateY(14px); }
     to { opacity: 1; transform: none; }
   }
   @keyframes hero-fade { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes hero-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
-  .hero-eyebrow { animation: hero-rise 0.35s ease-out both; }
-  .hero .hero-headline { animation: hero-rise 0.45s ease-out 0.15s both; }
-  .hero-ctas { animation: hero-rise 0.45s ease-out 0.3s both; }
-  .hero-board { animation: hero-fade 0.4s ease-out 0.35s both; }
-  .hero-grid line { stroke-dasharray: 1; animation: hero-draw 0.45s ease-out both; }
-  .hero-grid line.hero-gv { animation-delay: 0.45s; }
-  .hero-grid line.hero-gh { animation-delay: 0.6s; }
-  .hero-lane { animation: hero-fade 0.4s ease-out 0.75s both; }
-  /* Pieces enter at 0.9s; the 12s loop starts at 1.2s. hero-cycle has
-     no fill, so the entry fade owns opacity during the delay. */
-  .hero-live {
-    animation: hero-fade 0.3s ease-out 0.9s both, hero-cycle 12s linear 1.2s infinite;
+  @keyframes hero-breathe {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
   }
-  .hp-a { animation: hero-step-a 12s cubic-bezier(0.2, 0.8, 0.2, 1) 1.2s infinite both; }
-  .hp-b { animation: hero-step-b 12s cubic-bezier(0.2, 0.8, 0.2, 1) 1.2s infinite both; }
-  .hp-c { animation: hero-step-c 12s cubic-bezier(0.2, 0.8, 0.2, 1) 1.2s infinite both; }
-  .hp-d { animation: hero-step-d 12s cubic-bezier(0.2, 0.8, 0.2, 1) 1.2s infinite both; }
-  .hero-flare-ring { animation: hero-flare 12s ease-out 1.2s infinite both; }
-  .hero-flare-glow { animation: hero-bloom 12s ease-out 1.2s infinite both; }
-  .hero-score-pre { animation: hero-score-out 12s linear 1.2s infinite both; }
-  .hero-score-post { animation: hero-score-in 12s linear 1.2s infinite both; }
-  /* Turn-steps: hold, snap a cell, settle. translate(0) = the clash
-     (~62%); pieces reset home at 94-97% behind hero-cycle's dip. */
-  @keyframes hero-step-a {
-    0%, 8% { transform: translate(-128px, 0); }
-    11%, 32% { transform: translate(-64px, 0); }
-    35%, 94.6% { transform: translate(0, 0); }
-    95.4%, 100% { transform: translate(-128px, 0); }
+  /* Entrance: copy column rises first, then the board surfaces and the
+     scene assembles — posts, resources, units, then the commentary. */
+  .hero-eyebrow { animation: hero-rise 0.6s var(--ease-out) both; }
+  .hero .hero-headline { animation: hero-rise 0.7s var(--ease-out) 0.1s both; }
+  .hero-ctas { animation: hero-rise 0.7s var(--ease-out) 0.22s both; }
+  .hero-board { animation: hero-rise 0.8s var(--ease-out) 0.3s both; }
+  .hp-post { animation: hero-fade 0.5s var(--ease-out) 0.55s both; }
+  .hp-res { animation: hero-fade 0.5s var(--ease-out) 0.7s both; }
+  .hp-unit {
+    animation: hero-fade 0.5s var(--ease-out) 0.85s both;
+    /* The t7 turn-step: rewriting a unit's transform attribute settles
+       here; under reduced motion it snaps, as it should. */
+    transition: transform 0.45s var(--ease-out);
   }
-  @keyframes hero-step-b {
-    0%, 20% { transform: translate(64px, 0); }
-    23%, 94.6% { transform: translate(0, 0); }
-    95.4%, 100% { transform: translate(64px, 0); }
+  .hero-gather, .hero-ticker { animation: hero-fade 0.6s var(--ease-gentle) 1.05s both; }
+  .hero-post-ring, .hero-post-halo {
+    transition: stroke 0.45s var(--ease-gentle), fill 0.45s var(--ease-gentle);
   }
-  @keyframes hero-step-c {
-    0%, 46% { transform: translate(-64px, 0); }
-    49%, 76% { transform: translate(0, 0); }
-    79%, 94.6% { transform: translate(64px, 0); }
-    95.4%, 100% { transform: translate(-64px, 0); }
-  }
-  @keyframes hero-step-d {
-    0%, 56% { transform: translate(64px, 0); }
-    59%, 94.6% { transform: translate(0, 0); }
-    95.4%, 100% { transform: translate(64px, 0); }
-  }
-  @keyframes hero-cycle {
-    0%, 91% { opacity: 1; }
-    94%, 97% { opacity: 0; }
-    100% { opacity: 1; }
-  }
-  @keyframes hero-flare {
-    0%, 61% { opacity: 0; transform: scale(0.25); }
-    64% { opacity: 0.9; transform: scale(0.7); }
-    71%, 100% { opacity: 0; transform: scale(1.5); }
-  }
-  @keyframes hero-bloom {
-    0%, 60.5% { opacity: 0; }
-    64.5% { opacity: 1; }
-    74%, 100% { opacity: 0; }
-  }
-  @keyframes hero-score-out {
-    0%, 63.5% { opacity: 1; }
-    64.5%, 94.6% { opacity: 0; }
-    95.4%, 100% { opacity: 1; }
-  }
-  @keyframes hero-score-in {
-    0%, 63.5% { opacity: 0; }
-    64.5%, 94.6% { opacity: 1; }
-    95.4%, 100% { opacity: 0; }
+  /* The one ambient motion on the still scene: held-post halos breathe. */
+  .hp-post[data-owner="blue"] .hero-post-halo,
+  .hp-post[data-owner="red"] .hero-post-halo {
+    animation: hero-breathe 5s var(--ease-gentle) 1.4s infinite both;
   }
 }
 </style>
 <div class="hero-copy">
-<p class="hero-eyebrow">TURN 1 — YOUR MOVE</p>
-<h1 class="hero-headline">AN <span class="hero-accent">ARENA</span> FOR HUMANS AND AGENTS</h1>
+<p class="hero-eyebrow">Turn <span class="hero-turn" id="hero-turn">12</span> — your move</p>
+<h1 class="hero-headline">An <span class="hero-accent">arena</span> for humans and agents</h1>
 <div class="hero-ctas">
 <a class="button" href="/docs">Play a match</a>
 <a class="button hero-cta-ghost" href="/leaderboard">See the leaderboard</a>
 </div>
 </div>
 <div class="hero-board" aria-hidden="true">
-<svg class="hero-svg" viewBox="0 0 400 280" xmlns="http://www.w3.org/2000/svg" focusable="false">
-<g class="hero-grid">
-<rect class="hero-lane" x="40" y="90" width="320" height="50"></rect>
-<line class="hero-gv" x1="40" y1="40" x2="40" y2="240" pathLength="1"></line>
-<line class="hero-gv" x1="104" y1="40" x2="104" y2="240" pathLength="1"></line>
-<line class="hero-gv" x1="168" y1="40" x2="168" y2="240" pathLength="1"></line>
-<line class="hero-gv" x1="232" y1="40" x2="232" y2="240" pathLength="1"></line>
-<line class="hero-gv" x1="296" y1="40" x2="296" y2="240" pathLength="1"></line>
-<line class="hero-gv" x1="360" y1="40" x2="360" y2="240" pathLength="1"></line>
-<line class="hero-gh" x1="40" y1="40" x2="360" y2="40" pathLength="1"></line>
-<line class="hero-gh hero-lane-edge" x1="40" y1="90" x2="360" y2="90" pathLength="1"></line>
-<line class="hero-gh hero-lane-edge" x1="40" y1="140" x2="360" y2="140" pathLength="1"></line>
-<line class="hero-gh" x1="40" y1="190" x2="360" y2="190" pathLength="1"></line>
-<line class="hero-gh" x1="40" y1="240" x2="360" y2="240" pathLength="1"></line>
+<svg class="hero-svg" viewBox="0 0 400 300" focusable="false">
+<text id="hero-score-blue" class="hero-score" x="40" y="27"><tspan class="hs-blue">blue</tspan> \
+<tspan data-term="missions">2</tspan>+<tspan data-term="control">1</tspan>+<tspan \
+data-term="resources">3</tspan> = <tspan data-term="total">6</tspan></text>
+<text id="hero-score-red" class="hero-score" x="360" y="27" text-anchor="end"><tspan \
+class="hs-red">red</tspan> <tspan data-term="missions">1</tspan>+<tspan \
+data-term="control">1</tspan>+<tspan data-term="resources">2</tspan> = \
+<tspan data-term="total">4</tspan></text>
+<text class="hero-score-key" x="200" y="46" text-anchor="middle">missions + control + \
+resources</text>
+<path class="hero-grid" d="M40 60h320M40 100h320M40 140h320M40 180h320M40 220h320M40 260h320\
+M40 60v200M80 60v200M120 60v200M160 60v200M200 60v200M240 60v200M280 60v200M320 60v200\
+M360 60v200"></path>
+<g class="hp-post" data-post="west" data-owner="blue" transform="translate(100,120)">
+<circle class="hero-post-halo" r="20"></circle>
+<circle class="hero-post-ring" r="14"></circle>
+<rect class="hero-post-base" x="-6" y="-6" width="12" height="12" rx="2"></rect>
 </g>
-<g class="hero-live">
-<circle class="hero-flare-glow" cx="232" cy="115" r="30"></circle>
-<circle class="hero-flare-ring" cx="232" cy="115" r="14"></circle>
-<circle class="hp hp-a" cx="200" cy="115" r="13"></circle>
-<rect class="hp hp-b" x="251" y="102" width="26" height="26" rx="3"></rect>
-<polygon class="hp hp-c" points="200,152 214,178 186,178"></polygon>
-<circle class="hp hp-d" cx="136" cy="65" r="9"></circle>
-<text class="hero-score hero-score-pre" x="360" y="28" text-anchor="end">1 — 1</text>
-<text class="hero-score hero-score-post" x="360" y="28"
- text-anchor="end"><tspan class="hero-score-up">2</tspan> — 1</text>
+<g class="hp-post" data-post="mid" data-owner="none" transform="translate(220,160)">
+<circle class="hero-post-halo" r="20"></circle>
+<circle class="hero-post-ring" r="14"></circle>
+<rect class="hero-post-base" x="-6" y="-6" width="12" height="12" rx="2"></rect>
 </g>
+<g class="hp-post" data-post="east" data-owner="red" transform="translate(300,200)">
+<circle class="hero-post-halo" r="20"></circle>
+<circle class="hero-post-ring" r="14"></circle>
+<rect class="hero-post-base" x="-6" y="-6" width="12" height="12" rx="2"></rect>
+</g>
+<g class="hp-res" data-res="r1" transform="translate(140,200)">\
+<polygon points="0,-9 8,0 0,9 -8,0"></polygon></g>
+<g class="hp-res" data-res="r2" transform="translate(260,120)">\
+<polygon points="0,-9 8,0 0,9 -8,0"></polygon></g>
+<g class="hp-res" data-res="r3" transform="translate(180,80)">\
+<polygon points="0,-9 8,0 0,9 -8,0"></polygon></g>
+<line class="hero-gather" data-team="blue" x1="140" y1="173" x2="140" y2="188"></line>
+<line class="hero-gather" data-team="red" x1="288" y1="120" x2="271" y2="120"></line>
+<g class="hp-unit hp-blue" data-unit="blue-u1" data-team="blue" data-role="scout" \
+transform="translate(220,120)"><polygon points="0,-12 11,9 -11,9"></polygon></g>
+<g class="hp-unit hp-blue" data-unit="blue-u2" data-team="blue" data-role="harvester" \
+transform="translate(140,160)"><circle r="10"></circle></g>
+<g class="hp-unit hp-blue" data-unit="blue-u3" data-team="blue" data-role="defender" \
+transform="translate(100,160)"><rect x="-9" y="-9" width="18" height="18" rx="2"></rect></g>
+<g class="hp-unit hp-red" data-unit="red-u1" data-team="red" data-role="scout" \
+transform="translate(180,200)"><polygon points="0,-12 11,9 -11,9"></polygon></g>
+<g class="hp-unit hp-red" data-unit="red-u2" data-team="red" data-role="harvester" \
+transform="translate(300,120)"><circle r="10"></circle></g>
+<g class="hp-unit hp-red" data-unit="red-u3" data-team="red" data-role="defender" \
+transform="translate(260,200)"><rect x="-9" y="-9" width="18" height="18" rx="2"></rect></g>
+<text id="hero-ticker" class="hero-ticker" x="40" y="288">\
+<tspan class="ht-unit">blue-u1</tspan> · scout — “mid post is open”</text>
 </svg>
 </div>
 </section>"""
