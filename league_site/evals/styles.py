@@ -14,7 +14,8 @@ import re
 
 _RAW_CSS = """\
 /* Layout: dawn-arena family page. Index = live match as hero + eval ledger; replay = board (the star) beside the seat panel, timeline-as-scrubber under it, the turn's talk below. */
-.wrap { max-width: 1320px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
+.wrap { max-width: 1320px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; }
+.wrap > * { min-width: 0; }
 h1, h2, h3 { font-family: var(--font-display); font-weight: 450; margin: 0; text-wrap: balance; letter-spacing: -.01em; line-height: 1.15; }
 h1 { font-size: clamp(2rem, 4.2vw, 3.1rem); font-variation-settings: "opsz" 144; }
 h2 { font-size: 1.45rem; font-variation-settings: "opsz" 72; }
@@ -171,7 +172,8 @@ td .sub { display: block; font-size: .82rem; color: var(--text-muted); }
 @media (max-width: 960px) {
   .hero, .stage { grid-template-columns: 1fr; }
   .boardcol { top: env(safe-area-inset-top, 0px); z-index: 5; padding: 8px; gap: 6px; box-shadow: var(--shadow-lift); }
-  #board { max-height: 34vh; }
+  #board { max-height: 28vh; }
+  .slice { scroll-margin-top: calc(var(--boardcol-h, 0px) + 12px); }
   .boardcol .legend, .boardcol .fognote, #chart { display: none; }
   .scoreboard { grid-template-columns: 1fr 1fr; }
   .clock { grid-column: 1 / -1; grid-row: 1; flex-direction: row; display: flex; justify-content: center; gap: 14px; }

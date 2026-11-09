@@ -83,14 +83,7 @@ def test_index_loads_clean(page, base_url, request, width, theme):
     "width",
     [
         "1440",
-        pytest.param(
-            "390",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="app bug: /evals/ index scrolls horizontally at 390 px "
-                "(scrollWidth 630; .intro and .hero-board svg are 630 px wide)",
-            ),
-        ),
+        "390",
     ],
 )
 def test_index_has_no_horizontal_scroll(page, base_url, width):
@@ -179,14 +172,7 @@ def test_slice_click_keeps_board_and_moment_in_view(page, base_url, width):
     "width",
     [
         "1440",
-        pytest.param(
-            "390",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="app bug: at 390 px the sticky board (375 px tall with its controls) "
-                "covers the top of the open moment; first seat y=242 under board bottom 327",
-            ),
-        ),
+        "390",
     ],
 )
 def test_open_moment_is_not_covered_by_sticky_board(page, base_url, width):

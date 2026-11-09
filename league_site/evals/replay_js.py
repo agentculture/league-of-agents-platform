@@ -303,9 +303,20 @@ function wire() {
   });
 }
 const sliceAt = t => SL ? SL.filter(s => s.from <= Math.max(1, t)).pop() : null;
+// On narrow screens the board is sticky at the top: record its height so an opened
+// moment scrolls to start just below it instead of underneath it.
+function boardHeight() {
+  const bc = main.querySelector(".boardcol");
+  const narrow = matchMedia("(max-width: 960px)").matches;
+  main.style.setProperty("--boardcol-h", narrow && bc ? bc.offsetHeight + "px" : "0px");
+  return narrow;
+}
 function jump(t) {
   setT(t);
-  requestAnimationFrame(() => { const a = main.querySelector(".slice.active"); if (a) a.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); });
+  requestAnimationFrame(() => {
+    const a = main.querySelector(".slice.active"), narrow = boardHeight();
+    if (a) a.scrollIntoView({ block: narrow ? "start" : "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  });
 }
 function setT(t) {
   const was = T === nT();
