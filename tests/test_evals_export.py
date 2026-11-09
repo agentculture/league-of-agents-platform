@@ -426,3 +426,29 @@ def test_withheld_text_does_not_skew_chat_metrics(setup):
     live = _match_file(setup, "hard-a")["metrics"]
     for side in ("blue", "red"):
         assert live[side]["chat_words_per_turn"] == finished[side]["chat_words_per_turn"]
+
+
+def test_queued_match_without_board_exports(setup):
+    # A queued match has no scenario or initial state until its first turn.
+    bundle = json.loads(Path(setup["bundle"]).read_text())
+    q = {k: v for k, v in bundle["matches"][0].items()}
+    q.update(
+        tag="queued-a",
+        status="not started",
+        turns=[],
+        scenario=None,
+        seed=None,
+        fog=None,
+        initial=None,
+        initial_fog=None,
+    )
+    bundle["matches"].append(q)
+    _write(setup["bundle"], bundle)
+    cfg = _config()
+    cfg["matches"]["queued-a"] = dict(
+        cfg["matches"]["hard-a"], status="queued", reason="Starts when the match before it ends."
+    )
+    _write(setup["config"], cfg)
+    _run(setup)
+    entry = next(m for m in _manifest(setup)["matches"] if m["tag"] == "queued-a")
+    assert entry["status"] == "queued" and entry["turn"] == 0 and entry["turn_limit"] == 0

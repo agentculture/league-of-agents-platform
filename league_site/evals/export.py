@@ -309,7 +309,7 @@ def _thinking(tag: str, match: dict, thinking_dir: Path | None, report, out_rel:
 
 def _summary_entry(match: dict, entry: dict, name: str) -> dict:
     turns = match["turns"]
-    state = turns[-1]["state"] if turns else match["initial"]
+    state = turns[-1]["state"] if turns else (match["initial"] or {})
     pts = state.get("points") or {}
     return {
         "tag": match["tag"],
@@ -318,7 +318,7 @@ def _summary_entry(match: dict, entry: dict, name: str) -> dict:
         "reason": match["reason"],
         "board": entry["board"],
         "turn": turns[-1]["turn"] if turns else 0,
-        "turn_limit": match["scenario"].get("turn_limit", 0),
+        "turn_limit": (match["scenario"] or {}).get("turn_limit", 0),
         "file": name,
         "score": {s: pts.get(s, 0) for s in slicer.SIDES},
         "teams": {s: {"name": t["name"], "run": t["run"]} for s, t in match["teams"].items()},
@@ -432,7 +432,7 @@ def export_eval(
                 "tag": tag,
                 "status": match["status"],
                 "turn": turns[-1]["turn"] if turns else 0,
-                "turn_limit": match["scenario"].get("turn_limit", 0),
+                "turn_limit": (match["scenario"] or {}).get("turn_limit", 0),
                 "etag": hashlib.sha256(data).hexdigest()[:16],
                 "file": name,
             }

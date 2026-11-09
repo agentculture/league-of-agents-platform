@@ -37,6 +37,8 @@ SCHEMA_VERSION = "1.1"
 MAJOR = int(SCHEMA_VERSION.split(".")[0])
 
 STATUSES: tuple[str, ...] = ("live", "finished", "tie", "void", "queued", "stopped")
+#: Fields a ``queued`` match may leave null (it has no board until its first turn).
+QUEUED_MAY_BE_NULL: tuple[str, ...] = ("scenario", "seed", "fog", "initial", "initial_fog")
 
 MATCH_FIELDS: tuple[str, ...] = (
     "id",
@@ -210,7 +212,16 @@ def validate_match(obj: Any) -> list[str]:
     if not isinstance(obj, dict):
         return ["match: expected object"]
     out: list[str] = []
-    _check(obj, "", _MATCH_SPEC, out)
+    spec = _MATCH_SPEC
+    if obj.get("status") == "queued":
+        # A queued match has no board yet: these may be null until its first turn.
+        spec = {k: v for k, v in _MATCH_SPEC.items() if k not in QUEUED_MAY_BE_NULL}
+        for k in QUEUED_MAY_BE_NULL:
+            if k not in obj:
+                out.append(f"{k}: missing")
+            elif obj[k] is not None:
+                _check(obj, "", {k: _MATCH_SPEC[k]}, out)
+    _check(obj, "", spec, out)
     if isinstance(obj.get("status"), str) and obj["status"] not in STATUSES:
         out.append(f"status: unknown status {obj['status']!r}")
     if isinstance(obj.get("reason"), str) and not obj["reason"].strip():

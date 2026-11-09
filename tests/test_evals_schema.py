@@ -104,3 +104,19 @@ def test_1_1_optional_run_block_and_layout_helpers():
     assert schema.thinking_file_name("hard-a", 7) == "thinking/hard-a-t7.json"
     assert schema.live_file_name("hard-a", "blue-1") == "live/hard-a/blue-1.json"
     assert schema.is_supported("1.0") and schema.is_supported(schema.SCHEMA_VERSION)
+
+
+def test_queued_match_may_have_no_board_yet():
+    import copy
+    import json
+    from pathlib import Path
+
+    from league_site.evals import schema
+
+    m = json.loads((Path(__file__).parent / "fixtures/evals/hard-a.json").read_text())
+    q = copy.deepcopy(m)
+    q.update(status="queued", turns=[], **{k: None for k in schema.QUEUED_MAY_BE_NULL})
+    assert schema.validate_match(q) == []
+    live = copy.deepcopy(q)
+    live["status"] = "live"
+    assert any("scenario" in p for p in schema.validate_match(live))
