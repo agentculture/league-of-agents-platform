@@ -381,6 +381,122 @@ out of cache before its natural TTL expires (rather than shipping a fix
 forward under a newer version), the same purge-by-URL call above still
 works — it purges whatever URL is named, versioned or not.
 
+## Live evals data
+
+`https://league-of-agents.ai/evals/data/*` (and the `www` host) is served
+straight from the evals bucket's `evals/` prefix (`EvalsBucket` in
+`infra/template.yaml`), same domain, Lambda not in the read path. The page
+at `/evals/` is still the Lambda; only the JSON data bypasses it.
+
+### Decision: Cloudflare Worker, not an Origin Rule
+
+Both mechanisms can do this. Chosen: a **Worker**
+(`infra/cloudflare/evals-worker.js`, deployed by `scripts/evals-cloudflare.sh`).
+
+- **Plan tier is unknown** from inside this repo. Workers (free tier:
+  100k requests/day) exist on every plan; Origin Rules with a host
+  override and path rewrite, and Cache Rules with custom behavior, depend
+  on the plan's rule quotas. The Worker always works.
+- **A missing key is a 403, not a 404.** The bucket grants the public no
+  `s3:ListBucket`, so S3 answers 403 for an absent object. An Origin Rule
+  cannot rewrite a response status; the Worker maps 403 to 404, so viewers
+  (and the unpublish check) see a plain 404.
+- **Cache policy is code** under test (`tests/test_evals_worker.py`)
+  rather than dashboard state, and the Worker sets `Cache-Control` itself,
+  so the policy holds even if an upload forgot the header.
+- The **Origin Rule** is the alternative where the plan allows it: rewrite
+  path `/evals/data/*` to `/evals/${1}`, override the Host header to
+  `<bucket>.s3.<region>.amazonaws.com` (S3's REST endpoint requires the
+  Host to match the bucket) and the origin to that hostname, plus a Cache
+  Rule that respects origin `Cache-Control`. It cannot turn the 403 into a
+  404, so the page must tolerate 403 for "not published".
+
+Status: drafted and unit-tested against stubbed `fetch` only. Not applied
+to the real zone by the author; the operator runs it (below).
+
+### Route and apply
+
+Path mapping: `/evals/data/<X>` becomes bucket key `evals/<X>`. Anything
+else under the route (`..`, empty, trailing slash) is a 404; only `GET`
+and `HEAD` are allowed.
+
+```bash
+scripts/evals-cloudflare.sh            # dry run: prints the plan and wrangler.toml
+scripts/evals-cloudflare.sh --apply    # needs wrangler, aws, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+```
+
+`--apply` needs a Cloudflare token with Workers Scripts: Edit and Workers
+Routes: Edit (zone-scoped), plus AWS read access to
+`cloudformation:DescribeStacks` (or `EVALS_ORIGIN=<bucket>.s3.<region>.amazonaws.com`
+set explicitly). `cultureflare` has no Worker verbs, so `wrangler` does
+the deploy, the same documented exception as the purge call. Re-running
+redeploys the same Worker and routes, a no-op in effect.
+
+### Cache policy
+
+The publisher sets the same headers on upload; the Worker enforces them.
+
+| File | Cache-Control |
+| --- | --- |
+| `<eval>/manifest.json`, running match files | `public, max-age=15, must-revalidate` |
+| in-progress seat files (`.../live/<seat>.json`) | `public, max-age=5` |
+| thinking files (`.../thinking/*`) and content-hashed names (`name.<hex8+>.json`) | `public, max-age=31536000, immutable` |
+| finished match files | `public, max-age=31536000, immutable` (hashed name, or object uploaded with `immutable`) |
+
+A match file with a plain name counts as running (15 s) unless the object
+itself was uploaded with `immutable`, so a forgotten header fails safe
+toward freshness. This is what stops a repeat of the 4-hour stale
+`theme.css` on live data.
+
+### Verify
+
+```bash
+curl -sI https://league-of-agents.ai/evals/data/<eval>/manifest.json
+```
+
+Expect `HTTP/2 200`, `cache-control: public, max-age=15, must-revalidate`,
+and `cf-cache-status` of `MISS` on the first request, then `HIT` on the
+second, with an `age` header that restarts after a re-upload plus 15 s.
+A thinking file shows `cache-control: public, max-age=31536000, immutable`.
+A key that does not exist must give `HTTP/2 404`, never 403:
+
+```bash
+curl -sI https://league-of-agents.ai/evals/data/nope.json
+```
+
+If `cf-cache-status` stays `DYNAMIC`, the edge is not storing the
+Worker's response: add a Cache Rule ("Eligible for cache", respect origin
+TTL) for `/evals/data/*`. The `Cache-Control` still governs browsers.
+
+### Unpublish
+
+Use when a published object must come down (leaked content, bad file).
+
+1. Delete the object: `aws s3 rm "s3://$BUCKET/evals/<path>"`. The bucket
+   is versioned, so this writes a delete marker. Older versions stay in
+   the bucket but are **private**: the public policy grants only
+   `s3:GetObject`, with no `s3:GetObjectVersion`, so nobody can fetch a
+   prior version with `?versionId=`. For permanent removal also delete
+   those versions (`aws s3api delete-object --version-id ...`); otherwise
+   they expire after 30 days.
+2. Purge the exact URL (apex and `www`) from Cloudflare, using a token
+   with Cache Purge:
+
+   ```bash
+   curl -sS -X POST "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/purge_cache" \
+     -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+     -H "Content-Type: application/json" \
+     --data '{"files":["https://league-of-agents.ai/evals/data/<path>","https://www.league-of-agents.ai/evals/data/<path>"]}'
+   ```
+
+3. Confirm through the public URL: `curl -sI https://league-of-agents.ai/evals/data/<path>`
+   must return `404`. A browser that cached an immutable copy keeps it
+   until cleared (see "Browser caches" above); for sensitive content also
+   publish any replacement under a new name.
+4. Record it: who, when, which key, and the 404 output, in the PR or
+   incident note. Not yet exercised on a test object; that is the
+   operator's acceptance step for this task.
+
 ## How this satisfies honesty condition h4
 
 The spec (`docs/specs/2026-07-10-league-of-agents-ai-is-live-a-beautiful-welcoming.md`)
