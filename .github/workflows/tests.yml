@@ -37,6 +37,23 @@ jobs:
         env:
           SONAR_HOST_URL: https://sonarcloud.io
 
+  browser:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: astral-sh/setup-uv@38f3f104447c67c051c4a08e39b64a148898af3a # v4
+
+      - run: uv python install 3.12
+
+      - run: uv sync --extra e2e
+
+      - run: uv run playwright install --with-deps chromium
+
+      - run: uv run pytest -q -m browser tests/e2e
+
   lint:
     runs-on: ubuntu-latest
     permissions:

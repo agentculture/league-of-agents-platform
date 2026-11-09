@@ -14,6 +14,8 @@ action shipped so far —
   stale match state.
 * **match admin (single-match archive)** — an operator archiving one
   chosen match, the same store->S3 path the sweep uses.
+* **evals publish** — uploading an evals export to the public evals bucket.
+* **evals stream** — uploading in-progress seat files for a live match.
 
 Each entry is checked two ways: parser introspection (the verb path
 resolves, ``--json`` is supported, a ``--apply`` flag exists and defaults to
@@ -57,6 +59,27 @@ INVENTORY = [
         ),
         "argv": ["match", "archive", "some-match-id"],
     },
+    {
+        "id": "evals_publish",
+        "description": "Upload an evals export to the public evals bucket",
+        "argv": ["evals", "publish", "--from", "x", "--eval", "e", "--bucket", "b"],
+    },
+    {
+        "id": "evals_stream",
+        "description": "Upload in-progress seat files for a live match",
+        "argv": [
+            "evals",
+            "stream",
+            "--eval",
+            "e",
+            "--match",
+            "m",
+            "--live-dir",
+            "d",
+            "--bucket",
+            "b",
+        ],
+    },
 ]
 
 
@@ -65,7 +88,13 @@ def test_inventory_is_the_expected_set_of_mutating_actions() -> None:
     # state-mutating operator action ships, this test (and the parametrized
     # one below) must be extended, not just the command that implements it.
     ids = {entry["id"] for entry in INVENTORY}
-    assert ids == {"deploy_stack", "cleanup_sweep", "match_archive"}
+    assert ids == {
+        "deploy_stack",
+        "cleanup_sweep",
+        "match_archive",
+        "evals_publish",
+        "evals_stream",
+    }
 
 
 @pytest.mark.parametrize("entry", INVENTORY, ids=[e["id"] for e in INVENTORY])

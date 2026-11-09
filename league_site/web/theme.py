@@ -118,6 +118,20 @@ Palette: light AND dark via ``prefers-color-scheme``
         follow the same decision as the rest of the palette. These
         mechanics predate the dawn palette (t2) and survive it unchanged.
 
+    Game tokens (``--team-blue``, ``--team-red``, ``--gold``, ``--crown``,
+    ``--tile``, ``--fog``, ``--bad`` and the ``-wash`` fills) serve the evals
+    pages and board marks. Team colours are MARKS (dots, bars, quote rules,
+    board units), never text on their own: every team cue is paired with a
+    shape (dot vs square) and a word. Palette-validator verdicts (dataviz
+    ``validate_palette.js``, ALL CHECKS PASS):
+        light  --team-blue #2b54c4 / --team-red #b4314f on --surface #ffffff
+        dark   --team-blue #6f8be6 / --team-red #e0627f on --surface #161b36
+    ``--bad`` (rejected orders, used as text) on --surface: light #a3271f
+    -> 7.32:1 on #ffffff; dark #ff8a80 -> 7.39:1 on #161b36. ``--gold``
+    (resource marks/figures) light #8a5d00 -> 5.76:1 on #ffffff; dark #e8b54a
+    -> 8.95:1 on #161b36. ``--crown`` and ``--tile``/``--fog`` are board
+    marks only (never the sole cue; paired with glyph shape).
+
 Spacing, type scale, and rhythm
     An 8px-based spacing scale (``--space-1`` .. ``--space-8``) and a type
     scale from 0.875rem to 2.75rem keep rhythm consistent without a CSS
@@ -327,7 +341,17 @@ _DARK_TOKENS = """\
   --mesh-halo-alt: rgba(255, 170, 120, .28);
 
   --shadow: 0 4px 24px rgba(2, 4, 12, .5), 0 1px 4px rgba(2, 4, 12, .4);
-  --shadow-lift: 0 14px 40px rgba(2, 4, 12, .6), 0 2px 8px rgba(2, 4, 12, .4);"""
+  --shadow-lift: 0 14px 40px rgba(2, 4, 12, .6), 0 2px 8px rgba(2, 4, 12, .4);
+
+  --team-blue: #6f8be6;
+  --team-blue-wash: rgba(111, 139, 230, .16);
+  --team-red: #e0627f;
+  --team-red-wash: rgba(224, 98, 127, .14);
+  --gold: #e8b54a;
+  --crown: #c7a2ff;
+  --tile: #20264a;
+  --fog: #03050d;
+  --bad: #ff8a80;"""
 
 STYLESHEET = f"""\
 /* League of Agents — design tokens + stylesheet. See league_site/web/theme.py
@@ -384,6 +408,17 @@ STYLESHEET = f"""\
 
   --shadow: 0 4px 24px rgba(35, 42, 77, .07), 0 1px 4px rgba(35, 42, 77, .05);
   --shadow-lift: 0 14px 40px rgba(35, 42, 77, .12), 0 2px 8px rgba(35, 42, 77, .06);
+
+  /* game tokens (evals pages, board marks) */
+  --team-blue: #2b54c4;
+  --team-blue-wash: rgba(43, 84, 196, .12);
+  --team-red: #b4314f;
+  --team-red-wash: rgba(180, 49, 79, .11);
+  --gold: #8a5d00;
+  --crown: #6d3fb0;
+  --tile: #e6e9f4;
+  --fog: #232a4d;
+  --bad: #a3271f;
 
   --font-display: {_FONT_DISPLAY};
   --font-body: {_FONT_BODY};

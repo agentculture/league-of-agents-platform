@@ -170,6 +170,18 @@ def _with_viewer(inner: WSGIApp, viewer: WSGIApp) -> WSGIApp:
     return application
 
 
+def _with_evals(inner: WSGIApp, evals: WSGIApp) -> WSGIApp:
+    """Wrap *inner* so ``/evals`` and everything under ``/evals/`` goes to *evals*."""
+
+    def application(environ: dict[str, Any], start_response: Any) -> list[bytes]:
+        path = environ.get("PATH_INFO", "/")
+        if path == "/evals" or path.startswith("/evals/"):
+            return evals(environ, start_response)
+        return inner(environ, start_response)
+
+    return application
+
+
 def http_app() -> WSGIApp:
     """Return the platform's WSGI HTTP surface.
 
@@ -290,6 +302,7 @@ def site_app(
     # here would deadlock that cycle. By the time site_app() is actually
     # *called*, every module involved has finished initializing, so a local
     # import resolves cleanly.
+    from league_site.evals.wsgi import evals_app
     from league_site.play.wsgi import with_play
     from league_site.profiles.wsgi import profile_app
     from league_site.viewer.wsgi import viewer_app
@@ -325,7 +338,7 @@ def site_app(
     )
     profiles = profile_app(resolved_ledger_store, resolved_match_store)
     viewer = viewer_app(resolved_match_store, resolved_ledger_store)
-    return _with_viewer(_with_profiles(composed, profiles), viewer)
+    return _with_evals(_with_viewer(_with_profiles(composed, profiles), viewer), evals_app)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000) -> WSGIServer:

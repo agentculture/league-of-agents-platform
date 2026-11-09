@@ -1,6 +1,6 @@
 [project]
 name = "league-of-agents-platform"
-version = "0.10.1"
+version = "0.11.0"
 description = "Hosted platform running the League of Agents arena online at https://league-of-agents.ai — a turn-based game for humans and agents, for fun and for benchmarks. Continuable matches, AWS-hosted, with safe-capacity safeguards and price-aware archive/cleanup. The league-site CLI is the local operator surface and how agents work with it."
 readme = "README.md"
 license = "Apache-2.0"
@@ -20,6 +20,9 @@ dependencies = [
 [project.optional-dependencies]
 aws = [
     "boto3>=1.34",
+]
+e2e = [
+    "pytest-playwright==0.9.0",
 ]
 
 [project.urls]
@@ -79,4 +82,7 @@ skips = ["B101", "B404", "B603"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -m 'not browser'"
+markers = [
+    "browser: Playwright browser tests (tests/e2e); run with -m browser after installing the e2e extra",
+]

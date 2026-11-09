@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/). This project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-11-09
+
+### Added
+
+- Live evals at `/evals/` (issue #43): an index with the live match, a match ledger with each match's status and the reason it ended, a "how each model was run" table, and benchmark charts (chat, answer time, illegal orders, thinking tokens, aggression against effectiveness, order mix, per-match small multiples, thinking per turn), each with tooltips, keyboard access and a table view
+- Replay pages at `/evals/<eval>/<match>/`: a sticky board with fog views, the match told as key moments beside it, and each moment opening to that turn's seats, orders, chat and reasoning (loaded on demand); live polling of a small manifest, streaming of seats' in-progress thinking and responses, a stale badge, and a schema-version guard
+- `league_site.evals`: a versioned data schema (1.1), a fail-closed scanner for reasoning and chat text, a deterministic slicer (key moments, templated headlines, findings), benchmark metrics with plain-English definitions, and an exporter from the match host's bundle plus an eval config, which holds back private content live when any seat has tools
+- `league-site evals publish` and `evals stream` (dry-run by default): ordered uploads to the evals bucket, a scan gate before every upload, per-file cache headers, and a live index of answering seats
+- Infra: a separate, versioned evals bucket (public read on `evals/*` only), a write-only match-host IAM user, a Cloudflare Worker for `/evals/data/*` with an unpublish runbook, and `scripts/evals-local-serve.py` / `scripts/pi-tester.sh`
+- A Playwright suite for `/evals/` (both widths, both themes) with its own CI job, and evidence screenshots
+
 ## [0.10.1] - 2026-07-11
 
 ### Changed

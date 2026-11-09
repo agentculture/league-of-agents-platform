@@ -35,6 +35,8 @@ Commands
   league-of-agents-platform ops cleanup        Archive/delete stale matches (dry-run default).
   league-of-agents-platform ops deploy         Deploy the AWS stack (dry-run default).
   league-of-agents-platform match list|show|archive   Operator match admin.
+  league-of-agents-platform evals publish      Upload an evals export (dry-run default).
+  league-of-agents-platform evals stream       Stream live seat files (dry-run default).
 
 Machine-readable output
 -----------------------
@@ -77,6 +79,8 @@ def _as_json_payload() -> dict[str, object]:
                 "path": ["match", "archive"],
                 "summary": "Operator match admin: archive one (dry-run default).",
             },
+            {"path": ["evals", "publish"], "summary": "Upload an evals export (dry-run default)."},
+            {"path": ["evals", "stream"], "summary": "Stream live seat files (dry-run default)."},
         ],
         "exit_codes": {
             "0": "success",

@@ -41,6 +41,7 @@
       "Action": [
         "s3:CreateBucket",
         "s3:DeleteBucket",
+        "s3:DeleteBucketPolicy",
         "s3:GetBucket*",
         "s3:GetObject",
         "s3:GetAccelerateConfiguration",
@@ -83,6 +84,39 @@
         "iam:UntagRole"
       ],
       "Resource": "arn:aws:iam::435593604218:role/league-of-agents-platform-*"
+    },
+    {
+      "Sid": "EvalsMatchHostUser",
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachUserPolicy",
+        "iam:CreateUser",
+        "iam:DeleteUser",
+        "iam:DetachUserPolicy",
+        "iam:GetUser",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListUserPolicies",
+        "iam:TagUser",
+        "iam:UntagUser"
+      ],
+      "Resource": "arn:aws:iam::435593604218:user/league-of-agents-platform-*"
+    },
+    {
+      "Sid": "EvalsMatchHostManagedPolicy",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreatePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:ListPolicyVersions",
+        "iam:TagPolicy",
+        "iam:UntagPolicy"
+      ],
+      "Resource": "arn:aws:iam::435593604218:policy/league-of-agents-platform-*"
     },
     {
       "Sid": "Functions",
