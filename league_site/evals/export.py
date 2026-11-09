@@ -55,6 +55,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -338,11 +339,21 @@ def _write_tree(root: Path, files: dict[str, bytes]) -> None:
         p.write_bytes(data)
 
 
-def _umask_mode() -> int:
-    """The mode a plain ``mkdir`` would give: mkdtemp's 0o700, widened to the umask."""
-    current = os.umask(0)
-    os.umask(current)
-    return 0o777 & ~current
+def _staging_dir(out_dir: Path, eval_id: str) -> Path:
+    """A fresh sibling of the eval's folder, created with the mode a plain ``mkdir`` gives.
+
+    ``mkdir`` honours the umask and fails if the name exists, so the folder is
+    both new and as readable as the export it replaces (``mkdtemp`` would make
+    it 0o700).
+    """
+    for attempt in range(100):
+        path = out_dir / f".{eval_id}.new-{os.getpid()}-{time.time_ns()}-{attempt}"
+        try:
+            path.mkdir()
+        except FileExistsError:
+            continue
+        return path
+    raise ExportError(f"cannot create a staging folder in {out_dir}")
 
 
 def _child(root: Path, name: str) -> Path:
@@ -363,10 +374,9 @@ def _child(root: Path, name: str) -> Path:
 def _publish(out_dir: Path, eval_id: str, files: dict[str, bytes], index: bytes) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     target = _child(out_dir, eval_id)
-    staging = Path(tempfile.mkdtemp(prefix=f".{eval_id}.new-", dir=out_dir))
+    staging = _staging_dir(out_dir, eval_id)
     backup = None
     try:
-        os.chmod(staging, _umask_mode())
         _write_tree(staging, files)
         tmp_index = staging / ".index.json"
         tmp_index.write_bytes(index)

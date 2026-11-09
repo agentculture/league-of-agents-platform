@@ -377,6 +377,7 @@ def test_no_engine_imports():
         "shutil",
         "sys",
         "tempfile",
+        "time",
         "pathlib",
         "typing",
         "league_site",
@@ -464,11 +465,15 @@ def test_child_refuses_names_outside_the_root(tmp_path) -> None:
             export._child(tmp_path, bad)
 
 
-def test_staging_dir_gets_the_umask_mode(tmp_path) -> None:
+def test_staging_dir_is_new_and_follows_the_umask(tmp_path) -> None:
     from league_site.evals import export
 
     old = os.umask(0o027)
     try:
-        assert export._umask_mode() == 0o750
+        a = export._staging_dir(tmp_path, "e1")
+        b = export._staging_dir(tmp_path, "e1")
     finally:
         os.umask(old)
+    assert a != b
+    assert a.parent == tmp_path
+    assert a.stat().st_mode & 0o777 == 0o750
