@@ -415,3 +415,14 @@ def test_cli_exit_2_on_invalid_input(setup, capsys):
     setup["config"].write_text("{not json", encoding="utf-8")
     assert export.main(_argv(setup)) == 2
     assert "error" in capsys.readouterr().err
+
+
+def test_withheld_text_does_not_skew_chat_metrics(setup):
+    # Metrics count words from the original turns, so holding text back during a live
+    # tools-on match must not turn every message into placeholder words.
+    _tools_on(setup, "finished")
+    finished = _match_file(setup, "hard-a")["metrics"]
+    _tools_on(setup, "live")
+    live = _match_file(setup, "hard-a")["metrics"]
+    for side in ("blue", "red"):
+        assert live[side]["chat_words_per_turn"] == finished[side]["chat_words_per_turn"]

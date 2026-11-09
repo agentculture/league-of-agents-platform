@@ -180,6 +180,11 @@ def _texts(tr: dict):
                 yield kind, item, item.get(who)
 
 
+def _for_metrics(match: dict, src: dict) -> dict:
+    """``match`` with the bundle's original (unredacted) turns, for counting only."""
+    return {**match, "turns": src.get("turns") or []}
+
+
 def _build_match(
     src: dict, entry: dict, eval_id: str, generated: str, report: ExportReport
 ) -> tuple[dict, bool]:
@@ -243,7 +248,9 @@ def _build_match(
     slices = slicer.slice_match(match)
     match["slices"] = slices
     match["findings"] = slicer.findings(match, slices)
-    match["metrics"] = metrics.compute_metrics(match)
+    # Metrics are counts and timings only, so they come from the original turns: a withheld
+    # message still counts its real words, and no text reaches the published file this way.
+    match["metrics"] = metrics.compute_metrics(_for_metrics(match, src))
     return match, held
 
 
@@ -431,7 +438,7 @@ def export_eval(
             }
         )
         summaries.append(_summary_entry(match, entry, name))
-        exported.append(match)
+        exported.append(_for_metrics(match, src))
     for tag in cfg["matches"]:
         if tag not in seen:
             report.skipped.append(
