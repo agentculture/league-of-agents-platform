@@ -33,6 +33,10 @@ _EXPECTED_RESOURCES: dict[str, str] = {
     "TokensTable": "AWS::DynamoDB::Table",
     "RatingsTable": "AWS::DynamoDB::Table",
     "ArchiveBucket": "AWS::S3::Bucket",
+    "EvalsBucket": "AWS::S3::Bucket",
+    "EvalsBucketPolicy": "AWS::S3::BucketPolicy",
+    "MatchHostPolicy": "AWS::IAM::ManagedPolicy",
+    "MatchHostUser": "AWS::IAM::User",
     "MonthlyBudget": "AWS::Budgets::Budget",
 }
 
