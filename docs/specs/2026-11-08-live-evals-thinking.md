@@ -112,7 +112,7 @@
 
 ## Scope exploration
 
-- `s1` — `prototype artifact data.json (2.4 MB, 6 matches)`: turn records carry state/fog/plans/messages/actions/rejected/latency/think/events; thinking text lives in separate thinking/<tag>-t<N>.json files (~80-640 KB each)
+- `s1` — `prototype artifact data.json (2.4 MB, 6 matches)`: turn records carry state/fog/plans/messages/actions/rejected/latency/think/events; thinking text lives in separate `thinking/<tag>-t<N>.json` files (~80-640 KB each)
   - seeds: `c2`
 - `s2` — `league_site/datasets/scrub.py`: existing scrubber is the reuse point issue 43 names; thinking text is free text and needs the extra network-identifier pass
   - seeds: `c3`

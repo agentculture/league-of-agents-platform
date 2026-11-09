@@ -39,7 +39,7 @@ slug: `live-evals-thinking` · status: `exported` · from frame: `live-evals-thi
   - pytest: values for thief-a4 match a hand-checked fixture (e.g. GLM 1 rejected of 144, Sonnet 16 of 144)
   - pytest: every metric exposes its definition string, and nothing reads outside the match data
 
-### t5 — Exporter: `league_site`/evals/export.py folds .league/matches/<id> logs and match config into per-match files, manifest and thinking files; runs the scanner and drops failing files only; embeds slices and metrics; refuses to publish private content live for a match where any seat has tools or network on
+### t5 — Exporter: `league_site`/evals/export.py folds `.league/matches/<id>` logs and match config into per-match files, manifest and thinking files; runs the scanner and drops failing files only; embeds slices and metrics; refuses to publish private content live for a match where any seat has tools or network on
 
 - depends on: t1, t2, t3, t4
 - covers: c8, h13, c29, h26, c34
@@ -80,7 +80,7 @@ slug: `live-evals-thinking` · status: `exported` · from frame: `live-evals-thi
   - pytest: evals CSS contains no raw hex values outside the token block
   - the dataviz palette validator passes for the team colours in light and dark; output attached to the PR
 
-### t10 — Evals routes: `league_site`/evals/wsgi.py serves /evals/ and /evals/<eval>/<match>/ inside the site shell and mounts into the site app
+### t10 — Evals routes: `league_site`/evals/wsgi.py serves `/evals/` and `/evals/<eval>/<match>/` inside the site shell and mounts into the site app
 
 - depends on: t9
 - covers: c13, h15

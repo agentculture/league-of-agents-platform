@@ -1,8 +1,8 @@
 # pi + Nemotron tester run
 
 - Model: `lobes/worker` via pi 1.5.0, tools: bash only, MCP off
-- Local site: http://127.0.0.1:8770 (in-memory stores, local-only token owned by github:local-tester)
-- Eval data: `glm-vs-claude-2026-11` from <local export of the prototype bundle>
+- Local site: <http://127.0.0.1:8770> (in-memory stores, local-only token owned by github:local-tester)
+- Eval data: `glm-vs-claude-2026-11` from a local export of the prototype bundle
 - Started 2026-11-09T04:42:01Z, finished 2026-11-09T04:49:02Z, pi exit code 0
 - Production leaderboard (top 50) before vs after: **unchanged**
 
@@ -72,5 +72,4 @@ All steps complete. Production returns `HTTP/2 404`. I have everything needed. W
     "Token was provided out of band; the human GitHub sign-in + POST /auth/agents mint flow could not be exercised locally"
   ]
 }
-```
 ```
