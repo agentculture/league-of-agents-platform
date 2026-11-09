@@ -10,7 +10,9 @@ rules are omitted: the site theme already owns them.
 
 from __future__ import annotations
 
-EVALS_CSS = """\
+import re
+
+_RAW_CSS = """\
 /* Layout: dawn-arena family page. Index = live match as hero + eval ledger; replay = board (the star) beside the seat panel, timeline-as-scrubber under it, the turn's talk below. */
 .wrap { max-width: 1320px; margin: 0 auto; padding-block: 28px 64px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 28px; }
 h1, h2, h3 { font-family: var(--font-display); font-weight: 450; margin: 0; text-wrap: balance; letter-spacing: -.01em; line-height: 1.15; }
@@ -221,3 +223,65 @@ details.tv td, details.tv th { padding: .35rem .6rem; font-variant-numeric: tabu
 #tip .tr { display: flex; gap: 6px; align-items: center; }
 #tip .tr i { width: 12px; height: 2px; display: inline-block; }
 """
+
+
+#: Class on the evals pages' ``<main>``; every rule below is scoped under it.
+SCOPE = ".evals-page"
+
+_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+
+
+def _split_top_level(selector_list: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    cur = ""
+    for ch in selector_list:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur)
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _matching_brace(css: str, open_idx: int) -> int:
+    depth = 0
+    for i in range(open_idx, len(css)):
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    raise ValueError("unbalanced braces in evals CSS")
+
+
+def scope_css(css: str, scope: str = SCOPE) -> str:
+    """Prefix every style rule's selectors with *scope* (``@media`` recursed,
+    ``@keyframes`` left verbatim), so nothing here leaks onto shell chrome."""
+    out: list[str] = []
+    pos = 0
+    while True:
+        open_idx = css.find("{", pos)
+        if open_idx < 0:
+            break
+        prelude = css[pos:open_idx].strip()
+        close_idx = _matching_brace(css, open_idx)
+        inner = css[open_idx + 1 : close_idx]
+        if prelude.startswith(("@media", "@supports")):
+            out.append(f"{prelude} {{\n{scope_css(inner, scope)}\n}}")
+        elif prelude.startswith("@"):
+            out.append(f"{prelude} {{{inner}}}")
+        else:
+            sels = ", ".join(f"{scope} {s}" for s in _split_top_level(prelude))
+            out.append(f"{sels} {{{inner}}}")
+        pos = close_idx + 1
+    return "\n".join(out) + "\n"
+
+
+EVALS_CSS = scope_css(_COMMENT_RE.sub("", _RAW_CSS))
