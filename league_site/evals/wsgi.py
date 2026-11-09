@@ -42,8 +42,10 @@ WSGIApp = Callable[[dict[str, Any], Callable[..., Any]], list[bytes]]
 DATA_BASE = "/evals/data"
 DATA_BASE_ENV = "LEAGUE_EVALS_DATA_BASE"
 
-#: Ceiling for the evals scripts together (separate from the shell's JS budget).
-EVALS_JS_BUDGET_BYTES = 64 * 1024
+#: Ceiling for the evals scripts together (separate from the shell's JS budget). Only the
+#: index page loads both (replay.js for the shared board renderer, plus charts.js); a replay
+#: page loads replay.js alone. Both are cached immutable and load only under /evals/.
+EVALS_JS_BUDGET_BYTES = 72 * 1024
 
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 #: ``data`` is the data prefix, never an eval id.

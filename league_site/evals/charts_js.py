@@ -43,7 +43,7 @@ shows a fallback message and keeps the score and moments.
 
 from __future__ import annotations
 
-CHARTS_JS = r"""
+_SRC = r"""
 (function () {
   "use strict";
   var root = typeof window !== "undefined" ? window : globalThis;
@@ -516,3 +516,12 @@ CHARTS_JS = r"""
   }
 })();
 """
+
+
+def _compact(src: str) -> str:
+    """Drop leading indentation, blank lines and whole-line ``//`` comments."""
+    lines = (line.strip() for line in src.strip().splitlines())
+    return "\n".join(line for line in lines if line and not line.startswith("//")) + "\n"
+
+
+CHARTS_JS = _compact(_SRC)
