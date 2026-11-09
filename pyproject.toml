@@ -21,6 +21,9 @@ dependencies = [
 aws = [
     "boto3>=1.34",
 ]
+e2e = [
+    "pytest-playwright==0.9.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/agentculture/league-of-agents-platform"
@@ -79,4 +82,7 @@ skips = ["B101", "B404", "B603"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -m 'not browser'"
+markers = [
+    "browser: Playwright browser tests (tests/e2e); run with -m browser after installing the e2e extra",
+]
