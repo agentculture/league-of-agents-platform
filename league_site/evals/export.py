@@ -338,24 +338,46 @@ def _write_tree(root: Path, files: dict[str, bytes]) -> None:
         p.write_bytes(data)
 
 
+def _umask_mode() -> int:
+    """The mode a plain ``mkdir`` would give: mkdtemp's 0o700, widened to the umask."""
+    current = os.umask(0)
+    os.umask(current)
+    return 0o777 & ~current
+
+
+def _child(root: Path, name: str) -> Path:
+    """``root / name``, refused unless ``name`` is one safe path segment inside ``root``.
+
+    ``_check_config`` already holds the eval id to ``_NAME``; this re-checks at the
+    point of use, so the filesystem calls below never see a path outside ``root``.
+    """
+    if not _NAME.match(name):
+        raise ExportError(f"not a safe file name: {name!r}")
+    base = root.resolve()
+    path = (base / name).resolve()
+    if path.parent != base:
+        raise ExportError(f"path escapes {root}: {name!r}")
+    return path
+
+
 def _publish(out_dir: Path, eval_id: str, files: dict[str, bytes], index: bytes) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    target = out_dir / eval_id
+    target = _child(out_dir, eval_id)
     staging = Path(tempfile.mkdtemp(prefix=f".{eval_id}.new-", dir=out_dir))
     backup = None
     try:
-        os.chmod(staging, 0o755)
+        os.chmod(staging, _umask_mode())
         _write_tree(staging, files)
         tmp_index = staging / ".index.json"
         tmp_index.write_bytes(index)
         if target.exists():
             backup = Path(tempfile.mkdtemp(prefix=f".{eval_id}.old-", dir=out_dir))
-            os.rename(target, backup / eval_id)
+            os.rename(target, _child(backup, eval_id))
         os.rename(staging, target)
         os.replace(target / ".index.json", out_dir / "index.json")
     except BaseException:
-        if backup is not None and not target.exists() and (backup / eval_id).exists():
-            os.rename(backup / eval_id, target)
+        if backup is not None and not target.exists() and _child(backup, eval_id).exists():
+            os.rename(_child(backup, eval_id), target)
         shutil.rmtree(staging, ignore_errors=True)
         if backup is not None:
             shutil.rmtree(backup, ignore_errors=True)

@@ -137,7 +137,11 @@ def _same(head: dict, data: bytes) -> bool:
     if "sha256" in meta:
         return meta["sha256"] == _sha(data)
     etag = str(head.get("ETag", "")).strip('"')
-    return bool(etag) and "-" not in etag and etag == hashlib.md5(data).hexdigest()  # noqa: S324
+    return (
+        bool(etag)
+        and "-" not in etag
+        and etag == hashlib.md5(data, usedforsecurity=False).hexdigest()
+    )
 
 
 # --- publish ---------------------------------------------------------------------------

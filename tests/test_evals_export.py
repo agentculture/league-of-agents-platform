@@ -6,6 +6,7 @@ import ast
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -452,3 +453,22 @@ def test_queued_match_without_board_exports(setup):
     _run(setup)
     entry = next(m for m in _manifest(setup)["matches"] if m["tag"] == "queued-a")
     assert entry["status"] == "queued" and entry["turn"] == 0 and entry["turn_limit"] == 0
+
+
+def test_child_refuses_names_outside_the_root(tmp_path) -> None:
+    from league_site.evals import export
+
+    assert export._child(tmp_path, "glm-vs-claude") == (tmp_path / "glm-vs-claude").resolve()
+    for bad in ("..", "../x", "a/b", ".hidden", ""):
+        with pytest.raises(export.ExportError):
+            export._child(tmp_path, bad)
+
+
+def test_staging_dir_gets_the_umask_mode(tmp_path) -> None:
+    from league_site.evals import export
+
+    old = os.umask(0o027)
+    try:
+        assert export._umask_mode() == 0o750
+    finally:
+        os.umask(old)
