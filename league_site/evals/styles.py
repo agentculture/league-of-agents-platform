@@ -119,7 +119,7 @@ td .sub { display: block; font-size: .82rem; color: var(--text-muted); }
 .finding .big { font-family: var(--font-display); font-size: 1.6rem; line-height: 1.1; font-variation-settings: "opsz" 96; }
 .finding .what { font-size: .85rem; color: var(--text-muted); }
 
-.story { display: grid; gap: 0; position: relative; }
+.story { display: grid; gap: 0; position: relative; --boardcol-h: 0px; }
 .story::before { content: ""; position: absolute; left: 21px; top: 18px; bottom: 18px; width: 2px; background: var(--border); }
 .slice { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0 12px; padding: 10px 0; }
 .slice .tick { all: unset; cursor: pointer; z-index: 1; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); border: 2px solid var(--border-strong); font-size: .78rem; font-weight: 650; font-variant-numeric: tabular-nums; color: var(--text-muted); }

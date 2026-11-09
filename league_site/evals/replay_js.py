@@ -308,7 +308,8 @@ const sliceAt = t => SL ? SL.filter(s => s.from <= Math.max(1, t)).pop() : null;
 function boardHeight() {
   const bc = main.querySelector(".boardcol");
   const narrow = matchMedia("(max-width: 960px)").matches;
-  main.style.setProperty("--boardcol-h", narrow && bc ? bc.offsetHeight + "px" : "0px");
+  const story = main.querySelector(".story");
+  if (story) story.style.setProperty("--boardcol-h", narrow && bc ? bc.offsetHeight + "px" : "0px");
   return narrow;
 }
 function jump(t) {
