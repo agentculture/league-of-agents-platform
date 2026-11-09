@@ -1,0 +1,86 @@
+{
+  "eval": "live-evals-prototype",
+  "title": "GLM TensorFold vs Sonnet 5.5 (prototype)",
+  "matches": {
+    "hard-a": {
+      "status": "finished",
+      "reason": "Stopped by the operator at turn 32 as a GLM win, 42–22: the lead was 0.42 of the swing still available.",
+      "board": "hard",
+      "teams": {
+        "blue": {
+          "run": {
+            "model": "glm-5.3-flash/tensorfold",
+            "runtime": "league harness",
+            "thinking": "on",
+            "sampling": "temperature 1.0",
+            "reasoning": "full"
+          },
+          "seats": {
+            "blue-1": {"tools": false, "network": false},
+            "blue-2": {"tools": false, "network": false},
+            "blue-3": {"tools": false, "network": false},
+            "blue-4": {"tools": false, "network": false},
+            "blue-5": {"tools": false, "network": false}
+          }
+        },
+        "red": {
+          "run": {
+            "model": "claude-sonnet-5-5",
+            "runtime": "claude -p",
+            "thinking": "effort medium",
+            "sampling": "default",
+            "reasoning": "none"
+          },
+          "seats": {
+            "red-1": {"tools": false, "network": false},
+            "red-2": {"tools": false, "network": false},
+            "red-3": {"tools": false, "network": false},
+            "red-4": {"tools": false, "network": false},
+            "red-5": {"tools": false, "network": false}
+          }
+        }
+      }
+    },
+    "thief-a4": {
+      "status": "tie",
+      "reason": "Stopped at turn 24, 29–29, and called a tie: stale enemy sightings were shown as current.",
+      "board": "thief",
+      "teams": {
+        "blue": {
+          "run": {
+            "model": "glm-5.3-flash/tensorfold",
+            "runtime": "league harness",
+            "thinking": "on",
+            "sampling": "temperature 1.0",
+            "reasoning": "full"
+          },
+          "seats": {
+            "blue-1": {"tools": false, "network": false},
+            "blue-2": {"tools": false, "network": false},
+            "blue-3": {"tools": false, "network": false},
+            "blue-4": {"tools": false, "network": false},
+            "blue-5": {"tools": false, "network": false},
+            "blue-6": {"tools": false, "network": false}
+          }
+        },
+        "red": {
+          "run": {
+            "model": "claude-sonnet-5-5",
+            "runtime": "claude -p",
+            "thinking": "effort medium",
+            "sampling": "default",
+            "reasoning": "none"
+          },
+          "seats": {
+            "red-1": {"tools": false, "network": false},
+            "red-2": {"tools": false, "network": false},
+            "red-3": {"tools": false, "network": false},
+            "red-4": {"tools": false, "network": false},
+            "red-5": {"tools": false, "network": false},
+            "red-6": {"tools": false, "network": false}
+          }
+        }
+      }
+    }
+  }
+}
