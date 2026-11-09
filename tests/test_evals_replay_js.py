@@ -116,6 +116,22 @@ def test_live_file_path_follows_the_published_layout() -> None:
     ]
 
 
+@needs_node
+def test_only_seats_listed_as_answering_are_fetched() -> None:
+    # The live index lists who is answering; idle seats are never requested (no 404s).
+    out = _js("""
+        const seats = ["blue-1", "blue-2", "blue-3"];
+        return [
+          E.paths.liveIndex("/evals/data", "ev1", "a6"),
+          E.answeringSeats({turn: 10, answering: ["blue-2", "red-1"]}, seats, 9),
+          E.answeringSeats({turn: 9, answering: ["blue-2"]}, seats, 9),
+          E.answeringSeats(null, seats, 9),
+          E.answeringSeats({turn: 10, answering: "blue-2"}, seats, 9),
+        ];
+        """)
+    assert out == ["/evals/data/ev1/live/a6/index.json", ["blue-2"], [], [], []]
+
+
 # ---------------------------------------------------------------------------
 # 3. Stale badge and schema guard
 # ---------------------------------------------------------------------------

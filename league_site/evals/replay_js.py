@@ -9,7 +9,8 @@ replay app against the published data layout of :mod:`league_site.evals.schema`:
 * ``{base}/{eval}/manifest.json`` polled every 60 s; a match whose ``etag``
   changed is fetched again from the entry's ``file`` (or ``{tag}.json``).
 * ``{base}/{eval}/thinking/{tag}-t{turn}.json`` fetched on demand per turn.
-* ``{base}/{eval}/live/{tag}/{agent_id}.json`` polled every 10 s, only while
+* ``{base}/{eval}/live/{tag}/index.json`` polled every 10 s (seats answering now), then
+  ``{base}/{eval}/live/{tag}/{agent_id}.json`` for the listed seats only, while
   the match is live, the viewer sits at the latest turn and the tab is visible.
 
 Slices and findings are precomputed by the slicer at export; this script never
@@ -61,7 +62,13 @@ const paths = {
   match: (b, e, entry, tag) => `${b}/${e}/${(entry && safeFile(entry.file)) || tag + ".json"}`,
   thinking: (b, e, tag, t) => `${b}/${e}/thinking/${tag}-t${t}.json`,
   live: (b, e, tag, a) => `${b}/${e}/live/${tag}/${a}.json`,
+  liveIndex: (b, e, tag) => `${b}/${e}/live/${tag}/index.json`,
 };
+// Seats to fetch: only those the live index lists as answering, on the chosen team.
+function answeringSeats(index, seats, turn) {
+  if (!index || !Array.isArray(index.answering) || !(+index.turn > turn)) return [];
+  return index.answering.filter(a => seats.includes(a));
+}
 function reasoningKind(m, side) {
   const run = m.teams[side] && m.teams[side].run;
   if (run && run.reasoning) return run.reasoning;
@@ -190,7 +197,7 @@ function sliceQuotes(m, sl) {
   return out;
 }
 
-G.LoaEvals = { esc, glyph, boardSVG, supportedVersion, isStale, shouldAdvance, nextTurn, shouldPollLive, statusInfo, utcHM, paths, reasoningKind, noReasoningNote, loadReasoning, sliceQuotes, short };
+G.LoaEvals = { esc, glyph, boardSVG, supportedVersion, isStale, shouldAdvance, nextTurn, shouldPollLive, answeringSeats, statusInfo, utcHM, paths, reasoningKind, noReasoningNote, loadReasoning, sliceQuotes, short };
 if (typeof document === "undefined") return;
 document.documentElement.dataset.evals = "ready";
 const main = document.querySelector('main[data-page="replay"]');
@@ -430,7 +437,9 @@ function drawStream() {
 async function streamTick() {
   const on = !DEAD && !!M && !!M.initial && shouldPollLive({ status: status(), atLatest: T === nT(), hidden: document.hidden });
   if (!on) { if (STREAM_ON) { STREAM_ON = false; STREAM = {}; drawStream(); } return; }
-  const side = SIDE, n = nT(), agents = Object.keys((M.teams[side] || {}).seats || {});
+  const side = SIDE, n = nT(), seats = Object.keys((M.teams[side] || {}).seats || {});
+  const idx = await fetch(paths.liveIndex(B, EV, TAG), { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null);
+  const agents = answeringSeats(idx, seats, n);
   const got = await Promise.all(agents.map(a => fetch(paths.live(B, EV, TAG, a), { cache: "no-cache" }).then(r => r.ok ? r.json() : null).catch(() => null)));
   if (side !== SIDE || n !== nT() || T !== n) return;
   const next = {};
