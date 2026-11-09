@@ -32,9 +32,10 @@ buildable/deployable package baseline. Clone it, rename the package, edit
 The league-site CLI is also the platform operator's surface (see
 `docs/operations.md`): `site serve`, `ops telemetry`, `ops capacity`,
 `ops cleanup [--apply]`, `ops deploy [--apply]`, and
-`match list|show|archive [--apply]`. Every state-mutating one is dry-run by
+`match list|show|archive [--apply]`, and
+`evals publish|stream [--apply]`. Every state-mutating one is dry-run by
 default. See `league-of-agents-platform explain ops` /
-`explain site` / `explain match` for each noun's verbs.
+`explain site` / `explain match` / `explain evals` for each noun's verbs.
 
 ## Exit-code policy
 
@@ -214,6 +215,79 @@ dry-run by default.
 """
 
 
+_EVALS = """\
+# league-site evals
+
+Publishes live-eval data to the stack's evals bucket (`EvalsBucketName`
+stack output), under the `evals/` prefix that Cloudflare serves at
+`/evals/data/*`. Both verbs are state-mutating and **dry-run by default**:
+a dry run builds no S3 client and makes no calls; `--apply` uploads.
+
+Credentials: the standard AWS chain, or `--profile NAME` for a named
+profile in `~/.aws/credentials` (the match host's write-only key, see
+`docs/runbooks/evals-match-host.md`). Keys are never accepted as flags and
+never printed.
+
+## evals publish
+
+    league-site evals publish --from <export-dir> --eval <id> --bucket <name>
+        [--prefix evals/] [--profile NAME] [--compare] [--apply] [--json]
+
+Uploads one export (`python -m league_site.evals.export ... --out <export-dir>`):
+
+- **Order:** every `thinking/*` file, then match files, then `summary.json`,
+  then `manifest.json`, then the root `index.json` — a reader between any
+  two uploads never finds a manifest/summary naming a missing key.
+- **Refuses** (exit 1, nothing uploaded) when any match file or the manifest
+  fails the schema, any thinking file fails the leak scan, the manifest or
+  summary names a file not in the export, or the folder holds a file
+  outside the published layout.
+- **Skips unchanged** objects (sha256 kept in `x-amz-meta-sha256`, ETag
+  fallback). Immutable files (`thinking/*`, `<tag>.<sha8>.json`) are never
+  overwritten: skipped when present and written with `If-None-Match: *`.
+- **Headers:** immutable files `public, max-age=31536000, immutable`;
+  manifest, summary, index and running `<tag>.json` files
+  `public, max-age=15, must-revalidate`; `Content-Type:
+  application/json; charset=utf-8` on all (as the Cloudflare Worker serves).
+- `index.json` is merged with the bucket's copy so evals published from
+  other exports stay listed.
+- Dry run prints the ordered plan (key, kind, size, headers, action,
+  reason); `--compare` adds read-only HEAD/GET checks so the plan shows real
+  skip/upload decisions.
+
+## evals stream
+
+    league-site evals stream --eval <id> --match <tag> --live-dir <dir>
+        --bucket <name> [--interval 10] [--once] [--prefix evals/]
+        [--profile NAME] [--apply] [--json]
+
+Every interval, uploads changed `<live-dir>/<agent_id>.json` seat files
+(`{turn, agent_id, thinking_so_far, response_so_far, updated, done}`) to
+`evals/<eval>/live/<tag>/<agent_id>.json`, then
+`evals/<eval>/live/<tag>/index.json` = `{tag, turn, updated, answering}`
+(the seats whose current file is uploaded and not done), all with
+`Cache-Control: public, max-age=5`.
+
+- Each file's text is leak-scanned first. A failing file is **not
+  uploaded**, and that seat stays stopped for the rest of the turn (later
+  clean versions too) and is never listed in the index; stderr names the
+  seat and pattern names only.
+- A `done: true` file is uploaded once more, then its live file is deleted
+  after the next publish (the eval manifest changes) or after 2 minutes.
+- State (uploaded hashes, stopped seats) persists in
+  `<live-dir>/.stream-state.json` on `--apply`; a dry run writes nothing.
+- `--once` does a single pass; otherwise it runs until Ctrl+C.
+
+## Usage
+
+    league-site evals publish --from out --eval live-evals-prototype --bucket "$BUCKET"
+    AWS_PROFILE=league-evals league-site evals publish --from out \\
+        --eval live-evals-prototype --bucket "$BUCKET" --apply --json
+    league-site evals stream --eval live-evals-prototype --match hard-b \\
+        --live-dir runs/hard-b/live --bucket "$BUCKET" --profile league-evals --apply
+"""
+
+
 ENTRIES: dict[tuple[str, ...], str] = {
     (): _ROOT,
     # The dist name and the console script differ here, and agents address the
@@ -239,4 +313,7 @@ ENTRIES: dict[tuple[str, ...], str] = {
     ("match", "list"): _MATCH,
     ("match", "show"): _MATCH,
     ("match", "archive"): _MATCH,
+    ("evals",): _EVALS,
+    ("evals", "publish"): _EVALS,
+    ("evals", "stream"): _EVALS,
 }

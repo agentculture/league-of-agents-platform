@@ -65,6 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
     from league_site.cli._commands import accounts as _accounts_group
     from league_site.cli._commands import cli as _cli_group
     from league_site.cli._commands import doctor as _doctor_cmd
+    from league_site.cli._commands import evals as _evals_group
     from league_site.cli._commands import explain as _explain_cmd
     from league_site.cli._commands import learn as _learn_cmd
     from league_site.cli._commands import match as _match_group
@@ -103,6 +104,8 @@ def _build_parser() -> argparse.ArgumentParser:
     # kill-switches, effective on the next request with no deploy or restart.
     _tokens_group.register(sub)
     _accounts_group.register(sub)
+    # Live-evals publisher (t8): uploads exports and in-progress seat files.
+    _evals_group.register(sub)
 
     return parser
 
