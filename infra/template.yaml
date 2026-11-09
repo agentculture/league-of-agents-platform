@@ -144,10 +144,11 @@ Globals:
     Tracing: Disabled
 
 # --- resources -------------------------------------------------------------
-# Exactly ten: the HTTP API, the HTTP Lambda function and its log group,
-# the scheduled cleanup Lambda function and its log group, the three
-# DynamoDB tables (matches, tokens, ratings), the S3 archive bucket, and
-# the Budget alarm. (SAM's transform additionally provisions an IAM
+# Exactly fourteen: the HTTP API, the HTTP Lambda function and its log
+# group, the scheduled cleanup Lambda function and its log group, the three
+# DynamoDB tables (matches, tokens, ratings), the S3 archive bucket, the S3
+# live-evals bucket and its bucket policy, the match-host IAM user and its
+# managed policy, and the Budget alarm. (SAM's transform additionally provisions an IAM
 # execution role per function, an API stage, and — for the cleanup
 # function's Schedule event below — an EventBridge rule plus the Lambda
 # invoke permission it needs; those are implicit, not written here.)
@@ -544,6 +545,109 @@ Resources:
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
 
+  # Live eval data (per-match JSON, the manifest, thinking files, in-progress
+  # seat files), written by the separate "match host" machine after each turn
+  # and served publicly through Cloudflare at /evals/data/*. Deliberately a
+  # SEPARATE bucket from ArchiveBucket: ArchiveBucket is fully private, has a
+  # bucket-wide 30/90-day tiering lifecycle, and is swept by
+  # league_site/aws_lambda/cleanup.py — none of which may touch published
+  # eval data. No Lambda in this stack is granted access to this bucket; the
+  # only writer is MatchHostUser below.
+  #
+  # Origin choice: Cloudflare reaches this bucket through the S3 REST
+  # endpoint (https://<bucket>.s3.<region>.amazonaws.com/evals/...), NOT the
+  # S3 static-website endpoint. The REST endpoint serves TLS to the origin
+  # and needs no WebsiteConfiguration; anonymous ListBucket is not granted,
+  # so a missing key returns 403 rather than 404 (Cloudflare-side mapping of
+  # /evals/data/* to the evals/ key prefix is task t7, not configured here).
+  # No CORS: the browser reads the data same-origin through Cloudflare.
+  EvalsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: "league-of-agents-${StageName}-evals-${AWS::AccountId}"
+      # Versioning so a bad upload from the match host can be rolled back
+      # by restoring the previous version.
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      # Current objects under evals/ are never expired or transitioned —
+      # published eval data is the product. Only NONCURRENT versions (the
+      # rollback history created by overwrites/deletes) expire, after 30
+      # days, which keeps versioning's storage cost bounded. Incomplete
+      # multipart uploads are aborted for the same reason.
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-noncurrent-eval-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      # ACL-based public access stays blocked (new buckets also default to
+      # BucketOwnerEnforced ownership, so ACLs are disabled outright).
+      # BlockPublicPolicy/RestrictPublicBuckets are false ONLY because the
+      # EvalsBucketPolicy below grants anonymous s3:GetObject on evals/* —
+      # with either set to true, S3 would reject or neutralize that policy.
+      # The policy itself is the scope limit: nothing outside evals/ is
+      # readable, and nothing is listable or writable anonymously.
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+
+  EvalsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket:
+        Ref: EvalsBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: PublicReadEvalsPrefixOnly
+            Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource:
+              Fn::Sub: "${EvalsBucket.Arn}/evals/*"
+
+  # The match host's write identity: put/delete objects under evals/ and
+  # nothing else (no ACL writes, no listing, no other bucket). Mirrored
+  # verbatim (with the prod bucket ARN resolved) by
+  # infra/iam-match-host-policy.json; tests/test_evals_infra.py keeps the
+  # two in sync. Both resources are auto-named (stack-name prefixed), so
+  # `sam deploy --capabilities CAPABILITY_IAM` suffices and the deploy
+  # policy's user/ + policy/league-of-agents-platform-* scope covers them.
+  # No AWS::IAM::AccessKey is created here: access keys are minted and
+  # rotated manually by an operator — see docs/runbooks/evals-match-host.md
+  # — so no secret ever lands in CloudFormation state or outputs.
+  MatchHostPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: >-
+        League of Agents match host - write/delete live eval data under the
+        evals bucket's evals/ prefix only.
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: WriteEvalsPrefixOnly
+            Effect: Allow
+            Action:
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource:
+              Fn::Sub: "${EvalsBucket.Arn}/evals/*"
+
+  MatchHostUser:
+    Type: AWS::IAM::User
+    Properties:
+      ManagedPolicyArns:
+        - Ref: MatchHostPolicy
+
   # The hard 20 USD/month ceiling, enforced as a notification (AWS Budgets
   # cannot itself halt spend — see docs/deploy.md for what this does and
   # does not guarantee). Two thresholds: an early warning at 80% of
@@ -602,3 +706,15 @@ Outputs:
     Description: Name of the deployed S3 archive bucket.
     Value:
       Ref: ArchiveBucket
+  EvalsBucketName:
+    Description: >-
+      Name of the deployed S3 live-evals bucket (public read on evals/* only;
+      Cloudflare origin via the S3 REST endpoint).
+    Value:
+      Ref: EvalsBucket
+  MatchHostUserName:
+    Description: >-
+      IAM user the match host writes eval data as (no access key is created
+      by this stack; see docs/runbooks/evals-match-host.md).
+    Value:
+      Ref: MatchHostUser
