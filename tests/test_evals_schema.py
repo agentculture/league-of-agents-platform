@@ -77,3 +77,30 @@ def test_manifest_validates():
     del manifest["eval"]
     assert len(schema.validate_manifest(manifest)) == 2
     assert schema.validate_manifest(None)
+
+
+def test_1_1_optional_run_block_and_layout_helpers():
+    import copy
+    import json
+    from pathlib import Path
+
+    from league_site.evals import schema
+
+    m = json.loads((Path(__file__).parent / "fixtures/evals/hard-a.json").read_text())
+    good = copy.deepcopy(m)
+    good["teams"]["blue"]["run"] = {
+        "model": "GLM-5.3-Flash",
+        "runtime": "self-hosted",
+        "thinking": "on",
+        "sampling": "t=1.0",
+        "reasoning": "full",
+    }
+    assert schema.validate_match(good) == []
+    bad = copy.deepcopy(good)
+    bad["teams"]["blue"]["run"]["reasoning"] = "partial"
+    assert any("reasoning" in p for p in schema.validate_match(bad))
+    assert schema.match_file_name("hard-a") == "hard-a.json"
+    assert schema.match_file_name("hard-a", "0a1b2c3d") == "hard-a.0a1b2c3d.json"
+    assert schema.thinking_file_name("hard-a", 7) == "thinking/hard-a-t7.json"
+    assert schema.live_file_name("hard-a", "blue-1") == "live/hard-a/blue-1.json"
+    assert schema.is_supported("1.0") and schema.is_supported(schema.SCHEMA_VERSION)

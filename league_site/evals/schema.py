@@ -33,7 +33,7 @@ from __future__ import annotations
 
 from typing import Any
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 MAJOR = int(SCHEMA_VERSION.split(".")[0])
 
 STATUSES: tuple[str, ...] = ("live", "finished", "tie", "void", "queued", "stopped")
@@ -54,10 +54,14 @@ MATCH_FIELDS: tuple[str, ...] = (
     "turns",
     "generated",
 )
-MATCH_OPTIONAL_FIELDS: tuple[str, ...] = ("slices", "metrics")
+MATCH_OPTIONAL_FIELDS: tuple[str, ...] = ("slices", "metrics", "findings")
 
 SEAT_SETTINGS_FIELDS: tuple[str, ...] = ("tools", "network")
 TEAM_FIELDS: tuple[str, ...] = ("name", "model", "seats")
+#: Optional per-team block (1.1): how the side was run, shown on every replay header.
+TEAM_RUN_FIELDS: tuple[str, ...] = ("model", "runtime", "thinking", "sampling", "reasoning")
+#: ``reasoning`` values: "full" (thinking text published), "none" (no text or counts).
+REASONING_KINDS: tuple[str, ...] = ("full", "none")
 
 TURN_FIELDS: tuple[str, ...] = (
     "turn",
@@ -75,6 +79,30 @@ FOG_SIDE_FIELDS: tuple[str, ...] = ("vis", "seen", "units", "control_points", "r
 
 MANIFEST_FIELDS: tuple[str, ...] = ("schema_version", "eval", "generated", "matches")
 MANIFEST_MATCH_FIELDS: tuple[str, ...] = ("tag", "status", "turn", "turn_limit", "etag")
+#: Optional manifest entry field (1.1): the match file path relative to the eval folder.
+MANIFEST_MATCH_OPTIONAL_FIELDS: tuple[str, ...] = ("file",)
+
+# Published layout (1.1), relative to the data base (``/evals/data``):
+#   <eval>/manifest.json                    short cache, polled by the page
+#   <eval>/<tag>.json                       a running match, short cache
+#   <eval>/<tag>.<sha8>.json                a finished match, immutable
+#   <eval>/thinking/<tag>-t<turn>.json      one turn's reasoning, immutable
+#   <eval>/live/<tag>/<agent_id>.json       an answering seat's in-progress file, 5 s cache
+MANIFEST_NAME = "manifest.json"
+
+
+def match_file_name(tag: str, sha8: str | None = None) -> str:
+    """``<tag>.json`` while running; ``<tag>.<sha8>.json`` once finished (immutable)."""
+    return f"{tag}.{sha8}.json" if sha8 else f"{tag}.json"
+
+
+def thinking_file_name(tag: str, turn: int) -> str:
+    return f"thinking/{tag}-t{turn}.json"
+
+
+def live_file_name(tag: str, agent_id: str) -> str:
+    return f"live/{tag}/{agent_id}.json"
+
 
 THINKING_FIELDS: tuple[str, ...] = ("agent_id", "reasoning")
 SEAT_FILE_FIELDS: tuple[str, ...] = (
@@ -148,6 +176,14 @@ def _check_team(side: str, team: Any, out: list[str]) -> None:
         out.append(f"teams.{side}: expected object")
         return
     _check(team, path, {"name": "str", "model": "str", "seats": "dict"}, out)
+    run = team.get("run")
+    if run is not None:
+        if not isinstance(run, dict):
+            out.append(f"{path}run: expected object")
+        else:
+            _check(run, f"{path}run.", {n: "str" for n in TEAM_RUN_FIELDS}, out)
+            if isinstance(run.get("reasoning"), str) and run["reasoning"] not in REASONING_KINDS:
+                out.append(f"{path}run.reasoning: unknown kind {run['reasoning']!r}")
     seats = team.get("seats")
     for seat, cfg in (seats.items() if isinstance(seats, dict) else ()):
         if isinstance(cfg, dict):
@@ -205,6 +241,8 @@ def validate_manifest(obj: Any) -> list[str]:
             out.append(f"matches[{i}]: expected object")
             continue
         _check(m, f"matches[{i}].", entry_spec, out)
+        if "file" in m and not isinstance(m["file"], str):
+            out.append(f"matches[{i}].file: expected str")
         if isinstance(m.get("status"), str) and m["status"] not in STATUSES:
             out.append(f"matches[{i}].status: unknown status {m['status']!r}")
     return out
